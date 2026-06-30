@@ -32,6 +32,21 @@ const FORMAT_CAPACITIES = {
   'Slim': { columns: 6, height: 10, total: 60 }
 };
 
+const liveFormatDate = (value, prevValue) => {
+  if (prevValue && prevValue.length > value.length) {
+    return value;
+  }
+  let v = value.replace(/\D/g, '');
+  if (v.length > 8) v = v.slice(0, 8);
+  
+  if (v.length >= 5) {
+    return `${v.slice(0, 2)}/${v.slice(2, 4)}/${v.slice(4)}`;
+  } else if (v.length >= 3) {
+    return `${v.slice(0, 2)}/${v.slice(2)}`;
+  }
+  return v;
+};
+
 // Auto-format date typed in flexible shorthand (like 20/5/23 -> 20/05/2023)
 const autoFormatDate = (value) => {
   if (!value) return value;
@@ -2451,7 +2466,7 @@ export default function App() {
                         inputMode="numeric"
                         required 
                         value={importBlendDateStr} 
-                        onChange={e => setImportBlendDateStr(e.target.value)} 
+                        onChange={e => setImportBlendDateStr(liveFormatDate(e.target.value, importBlendDateStr))} 
                         onBlur={e => setImportBlendDateStr(autoFormatDate(e.target.value))}
                         placeholder="DD/MM/YYYY (Ví dụ: 26/05/2026)" 
                       />
@@ -2466,7 +2481,7 @@ export default function App() {
                         required 
                         value={importPackagingDateStr} 
                         onChange={e => {
-                          const val = e.target.value;
+                          const val = liveFormatDate(e.target.value, importPackagingDateStr);
                           setImportPackagingDateStr(val);
                           setImportSamplingDateStr(val);
                           const parts = val.split('/');
@@ -2528,7 +2543,7 @@ export default function App() {
                           inputMode="numeric"
                           required 
                           value={importSamplingDateStr} 
-                          onChange={e => setImportSamplingDateStr(e.target.value)} 
+                          onChange={e => setImportSamplingDateStr(liveFormatDate(e.target.value, importSamplingDateStr))} 
                           onBlur={e => setImportSamplingDateStr(autoFormatDate(e.target.value))}
                           placeholder="Ngày DD/MM/YYYY" 
                         />
