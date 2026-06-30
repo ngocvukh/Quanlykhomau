@@ -2009,7 +2009,7 @@ export default function App() {
               </button>
 
               {/* Admin-only Tabs */}
-              {(profile?.role === 'admin' || authMode === 'guest') && (
+              {(profile?.role === 'admin') && (
                 <>
                   <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
                     <Database size={16} /> Sơ Đồ Kệ Kho
