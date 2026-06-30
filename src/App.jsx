@@ -3062,9 +3062,14 @@ export default function App() {
                         return (
                           <div key={col} style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                 <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Cột {col}</span>
                                 <strong>{sample.products?.product_name || sample.product_name}</strong>
+                                {sample.products?.warning_code && (
+                                  <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                                    {sample.products.warning_code}
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                                 Mẻ sợi: {formatBlendBatch(sample.blend_batch)} | Ngày SX bao: {new Date(sample.packaging_date).toLocaleDateString()}
