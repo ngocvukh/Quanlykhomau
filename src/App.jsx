@@ -2488,11 +2488,37 @@ export default function App() {
                           const val = e.target.value;
                           setImportPackagingDateStr(val);
                           setImportSamplingDateStr(val);
+                          const parts = val.split('/');
+                          if (parts.length === 3 && parts[2].length === 4) {
+                            const d = parseInt(parts[0], 10);
+                            const m = parseInt(parts[1], 10) - 1;
+                            const y = parseInt(parts[2], 10);
+                            const dateObj = new Date(y, m, d);
+                            if (!isNaN(dateObj.getTime()) && dateObj.getDate() === d) {
+                              dateObj.setDate(dateObj.getDate() - 1);
+                              const pD = String(dateObj.getDate()).padStart(2, '0');
+                              const pM = String(dateObj.getMonth() + 1).padStart(2, '0');
+                              setImportBlendDateStr(`${pD}/${pM}/${dateObj.getFullYear()}`);
+                            }
+                          }
                         }} 
                         onBlur={e => {
                           const formatted = autoFormatDate(e.target.value);
                           setImportPackagingDateStr(formatted);
                           setImportSamplingDateStr(formatted);
+                          const parts = formatted.split('/');
+                          if (parts.length === 3) {
+                            const d = parseInt(parts[0], 10);
+                            const m = parseInt(parts[1], 10) - 1;
+                            const y = parseInt(parts[2], 10);
+                            const dateObj = new Date(y, m, d);
+                            if (!isNaN(dateObj.getTime()) && dateObj.getDate() === d) {
+                              dateObj.setDate(dateObj.getDate() - 1);
+                              const pD = String(dateObj.getDate()).padStart(2, '0');
+                              const pM = String(dateObj.getMonth() + 1).padStart(2, '0');
+                              setImportBlendDateStr(`${pD}/${pM}/${dateObj.getFullYear()}`);
+                            }
+                          }
                         }}
                         placeholder="DD/MM/YYYY (Ví dụ: 26/05/2026)" 
                       />
