@@ -2952,7 +2952,7 @@ export default function App() {
                   <h4 style={{ fontSize: '15px', color: 'var(--accent-blue)', marginBottom: '12px', fontWeight: 'bold' }}>Sơ đồ các Cột xếp chồng đứng</h4>
                   
                   {/* Visual columns stacks */}
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', margin: '24px 0', overflowX: 'auto', padding: '10px 0' }}>
+                  <div style={{ display: 'flex', gap: '16px', justifyContent: 'flex-start', margin: '24px 0', overflowX: 'auto', padding: '10px 0' }}>
                     {(() => {
                       const slotSamples = samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === selectedSlot.slot && s.status === 'stored');
                       const occupiedCols = slotSamples.map(s => s.column_number);
@@ -2964,21 +2964,70 @@ export default function App() {
                         const sampleInCol = getColumnProduct(selectedSlot.shelf, selectedSlot.slot, col);
                         const height = getColumnHeight(selectedSlot.shelf, selectedSlot.slot, col);
                         const format = sampleInCol?.products?.format || 'Kingsize';
-                        const maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
-                        const fillPct = (height / maxHeight) * 100;
+                        
+                        // Use FORMAT_CAPACITIES, fallback to 6 for Kingsize, 10 for Slim based on user request
+                        let maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
+                        if (format === 'Kingsize') maxHeight = 6; // User explicit visual preference
 
                         return (
-                          <div key={col} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', minWidth: '60px' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cột {col}</span>
+                          <div key={col} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', minWidth: '110px' }}>
+                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 'bold' }}>Cột {col}</span>
                             
-                            {/* Vertical Column tube visual */}
-                            <div style={{ width: '32px', height: '140px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', position: 'relative', display: 'flex', flexDirection: 'column-reverse', overflow: 'hidden' }}>
+                            {/* Vertical Column with stacked rectangles */}
+                            <div style={{ 
+                              width: '100%', 
+                              height: '240px', 
+                              border: '2px solid var(--glass-border)', 
+                              background: 'rgba(255,255,255,0.02)', 
+                              borderRadius: '6px', 
+                              position: 'relative', 
+                              display: 'flex', 
+                              flexDirection: 'column-reverse', 
+                              overflow: 'hidden' 
+                            }}>
+                              {Array.from({ length: maxHeight }).map((_, idx) => {
+                                const isOccupied = idx < height;
+                                return (
+                                  <div key={idx} style={{
+                                    flex: 1,
+                                    width: '100%',
+                                    borderBottom: idx > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
+                                    background: isOccupied ? 'rgba(74, 144, 226, 0.25)' : 'transparent',
+                                  }}></div>
+                                );
+                              })}
+                              
+                              {/* Overlay content */}
                               {sampleInCol && (
-                                <div style={{ width: '100%', height: `${fillPct}%`, background: fillPct >= 100 ? 'var(--status-error)' : 'var(--accent-gradient)', transition: 'height 0.3s ease' }}></div>
+                                <div style={{
+                                  position: 'absolute',
+                                  bottom: 0,
+                                  left: 0,
+                                  width: '100%',
+                                  height: `${Math.min(height / maxHeight, 1) * 100}%`,
+                                  background: height >= maxHeight ? 'var(--status-error)' : 'var(--accent-gradient)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  padding: '4px',
+                                  textAlign: 'center',
+                                  transition: 'height 0.3s ease',
+                                  boxShadow: 'inset 0 0 10px rgba(0,0,0,0.2)'
+                                }}>
+                                  <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#ffffff', lineHeight: '1.2', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+                                    {sampleInCol.products?.product_name || sampleInCol.product_name}
+                                  </span>
+                                  <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.9)', marginTop: '4px', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+                                    {new Date(sampleInCol.packaging_date).toLocaleDateString('vi-VN')}
+                                  </span>
+                                </div>
                               )}
                             </div>
 
-                            <span style={{ fontSize: '11px', fontWeight: 'bold' }}>{height > 0 ? `${height}/${maxHeight}` : 'Trống'}</span>
+                            <span style={{ fontSize: '12px', fontWeight: 'bold', color: height > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)' }}>
+                              {height > 0 ? `${height}/${maxHeight} cây` : 'Trống'}
+                            </span>
                           </div>
                         );
                       });
