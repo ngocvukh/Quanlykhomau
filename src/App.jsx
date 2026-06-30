@@ -695,6 +695,11 @@ export default function App() {
       return;
     }
 
+    if (blendD > packD) {
+      showToast("Lỗi: Ngày sản xuất sợi không được phép sau Ngày sản xuất bao!", "error");
+      return;
+    }
+
     // Validate blend batch
     const blendBatchInt = parseInt(importBlendBatch, 10);
     if (isNaN(blendBatchInt) || blendBatchInt < 1 || blendBatchInt > 999) {
@@ -2470,6 +2475,20 @@ export default function App() {
                         onBlur={e => setImportBlendDateStr(autoFormatDate(e.target.value))}
                         placeholder="DD/MM/YYYY (Ví dụ: 26/05/2026)" 
                       />
+                      {(() => {
+                        if (importBlendDateStr.length >= 8 && importPackagingDateStr.length >= 8) {
+                          const bParts = autoFormatDate(importBlendDateStr).split('/');
+                          const pParts = autoFormatDate(importPackagingDateStr).split('/');
+                          if (bParts.length === 3 && pParts.length === 3) {
+                            const bD = new Date(`${bParts[2]}-${bParts[1]}-${bParts[0]}`);
+                            const pD = new Date(`${pParts[2]}-${pParts[1]}-${pParts[0]}`);
+                            if (!isNaN(bD) && !isNaN(pD) && bD > pD) {
+                              return <span style={{ fontSize: '11px', color: 'var(--status-error)', marginTop: '4px', display: 'block' }}>Lỗi: Ngày SX sợi đang nhập SAU Ngày SX bao.</span>;
+                            }
+                          }
+                        }
+                        return null;
+                      })()}
                     </div>
 
                     <div className="form-group">
@@ -2484,37 +2503,11 @@ export default function App() {
                           const val = liveFormatDate(e.target.value, importPackagingDateStr);
                           setImportPackagingDateStr(val);
                           setImportSamplingDateStr(val);
-                          const parts = val.split('/');
-                          if (parts.length === 3 && parts[2].length === 4) {
-                            const d = parseInt(parts[0], 10);
-                            const m = parseInt(parts[1], 10) - 1;
-                            const y = parseInt(parts[2], 10);
-                            const dateObj = new Date(y, m, d);
-                            if (!isNaN(dateObj.getTime()) && dateObj.getDate() === d) {
-                              dateObj.setDate(dateObj.getDate() - 1);
-                              const pD = String(dateObj.getDate()).padStart(2, '0');
-                              const pM = String(dateObj.getMonth() + 1).padStart(2, '0');
-                              setImportBlendDateStr(`${pD}/${pM}/${dateObj.getFullYear()}`);
-                            }
-                          }
                         }} 
                         onBlur={e => {
                           const formatted = autoFormatDate(e.target.value);
                           setImportPackagingDateStr(formatted);
                           setImportSamplingDateStr(formatted);
-                          const parts = formatted.split('/');
-                          if (parts.length === 3) {
-                            const d = parseInt(parts[0], 10);
-                            const m = parseInt(parts[1], 10) - 1;
-                            const y = parseInt(parts[2], 10);
-                            const dateObj = new Date(y, m, d);
-                            if (!isNaN(dateObj.getTime()) && dateObj.getDate() === d) {
-                              dateObj.setDate(dateObj.getDate() - 1);
-                              const pD = String(dateObj.getDate()).padStart(2, '0');
-                              const pM = String(dateObj.getMonth() + 1).padStart(2, '0');
-                              setImportBlendDateStr(`${pD}/${pM}/${dateObj.getFullYear()}`);
-                            }
-                          }
                         }}
                         placeholder="DD/MM/YYYY (Ví dụ: 26/05/2026)" 
                       />
