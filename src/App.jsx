@@ -2119,7 +2119,7 @@ export default function App() {
                             className="suggestion-item"
                           >
                             <span style={{ fontWeight: 600 }}>{p.product_name}</span>
-                            <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.format}</span>
+                            {p.warning_code && <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.warning_code}</span>}
                           </div>
                         ))}
                       </div>
