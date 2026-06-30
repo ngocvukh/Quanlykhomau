@@ -81,14 +81,23 @@ const autoFormatTime = (value) => {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 };
 
-// Format composite blend_batch containing box sequence number (like 123|15 -> Mẻ 123 (Thùng: 15))
+// Format composite blend_batch containing box sequence number (like 123|15)
 const formatBlendBatch = (val) => {
   if (!val) return '';
   const parts = val.split('|');
   if (parts.length === 2) {
-    return `Mẻ ${parts[0]} (Thùng lấy mẫu: ${parts[1]})`;
+    return `Mẻ ${parts[0]}`;
   }
   return val;
+};
+
+const formatSamplingBox = (val) => {
+  if (!val) return '';
+  const parts = val.split('|');
+  if (parts.length === 2) {
+    return `(Thùng lấy mẫu: ${parts[1]})`;
+  }
+  return '';
 };
 
 // Format location into coordinate A1, B5, etc.
@@ -1423,7 +1432,7 @@ export default function App() {
                   <td>${s.sku}</td>
                   <td>${s.products?.product_name || s.product_name}</td>
                   <td>${formatBlendBatch(s.blend_batch)}</td>
-                  <td>${new Date(s.packaging_date).toLocaleDateString()}</td>
+                  <td>${new Date(s.packaging_date).toLocaleDateString()} ${formatSamplingBox(s.blend_batch)}</td>
                   <td>${s.available_qty}</td>
                   <td>${expDate}</td>
                 </tr>
@@ -1572,7 +1581,7 @@ export default function App() {
             </div>
             <div class="info-row">
               <span class="info-label">Ngày SX bao:</span>
-              <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+              <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()} ${formatSamplingBox(s.blend_batch)}</span>
             </div>
             <div class="info-row">
               <span class="info-label">Thời gian lấy:</span>
@@ -1808,7 +1817,7 @@ export default function App() {
               </tr>
               <tr>
                 <td class="label">Ngày SX bao:</td>
-                <td class="val">${new Date(sample.packaging_date).toLocaleDateString()}</td>
+                <td class="val">${new Date(sample.packaging_date).toLocaleDateString()} ${formatSamplingBox(sample.blend_batch)}</td>
               </tr>
               <tr>
                 <td class="label">Thời gian lấy:</td>
@@ -2178,7 +2187,7 @@ export default function App() {
                             
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                               <div><strong>Mẻ sợi:</strong> {formatBlendBatch(s.blend_batch)}</div>
-                              <div><strong>Ngày SX bao:</strong> {new Date(s.packaging_date).toLocaleDateString()}</div>
+                              <div><strong>Ngày SX bao:</strong> {new Date(s.packaging_date).toLocaleDateString()} {formatSamplingBox(s.blend_batch)}</div>
                               <div><strong>Tồn khả dụng:</strong> <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{s.available_qty} bao</span> ({Math.floor(s.available_qty/10)} cây, {s.available_qty%10} bao lẻ)</div>
                               {s.order_number && <div><strong>Số đơn hàng:</strong> {s.order_number}</div>}
                               <div><strong>Cảnh báo bao:</strong> {s.products?.warning_code || 'Không'}</div>
@@ -2644,7 +2653,7 @@ export default function App() {
                             </div>
                             <div style={{ display: 'flex', gap: '16px', marginTop: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                               <div>Mẻ sợi: <strong>{formatBlendBatch(s.blend_batch)}</strong></div>
-                              <div>Ngày SX bao: <strong>{new Date(s.packaging_date).toLocaleDateString()}</strong></div>
+                              <div>Ngày SX bao: <strong>{new Date(s.packaging_date).toLocaleDateString()}</strong> {formatSamplingBox(s.blend_batch)}</div>
                               <div>Vị trí xếp: <strong style={{ color: 'var(--accent-blue)' }}>Kệ {s.shelf} - Ô {s.slot} - Cột {s.column_number}</strong></div>
                             </div>
                           </div>
@@ -2944,7 +2953,7 @@ export default function App() {
                           <span style={{ color: 'var(--status-warning)' }}>{s.available_qty} bao lẻ</span>
                         </div>
                         <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          Mẻ sợi: {formatBlendBatch(s.blend_batch)} | Ngày SX bao: {new Date(s.packaging_date).toLocaleDateString()}
+                          Mẻ sợi: {formatBlendBatch(s.blend_batch)} | Ngày SX bao: {new Date(s.packaging_date).toLocaleDateString()} {formatSamplingBox(s.blend_batch)}
                         </div>
                       </div>
                     ))}
@@ -3072,7 +3081,7 @@ export default function App() {
                                 )}
                               </div>
                               <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                Mẻ sợi: {formatBlendBatch(sample.blend_batch)} | Ngày SX bao: {new Date(sample.packaging_date).toLocaleDateString()}
+                                Mẻ sợi: {formatBlendBatch(sample.blend_batch)} | Ngày SX bao: {new Date(sample.packaging_date).toLocaleDateString()} {formatSamplingBox(sample.blend_batch)}
                               </div>
                               <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                                 Mã QR: <strong>{sample.sku}</strong> | Chiều cao: <strong>{cartons}/{maxHeight} cây</strong>
@@ -3145,7 +3154,7 @@ export default function App() {
                 {qrCodeModal.order_number && <div><strong>Số đơn hàng XK:</strong> <span style={{ color: 'var(--text-primary)' }}>{qrCodeModal.order_number}</span></div>}
                 <div><strong>Mẻ sợi:</strong> <span style={{ color: 'var(--text-primary)' }}>{formatBlendBatch(qrCodeModal.blend_batch)}</span></div>
                 <div><strong>Ngày SX sợi:</strong> <span style={{ color: 'var(--text-primary)' }}>{new Date(qrCodeModal.blend_date).toLocaleDateString()}</span></div>
-                <div><strong>Ngày SX bao:</strong> <span style={{ color: 'var(--text-primary)' }}>{new Date(qrCodeModal.packaging_date).toLocaleDateString()}</span></div>
+                <div><strong>Ngày SX bao:</strong> <span style={{ color: 'var(--text-primary)' }}>{new Date(qrCodeModal.packaging_date).toLocaleDateString()} {formatSamplingBox(qrCodeModal.blend_batch)}</span></div>
                 <div><strong>Thời gian lấy:</strong> <span style={{ color: 'var(--text-primary)' }}>{new Date(qrCodeModal.sampling_time).toLocaleString()}</span></div>
                 <div><strong>Vị trí lưu kho:</strong> <span style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>{formatLocation(qrCodeModal.shelf, qrCodeModal.slot, qrCodeModal.column_number)}</span></div>
               </div>
