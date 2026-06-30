@@ -2932,8 +2932,15 @@ export default function App() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored').map(s => (
                       <div key={s.id} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '6px', fontSize: '13px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                          <span>{s.products?.product_name || s.product_name}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {s.products?.product_name || s.product_name}
+                            {s.products?.warning_code && (
+                              <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                                {s.products.warning_code}
+                              </span>
+                            )}
+                          </span>
                           <span style={{ color: 'var(--status-warning)' }}>{s.available_qty} bao lẻ</span>
                         </div>
                         <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
