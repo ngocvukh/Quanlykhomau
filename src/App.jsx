@@ -1109,7 +1109,7 @@ export default function App() {
     // it must be immediately moved to Ô 5 (Ô lẻ) of the same shelf.
     if (sample.shelf && sample.slot && sample.slot <= 4 && isRemainingQtyLẻ) {
       nextSlot = 5;
-      nextColumn = null; // Loose packs are mixed in general bin, no columns.
+      nextColumn = 1; // Database check_location requires column_number to not be null. We use 1 for general bin.
       showToast(`Giao dịch chứa số lượng lẻ. Di chuyển phần bao lẻ còn lại (${newQty} bao) vào ô lẻ ${formatLocation(sample.shelf, 5)}.`, "warning");
     }
 
