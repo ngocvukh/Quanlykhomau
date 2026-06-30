@@ -1536,31 +1536,17 @@ export default function App() {
       return;
     }
 
-    const stickersHtml = samplesToPrint.map(s => {
-      const qrData = encodeURIComponent(JSON.stringify({
-        sku: s.sku,
-        product: s.products?.product_name || s.product_name,
-        warning: s.products?.warning_code || 'Không',
-        order: s.order_number || 'N/A',
-        blend_batch: s.blend_batch,
-        blend_date: s.blend_date,
-        packaging_date: s.packaging_date,
-        sampling_time: s.sampling_time,
-        location: formatLocation(s.shelf, s.slot, s.column_number)
-      }));
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${qrData}`;
-
-      return `
+    const stickersHtml = samplesToPrint.flatMap(s => {
+      // 1 cây 1 tem. Nếu chỉ có hàng lẻ (< 10) thì in 1 tem, nếu >= 10 in đúng số cây.
+      const numLabels = Math.max(1, Math.floor(s.available_qty / 10));
+      
+      const singleHtml = `
         <div class="sticker">
-          <div class="qr-section">
-            <img src="${qrUrl}" alt="${s.sku}" />
-            <div class="sku-text">${s.sku}</div>
-          </div>
           <div class="info-section">
             <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
             <div class="info-row">
               <span class="info-label">Sản phẩm:</span>
-              <span class="info-val" style="font-weight: bold;">${s.products?.product_name || s.product_name}</span>
+              <span class="info-val" style="font-weight: bold; font-size: 10px;">${s.products?.product_name || s.product_name}</span>
             </div>
             <div class="info-row">
               <span class="info-label">Cảnh báo:</span>
@@ -1594,16 +1580,18 @@ export default function App() {
           </div>
         </div>
       `;
+
+      return Array(numLabels).fill(singleHtml);
     }).join('');
 
     printWindow.document.write(`
       <html>
       <head>
-        <title>In Hàng Loạt Nhãn Cây Mẫu</title>
+        <title>In Hàng Loạt Nhãn Tommy 135</title>
         <style>
           @page {
-            size: 100mm 75mm;
-            margin: 0;
+            size: A4;
+            margin: 8.5mm 6mm; /* Standard margin for Tommy 135 */
           }
           body {
             margin: 0;
@@ -1611,42 +1599,24 @@ export default function App() {
             font-family: Arial, sans-serif;
             background-color: #fff;
             color: #000;
+            display: flex;
+            flex-wrap: wrap;
+            align-content: flex-start;
           }
           .sticker {
-            width: 100mm;
-            height: 75mm;
+            width: 66mm;
+            height: 40mm;
             box-sizing: border-box;
-            padding: 8px;
+            padding: 4px 6px;
             display: flex;
-            gap: 8px;
-            page-break-after: always;
+            border: 1px dashed #eee; /* Outline for preview */
+            page-break-inside: avoid;
             overflow: hidden;
-            border-bottom: 1px dashed #ccc;
           }
           @media print {
             .sticker {
-              border-bottom: none;
+              border: none;
             }
-          }
-          .qr-section {
-            width: 32mm;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            border-right: 1px dashed #ccc;
-            padding-right: 6px;
-          }
-          .qr-section img {
-            width: 28mm;
-            height: 28mm;
-            display: block;
-          }
-          .sku-text {
-            font-size: 9px;
-            font-weight: bold;
-            margin-top: 4px;
-            text-align: center;
           }
           .info-section {
             flex: 1;
@@ -1659,7 +1629,7 @@ export default function App() {
           .info-title {
             font-size: 11px;
             font-weight: bold;
-            margin-bottom: 4px;
+            margin-bottom: 3px;
             border-bottom: 1px solid #000;
             padding-bottom: 1px;
             text-transform: uppercase;
@@ -1670,7 +1640,7 @@ export default function App() {
             margin-bottom: 1px;
           }
           .info-label {
-            width: 24mm;
+            width: 22mm;
             font-weight: bold;
             flex-shrink: 0;
           }
