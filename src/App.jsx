@@ -2484,8 +2484,16 @@ export default function App() {
                         type="text" 
                         required 
                         value={importPackagingDateStr} 
-                        onChange={e => setImportPackagingDateStr(e.target.value)} 
-                        onBlur={e => setImportPackagingDateStr(autoFormatDate(e.target.value))}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setImportPackagingDateStr(val);
+                          setImportSamplingDateStr(val);
+                        }} 
+                        onBlur={e => {
+                          const formatted = autoFormatDate(e.target.value);
+                          setImportPackagingDateStr(formatted);
+                          setImportSamplingDateStr(formatted);
+                        }}
                         placeholder="DD/MM/YYYY (Ví dụ: 26/05/2026)" 
                       />
                       {(() => {
