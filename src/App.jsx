@@ -166,9 +166,9 @@ export default function App() {
   const [importBoxSeq, setImportBoxSeq] = useState('');
   
   // Custom Date Text Inputs
-  const [importBlendDateStr, setImportBlendDateStr] = useState(getTodayDMY());
-  const [importPackagingDateStr, setImportPackagingDateStr] = useState(getTodayDMY());
-  const [importSamplingDateStr, setImportSamplingDateStr] = useState(getTodayDMY());
+  const [importBlendDateStr, setImportBlendDateStr] = useState('');
+  const [importPackagingDateStr, setImportPackagingDateStr] = useState('');
+  const [importSamplingDateStr, setImportSamplingDateStr] = useState('');
   
   // Hour and Minute select dropdown states for safety
   const [importSamplingHour, setImportSamplingHour] = useState(() => String(new Date().getHours()).padStart(2, '0'));
@@ -804,9 +804,9 @@ export default function App() {
       setImportOrderNumber('');
       setImportBlendBatch('');
       setImportBoxSeq('');
-      setImportBlendDateStr(getTodayDMY());
-      setImportPackagingDateStr(getTodayDMY());
-      setImportSamplingDateStr(getTodayDMY());
+      setImportBlendDateStr('');
+      setImportPackagingDateStr('');
+      setImportSamplingDateStr('');
       setImportSamplingHour(String(new Date().getHours()).padStart(2, '0'));
       setImportSamplingMinute(String(new Date().getMinutes()).padStart(2, '0'));
       setSuggestedLoc(null);
@@ -856,9 +856,9 @@ export default function App() {
         setImportOrderNumber('');
         setImportBlendBatch('');
         setImportBoxSeq('');
-        setImportBlendDateStr(getTodayDMY());
-        setImportPackagingDateStr(getTodayDMY());
-        setImportSamplingDateStr(getTodayDMY());
+        setImportBlendDateStr('');
+        setImportPackagingDateStr('');
+        setImportSamplingDateStr('');
         setImportSamplingHour(String(new Date().getHours()).padStart(2, '0'));
         setImportSamplingMinute(String(new Date().getMinutes()).padStart(2, '0'));
         setSuggestedLoc(null);
@@ -2448,6 +2448,7 @@ export default function App() {
                       <input 
                         className="form-input" 
                         type="text" 
+                        inputMode="numeric"
                         required 
                         value={importBlendDateStr} 
                         onChange={e => setImportBlendDateStr(e.target.value)} 
@@ -2461,6 +2462,7 @@ export default function App() {
                       <input 
                         className="form-input" 
                         type="text" 
+                        inputMode="numeric"
                         required 
                         value={importPackagingDateStr} 
                         onChange={e => {
@@ -2523,6 +2525,7 @@ export default function App() {
                         <input 
                           className="form-input" 
                           type="text" 
+                          inputMode="numeric"
                           required 
                           value={importSamplingDateStr} 
                           onChange={e => setImportSamplingDateStr(e.target.value)} 
