@@ -158,6 +158,22 @@ export default function App() {
     samplingHour: '08', samplingMinute: '00', orderNumber: '', qty: ''
   });
   const [bulkRows, setBulkRows] = useState([createEmptyBulkRow(1)]);
+  const [bulkTrayNumber, setBulkTrayNumber] = useState('1');
+
+  useEffect(() => {
+    if (samples && samples.length > 0) {
+      const trayNumbers = samples.map(s => s.tray_number).filter(t => t !== null && t !== undefined && !isNaN(t));
+      if (trayNumbers.length > 0) {
+        const maxTray = Math.max(...trayNumbers);
+        setBulkTrayNumber(String(maxTray + 1));
+      } else {
+        setBulkTrayNumber('1');
+      }
+    } else {
+      setBulkTrayNumber('1');
+    }
+  }, [samples]);
+
   const [bulkPreview, setBulkPreview] = useState(null); // kept for compat, unused now
   const [bulkStep, setBulkStep] = useState(1); // unused now, kept for compat
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -420,6 +436,12 @@ export default function App() {
       if (!r.qty || parseInt(r.qty) < 1) errors.push(`Hàng ${i+1}: Số cây không hợp lệ`);
       if (r.productObj?.is_export && !r.orderNumber) errors.push(`Hàng ${i+1}: Hàng xuất khẩu cần đơn hàng`);
     });
+     const trayNumVal = parseInt(bulkTrayNumber, 10);
+    if (isNaN(trayNumVal) || trayNumVal < 1) {
+      showToast("Vui lòng nhập số khay hợp lệ (lớn hơn 0)!", 'error');
+      return;
+    }
+
     if (errors.length > 0) { showToast(errors[0], 'error'); return; }
 
     setBulkSaving(true);
@@ -444,7 +466,8 @@ export default function App() {
           shelf: null, slot: null, column_number: null, box_id: null,
           total_qty: parseInt(r.qty) * 10, available_qty: parseInt(r.qty) * 10,
           entry_date: formatLocalYYYYMMDD(new Date()),
-          status: 'pending'
+          status: 'pending',
+          tray_number: trayNumVal
         });
       }
 
@@ -2097,51 +2120,232 @@ export default function App() {
       return;
     }
 
-    // Sort: boxes first, then shelf ascending, slot ascending, column_number ascending
-    const sorted = [...readySamples].sort((a, b) => {
-      if (a.box_id && !b.box_id) return -1;
-      if (!a.box_id && b.box_id) return 1;
-      if (a.box_id && b.box_id) {
-        return a.box_id.localeCompare(b.box_id);
+    // Group ready samples by tray_number
+    const trayGroups = {};
+    readySamples.forEach(s => {
+      const tray = s.tray_number || 0;
+      if (!trayGroups[tray]) {
+        trayGroups[tray] = [];
       }
-      if (a.shelf !== b.shelf) return a.shelf - b.shelf;
-      if (a.slot !== b.slot) return a.slot - b.slot;
-      return a.column_number - b.column_number;
+      trayGroups[tray].push(s);
     });
 
-    printTommyStickersForGroup("Tất Cả Mẫu Gom Trang A4", sorted);
+    // Sort tray numbers ascending
+    const sortedTrays = Object.keys(trayGroups).map(Number).sort((a, b) => a - b);
+
+    // Open a single print window
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      showToast("Không thể mở cửa sổ in. Vui lòng tắt trình chặn Pop-up!", "error");
+      return;
+    }
+
+    const pagesHtml = [];
+
+    // Loop through each tray to output separate printing pages
+    sortedTrays.forEach(trayNum => {
+      const samplesInTray = trayGroups[trayNum];
+      
+      // Sort samples within this tray: boxes first, then shelf -> slot -> column
+      const sortedSamplesInTray = [...samplesInTray].sort((a, b) => {
+        if (a.box_id && !b.box_id) return -1;
+        if (!a.box_id && b.box_id) return 1;
+        if (a.box_id && b.box_id) return a.box_id.localeCompare(b.box_id);
+        if (a.shelf !== b.shelf) return a.shelf - b.shelf;
+        if (a.slot !== b.slot) return a.slot - b.slot;
+        return a.column_number - b.column_number;
+      });
+
+      // Expand to individual stickers
+      const trayStickers = [];
+      sortedSamplesInTray.forEach(s => {
+        const numLabels = Math.max(1, Math.floor(s.available_qty / 10));
+        const locText = s.box_id
+          ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
+          : formatLocation(s.shelf, s.slot, s.column_number);
+        const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
+
+        for (let i = 0; i < numLabels; i++) {
+          trayStickers.push(`
+            <div class="sticker">
+              <div class="info-section">
+                <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
+                <div class="info-row">
+                  <span class="info-label">Sản phẩm:</span>
+                  <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Cảnh báo:</span>
+                  <span class="info-val">${s.products?.warning_code || 'Không cảnh báo'}</span>
+                </div>
+                ${s.order_number ? `
+                <div class="info-row">
+                  <span class="info-label">Số đơn hàng:</span>
+                  <span class="info-val">${s.order_number}</span>
+                </div>` : ''}
+                <div class="info-row">
+                  <span class="info-label">Mẻ sợi:</span>
+                  <span class="info-val">${formatBlendBatch(s.blend_batch)}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Thùng lấy mẫu:</span>
+                  <span class="info-val">${boxSeqStr}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Ngày SX sợi:</span>
+                  <span class="info-val">${new Date(s.blend_date).toLocaleDateString()}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Ngày SX bao:</span>
+                  <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">Thời điểm lấy mẫu:</span>
+                  <span class="info-val">${new Date(s.sampling_time).toLocaleString()}</span>
+                </div>
+                <div class="info-row" style="margin-top: 2px; border-top: 1px dashed #bbb; padding-top: 2px;">
+                  <span class="info-label">Vị trí lưu:</span>
+                  <span class="info-val" style="font-weight: bold; color: #000;">${locText.toUpperCase()}</span>
+                </div>
+              </div>
+            </div>
+          `);
+        }
+      });
+
+      // Pad with blank stickers to fill the last A4 Tommy 135 page (21 stickers) for this tray
+      const PAGE_SIZE = 21;
+      const numPagesForTray = Math.ceil(trayStickers.length / PAGE_SIZE);
+      const totalStickersToPrint = numPagesForTray * PAGE_SIZE;
+      
+      while (trayStickers.length < totalStickersToPrint) {
+        trayStickers.push('<div class="sticker blank" style="border:none; visibility:hidden;"></div>');
+      }
+
+      // Generate HTML pages for this tray
+      for (let i = 0; i < trayStickers.length; i += PAGE_SIZE) {
+        const pageStickers = trayStickers.slice(i, i + PAGE_SIZE);
+        pagesHtml.push(`
+          <div class="page">
+            ${pageStickers.join('')}
+          </div>
+        `);
+      }
+    });
+
+    // Write all pages to document
+    printWindow.document.write(`
+      <html>
+      <head>
+        <title>In Nhãn Tommy Hàng Loạt Theo Khay</title>
+        <style>
+          @page {
+            size: A4;
+            margin: 0;
+          }
+          body {
+            margin: 0;
+            padding: 0;
+            background-color: #fff;
+          }
+          .page {
+            width: 210mm;
+            height: 297mm;
+            box-sizing: border-box;
+            padding: 8.5mm 6mm; /* Tommy 135 standard margins */
+            display: grid;
+            grid-template-columns: repeat(3, 66mm);
+            grid-template-rows: repeat(7, 40mm);
+            grid-gap: 0;
+            page-break-after: always;
+          }
+          .page:last-child {
+            page-break-after: avoid;
+          }
+          .sticker {
+            width: 66mm;
+            height: 40mm;
+            box-sizing: border-box;
+            padding: 4px 10px;
+            display: flex;
+            border: 1px dashed #ddd;
+            overflow: hidden;
+          }
+          @media print {
+            .sticker {
+              border: none;
+            }
+          }
+          .info-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            font-size: 7.8px;
+            line-height: 1.25;
+            padding-top: 1px;
+          }
+          .info-title {
+            font-size: 10px;
+            font-weight: bold;
+            margin-top: 0px;
+            margin-bottom: 4px;
+            border-bottom: 1px solid #000;
+            padding-bottom: 1px;
+            text-transform: uppercase;
+            text-align: center;
+          }
+          .info-row {
+            display: flex;
+            margin-bottom: 1px;
+          }
+          .info-label {
+            width: 22mm;
+            font-weight: bold;
+            flex-shrink: 0;
+          }
+          .info-val {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+        </style>
+      </head>
+      <body>
+        ${pagesHtml.join('')}
+        <script>
+          window.onload = function() {
+            window.print();
+            window.close();
+          };
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const getGroupedPrintQueue = () => {
     const groups = {};
     printQueue.forEach(s => {
-      let key, name, type;
-      if (s.status === 'pending' || (!s.shelf && !s.box_id)) {
-        key = 'pending';
-        name = 'Mẫu Chưa Có Vị Trí Kệ (Cần Bố Trí)';
-        type = 'pending';
-      } else if (s.box_id) {
-        const box = boxes.find(b => b.id === s.box_id);
-        key = `box-${s.box_id}`;
-        name = box ? box.box_name : 'Mẫu Đóng Thùng';
-        type = 'box';
-      } else {
-        key = `slot-${s.shelf}-${s.slot}`;
-        const shelfLetter = String.fromCharCode(64 + s.shelf);
-        name = `Kệ ${shelfLetter} — Ô ${s.slot}`;
-        type = 'slot';
+      let trayNum = s.tray_number;
+      if (trayNum === null || trayNum === undefined || isNaN(trayNum)) {
+        trayNum = 0;
       }
-
+      const key = `tray-${trayNum}`;
       if (!groups[key]) {
-        groups[key] = { key, name, type, items: [] };
+        groups[key] = {
+          key,
+          trayNumber: trayNum,
+          name: trayNum === 0 ? 'Mẫu Chưa Phân Khay' : `Khay Số ${trayNum}`,
+          items: [],
+          type: 'tray'
+        };
       }
       groups[key].items.push(s);
     });
-    return Object.values(groups).sort((a,b) => {
-      if (a.type === 'pending') return 1;
-      if (b.type === 'pending') return -1;
-      return a.name.localeCompare(b.name);
-    });
+    return Object.values(groups).sort((a, b) => a.trayNumber - b.trayNumber);
   };
 
   // Generate Print View for QR Sticker Label
@@ -3112,7 +3316,7 @@ export default function App() {
                       // Calculate total labels in this group
                       const totalStickersInGroup = group.items.reduce((sum, s) => sum + Math.max(1, Math.floor(s.available_qty / 10)), 0);
                       const totalPages = Math.ceil(totalStickersInGroup / 21);
-                      const isPending = group.type === 'pending';
+                      const hasPending = group.items.some(s => s.status === 'pending' || (!s.shelf && !s.box_id));
 
                       return (
                         <div key={group.key} className="glass-panel" style={{ background:'rgba(255,255,255,0.01)', border:'1px solid var(--glass-border)', padding:'18px' }}>
@@ -3120,7 +3324,7 @@ export default function App() {
                           {/* Group header */}
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px', flexWrap:'wrap', gap:'12px', borderBottom:'1px solid rgba(255,255,255,0.04)', paddingBottom:'12px' }}>
                             <div>
-                              <strong style={{ fontSize:'16px', color: isPending ? 'var(--status-error)' : 'var(--text-primary)' }}>
+                              <strong style={{ fontSize:'16px', color: hasPending ? 'var(--status-error)' : 'var(--text-primary)' }}>
                                 {group.name}
                               </strong>
                               <span style={{ fontSize:'12px', color:'var(--text-muted)', marginLeft:'12px' }}>
@@ -3129,14 +3333,14 @@ export default function App() {
                             </div>
                             
                             <div style={{ display:'flex', gap:'8px' }}>
-                              {isPending ? (
+                              {hasPending ? (
                                 <span style={{ fontSize:'12px', color:'var(--status-error)', background:'rgba(239,68,68,0.08)', padding:'6px 12px', borderRadius:'6px', border:'1px solid rgba(239,68,68,0.2)' }}>
-                                  ⚠️ Cần bố trí vị trí ở Mục 2 để có thông tin in nhãn
+                                  ⚠️ Khay này có mẫu chưa bố trí kệ! Vui lòng quét bố trí ở Mục 2 trước.
                                 </span>
                               ) : (
                                 <button className="btn btn-primary" style={{ background:'linear-gradient(135deg, #2563eb, #1d4ed8)', borderColor:'#1d4ed8', fontSize:'13px' }}
                                   onClick={() => printTommyStickersForGroup(group.name, group.items)}>
-                                  In toàn bộ Ô này ({totalStickersInGroup} Nhãn)
+                                  In Khay này ({totalStickersInGroup} Nhãn)
                                 </button>
                               )}
                             </div>
@@ -3146,11 +3350,19 @@ export default function App() {
                           <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
                             {group.items.map((s, idx) => {
                               const labelCount = Math.max(1, Math.floor(s.available_qty / 10));
+                              const itemLoc = s.status === 'pending' || (!s.shelf && !s.box_id)
+                                ? 'Chưa bố trí'
+                                : s.box_id 
+                                  ? (boxes.find(b => b.id === s.box_id)?.box_name || 'Thùng')
+                                  : formatLocation(s.shelf, s.slot, s.column_number);
+
                               return (
                                 <div key={s.id || idx} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:'13px', padding:'8px 12px', background:'rgba(255,255,255,0.01)', borderRadius:'6px' }}>
                                   <div>
                                     <strong style={{ color:'var(--text-primary)' }}>{s.products?.product_name || s.product_name}</strong>
-                                    <span style={{ color:'var(--text-muted)', fontSize:'11px', marginLeft:'8px' }}>Mẻ {formatBlendBatch(s.blend_batch)} • Bao: {new Date(s.packaging_date).toLocaleDateString()}</span>
+                                    <span style={{ color:'var(--text-muted)', fontSize:'11px', marginLeft:'8px' }}>
+                                      Mẻ {formatBlendBatch(s.blend_batch)} • Bao: {new Date(s.packaging_date).toLocaleDateString()} • Vị trí: <strong>{itemLoc.toUpperCase()}</strong>
+                                    </span>
                                   </div>
                                   <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
                                     <span style={{ background:'rgba(255,255,255,0.05)', padding:'2px 8px', borderRadius:'4px', fontSize:'12px' }}>
@@ -3167,7 +3379,7 @@ export default function App() {
                           </div>
 
                           {/* Page breakdown representation */}
-                          {!isPending && totalPages > 0 && (
+                          {!hasPending && totalPages > 0 && (
                             <div style={{ marginTop:'14px', paddingTop:'12px', borderTop:'1px dotted rgba(255,255,255,0.04)', display:'flex', gap:'6px', flexWrap:'wrap' }}>
                               {Array.from({ length: totalPages }).map((_, pageIdx) => {
                                 const startLabel = pageIdx * 21 + 1;
@@ -3369,6 +3581,11 @@ export default function App() {
 
                   {/* Toolbar */}
                   <div style={{ display:'flex', gap:'8px', marginBottom:'16px', flexWrap:'wrap', alignItems:'center' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:'8px', background:'rgba(255,255,255,0.03)', padding:'5px 12px', borderRadius:'6px', border:'1px solid var(--glass-border)', marginRight:'8px' }}>
+                      <span style={{ fontSize:'13px', fontWeight:'bold', color:'var(--text-secondary)' }}>Khay số:</span>
+                      <input type="number" min="1" value={bulkTrayNumber} onChange={e => setBulkTrayNumber(e.target.value)}
+                        style={{ width:'60px', padding:'4px 6px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'4px', color:'var(--text-primary)', fontSize:'13px', textAlign:'center', fontWeight:'bold', outline:'none' }} />
+                    </div>
                     <button className="btn btn-secondary" style={{ fontSize:'13px' }} onClick={() => addBulkRows(1)}>
                       <Plus size={14} /> Thêm hàng
                     </button>
@@ -3906,8 +4123,8 @@ export default function App() {
                             }}>
                               {(() => {
                                 const colSamples = slotSamples.filter(s => s.column_number === col);
-                                // Sort ascending (oldest first, which renders at the bottom due to column-reverse)
-                                colSamples.sort((a, b) => new Date(a.packaging_date) - new Date(b.packaging_date));
+                                // Sort ascending by created_at (oldest first, which renders at the bottom due to column-reverse)
+                                colSamples.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
                                 
                                 const totalOccupied = colSamples.reduce((sum, s) => sum + Math.ceil(s.available_qty / 10), 0);
                                 const emptySlotsCount = maxHeight - totalOccupied;
@@ -4005,40 +4222,54 @@ export default function App() {
                               </span>
                             </div>
 
-                            {/* Render each stacked batch in this column */}
+                            {/* Render each stacked batch in this column (sorted newest first, which sits on top) */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              {colSamples.map((sample, sIdx) => {
-                                const cartons = Math.ceil(sample.available_qty / 10);
-                                return (
-                                  <div key={sample.id || sIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', padding: '8px 12px', borderRadius: '6px', fontSize: '12.5px', border: '1px dotted rgba(255,255,255,0.04)' }}>
-                                    <div>
-                                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                                        Mẻ sợi: {formatBlendBatch(sample.blend_batch)}
+                              {(() => {
+                                const sortedColSamples = [...colSamples].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                                return sortedColSamples.map((sample, sIdx) => {
+                                  const cartons = Math.ceil(sample.available_qty / 10);
+                                  // Determine position label
+                                  let positionBadge = null;
+                                  if (sIdx === 0) {
+                                    positionBadge = <span style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', fontSize: '10px', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold', marginLeft: '8px' }}>[Trên cùng]</span>;
+                                  } else if (sIdx === sortedColSamples.length - 1 && sortedColSamples.length > 1) {
+                                    positionBadge = <span style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--status-success)', fontSize: '10px', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold', marginLeft: '8px' }}>[Dưới cùng]</span>;
+                                  } else if (sortedColSamples.length > 2) {
+                                    positionBadge = <span style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontSize: '10px', padding: '1px 5px', borderRadius: '4px', marginLeft: '8px' }}>[Ở giữa]</span>;
+                                  }
+
+                                  return (
+                                    <div key={sample.id || sIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', padding: '8px 12px', borderRadius: '6px', fontSize: '12.5px', border: '1px dotted rgba(255,255,255,0.04)' }}>
+                                      <div>
+                                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center' }}>
+                                          Mẻ sợi: {formatBlendBatch(sample.blend_batch)}
+                                          {positionBadge}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                          Ngày SX bao: <strong>{new Date(sample.packaging_date).toLocaleDateString('vi-VN')}</strong> {formatSamplingBox(sample.blend_batch)}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                          Mã QR: <strong style={{ color: 'var(--accent-blue)' }}>{sample.sku}</strong> | Số lượng: <strong>{cartons} cây</strong> ({sample.available_qty} bao)
+                                        </div>
                                       </div>
-                                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                        Ngày SX bao: <strong>{new Date(sample.packaging_date).toLocaleDateString('vi-VN')}</strong> {formatSamplingBox(sample.blend_batch)}
-                                      </div>
-                                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                        Mã QR: <strong style={{ color: 'var(--accent-blue)' }}>{sample.sku}</strong> | Số lượng: <strong>{cartons} cây</strong> ({sample.available_qty} bao)
-                                      </div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '6px' }}>
-                                      <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => setQrCodeModal(sample)}>
-                                        <QrCode size={14} /> QR
-                                      </button>
-                                      {profile?.role === 'admin' && (
-                                        <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--status-error)' }} onClick={() => {
-                                          if (confirm("Bạn có chắc chắn muốn xuất hủy thủ công lô mẫu này không?")) {
-                                            handleDestroySample(sample.id);
-                                          }
-                                        }}>
-                                          <Trash2 size={14} /> Hủy
+                                      <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => setQrCodeModal(sample)}>
+                                          <QrCode size={14} /> QR
                                         </button>
-                                      )}
+                                        {profile?.role === 'admin' && (
+                                          <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--status-error)' }} onClick={() => {
+                                            if (confirm("Bạn có chắc chắn muốn xuất hủy thủ công lô mẫu này không?")) {
+                                              handleDestroySample(sample.id);
+                                            }
+                                          }}>
+                                            <Trash2 size={14} /> Hủy
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                );
-                              })}
+                                  );
+                                });
+                              })()}
                             </div>
                           </div>
                         );
