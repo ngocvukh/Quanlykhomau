@@ -1873,9 +1873,10 @@ export default function App() {
   };
 
   // Batch print helper for multiple sticker labels
-  const printMultipleQrStickers = (samplesToPrint) => {
-    if (!samplesToPrint || samplesToPrint.length === 0) {
-      showToast("Không có mẫu nào để in!", "warning");
+  // Batch print helper for multiple Tommy 135 sticker labels grouped by slot/box
+  const printTommyStickersForGroup = (groupName, samplesInGroup) => {
+    if (!samplesInGroup || samplesInGroup.length === 0) {
+      showToast("Không có nhãn nào để in!", "warning");
       return;
     }
 
@@ -1885,72 +1886,102 @@ export default function App() {
       return;
     }
 
-    const stickersHtml = samplesToPrint.flatMap(s => {
-      // 1 cây 1 tem. Nếu chỉ có hàng lẻ (< 10) thì in 1 tem, nếu >= 10 in đúng số cây.
+    // 1. Expand all samples in this group to individual sticker HTMLs
+    const allStickers = [];
+    samplesInGroup.forEach(s => {
       const numLabels = Math.max(1, Math.floor(s.available_qty / 10));
-      
-      const singleHtml = `
-        <div class="sticker">
-          <div class="info-section">
-            <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
-            <div class="info-row">
-              <span class="info-label">Sản phẩm:</span>
-              <span class="info-val" style="font-weight: bold; font-size: 10px;">${s.products?.product_name || s.product_name}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Cảnh báo:</span>
-              <span class="info-val">${s.products?.warning_code || 'Không cảnh báo'}</span>
-            </div>
-            ${s.order_number ? `
-            <div class="info-row">
-              <span class="info-label">Số Order:</span>
-              <span class="info-val">${s.order_number}</span>
-            </div>` : ''}
-            <div class="info-row">
-              <span class="info-label">Mẻ sợi:</span>
-              <span class="info-val">${formatBlendBatch(s.blend_batch)}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Ngày SX sợi:</span>
-              <span class="info-val">${new Date(s.blend_date).toLocaleDateString()}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Ngày SX bao:</span>
-              <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()} ${formatSamplingBox(s.blend_batch)}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Thời gian lấy:</span>
-              <span class="info-val">${new Date(s.sampling_time).toLocaleString()}</span>
-            </div>
-            <div class="info-row" style="margin-top: 3px;">
-              <span class="info-label">Vị trí lưu:</span>
-              <span class="info-val" style="font-weight: bold; color: #000;">${formatLocation(s.shelf, s.slot, s.column_number).toUpperCase()}</span>
+      const locText = s.box_id
+        ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
+        : formatLocation(s.shelf, s.slot, s.column_number);
+
+      for (let i = 0; i < numLabels; i++) {
+        allStickers.push(`
+          <div class="sticker">
+            <div class="info-section">
+              <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
+              <div class="info-row">
+                <span class="info-label">Sản phẩm:</span>
+                <span class="info-val" style="font-weight: bold; font-size: 10px;">${s.products?.product_name || s.product_name}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Cảnh báo:</span>
+                <span class="info-val">${s.products?.warning_code || 'Không cảnh báo'}</span>
+              </div>
+              ${s.order_number ? `
+              <div class="info-row">
+                <span class="info-label">Số Order:</span>
+                <span class="info-val">${s.order_number}</span>
+              </div>` : ''}
+              <div class="info-row">
+                <span class="info-label">Mẻ sợi:</span>
+                <span class="info-val">${formatBlendBatch(s.blend_batch)}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Ngày SX sợi:</span>
+                <span class="info-val">${new Date(s.blend_date).toLocaleDateString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Ngày SX bao:</span>
+                <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()} ${formatSamplingBox(s.blend_batch)}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Thời gian lấy:</span>
+                <span class="info-val">${new Date(s.sampling_time).toLocaleString()}</span>
+              </div>
+              <div class="info-row" style="margin-top: 3px;">
+                <span class="info-label">Vị trí lưu:</span>
+                <span class="info-val" style="font-weight: bold; color: #000;">${locText.toUpperCase()}</span>
+              </div>
             </div>
           </div>
-        </div>
-      `;
+        `);
+      }
+    });
 
-      return Array(numLabels).fill(singleHtml);
-    }).join('');
+    // 2. Chunk into pages of 21
+    const pagesHtml = [];
+    const PAGE_SIZE = 21;
+    for (let i = 0; i < allStickers.length; i += PAGE_SIZE) {
+      const pageStickers = allStickers.slice(i, i + PAGE_SIZE);
+      
+      // Pad last page with invisible stickers to preserve layout grid
+      while (pageStickers.length < PAGE_SIZE) {
+        pageStickers.push('<div class="sticker blank" style="border:none; visibility:hidden;"></div>');
+      }
+
+      pagesHtml.push(`
+        <div class="page">
+          ${pageStickers.join('')}
+        </div>
+      `);
+    }
 
     printWindow.document.write(`
       <html>
       <head>
-        <title>In Hàng Loạt Nhãn Tommy 135</title>
+        <title>In Nhãn Tommy 135 — ${groupName}</title>
         <style>
           @page {
             size: A4;
-            margin: 8.5mm 6mm; /* Standard margin for Tommy 135 */
+            margin: 0;
           }
           body {
             margin: 0;
             padding: 0;
-            font-family: Arial, sans-serif;
             background-color: #fff;
-            color: #000;
+          }
+          .page {
+            width: 210mm;
+            height: 297mm;
+            box-sizing: border-box;
+            padding: 8.5mm 6mm; /* Tommy 135 standard padding */
             display: flex;
             flex-wrap: wrap;
             align-content: flex-start;
+            page-break-after: always;
+          }
+          .page:last-child {
+            page-break-after: avoid;
           }
           .sticker {
             width: 66mm;
@@ -1958,8 +1989,7 @@ export default function App() {
             box-sizing: border-box;
             padding: 4px 6px;
             display: flex;
-            border: 1px dashed #eee; /* Outline for preview */
-            page-break-inside: avoid;
+            border: 1px dashed #ddd; /* Preview grid borders */
             overflow: hidden;
           }
           @media print {
@@ -1973,7 +2003,7 @@ export default function App() {
             flex-direction: column;
             justify-content: center;
             font-size: 8.5px;
-            line-height: 1.3;
+            line-height: 1.35;
           }
           .info-title {
             font-size: 11px;
@@ -2002,17 +2032,49 @@ export default function App() {
         </style>
       </head>
       <body>
-        ${stickersHtml}
+        ${pagesHtml.join('')}
         <script>
           window.onload = function() {
             window.print();
-            setTimeout(function() { window.close(); }, 500);
-          }
+            window.close();
+          };
         </script>
       </body>
       </html>
     `);
     printWindow.document.close();
+  };
+
+  const getGroupedPrintQueue = () => {
+    const groups = {};
+    printQueue.forEach(s => {
+      let key, name, type;
+      if (s.status === 'pending' || (!s.shelf && !s.box_id)) {
+        key = 'pending';
+        name = 'Mẫu Chưa Có Vị Trí Kệ (Cần Bố Trí)';
+        type = 'pending';
+      } else if (s.box_id) {
+        const box = boxes.find(b => b.id === s.box_id);
+        key = `box-${s.box_id}`;
+        name = box ? box.box_name : 'Mẫu Đóng Thùng';
+        type = 'box';
+      } else {
+        key = `slot-${s.shelf}-${s.slot}`;
+        const shelfLetter = String.fromCharCode(64 + s.shelf);
+        name = `Kệ ${shelfLetter} — Ô ${s.slot}`;
+        type = 'slot';
+      }
+
+      if (!groups[key]) {
+        groups[key] = { key, name, type, items: [] };
+      }
+      groups[key].items.push(s);
+    });
+    return Object.values(groups).sort((a,b) => {
+      if (a.type === 'pending') return 1;
+      if (b.type === 'pending') return -1;
+      return a.name.localeCompare(b.name);
+    });
   };
 
   // Generate Print View for QR Sticker Label
@@ -2926,68 +2988,130 @@ export default function App() {
               </div>
             )}
 
-            {/* BATCH PRINT LABEL QUEUE VIEW */}
+            {/* LABEL PRINTING PAGE */}
             {activeTab === 'labels' && (
               <div className="glass-panel">
-                <h2 style={{ fontSize: '20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <QrCode size={22} color="var(--accent-blue)" /> Hàng Đợi In Nhãn Hàng Loạt ({printQueue.length})
-                </h2>
-                <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
-                  Tất cả các lô mẫu khi nhập kho sẽ được tự động lưu trữ vào hàng đợi này. Bạn có thể in hàng loạt nhãn dán kích thước 100mm x 75mm cùng lúc.
-                </p>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid var(--glass-border)', paddingBottom:'16px', marginBottom:'20px' }}>
+                  <div>
+                    <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin:0 }}>
+                      <QrCode size={22} color="var(--accent-blue)" /> In Nhãn Tommy 135 Hàng Loạt ({printQueue.length})
+                    </h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin:'4px 0 0' }}>
+                      Nhãn được gom theo từng Ô lưu hoặc Thùng và chia thành các trang in A4 Tommy 135 (21 tem/trang)
+                    </p>
+                  </div>
+                  {printQueue.length > 0 && (
+                    <button className="btn btn-secondary" style={{ color:'var(--status-error)', borderColor:'rgba(239,68,68,0.2)' }} onClick={() => {
+                      if (confirm("Xóa toàn bộ hàng đợi in nhãn?")) setPrintQueue([]);
+                    }}>
+                      Xóa hàng đợi
+                    </button>
+                  )}
+                </div>
 
                 {printQueue.length > 0 ? (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-                      <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                        Tổng số nhãn trong hàng đợi: <strong>{printQueue.length} nhãn</strong>.
-                      </span>
-                      <div style={{ display: 'flex', gap: '10px' }}>
-                        <button className="btn btn-secondary" onClick={() => {
-                          if (confirm("Bạn có chắc chắn muốn xóa toàn bộ hàng đợi in nhãn?")) {
-                            setPrintQueue([]);
-                          }
-                        }}>
-                          Xóa toàn bộ hàng đợi
-                        </button>
-                        <button className="btn btn-primary" onClick={() => printMultipleQrStickers(printQueue)}>
-                          <QrCode size={16} /> In Hàng Loạt ({printQueue.length} Nhãn)
-                        </button>
-                      </div>
-                    </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {getGroupedPrintQueue().map(group => {
+                      // Calculate total labels in this group
+                      const totalStickersInGroup = group.items.reduce((sum, s) => sum + Math.max(1, Math.floor(s.available_qty / 10)), 0);
+                      const totalPages = Math.ceil(totalStickersInGroup / 21);
+                      const isPending = group.type === 'pending';
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {printQueue.map((s, idx) => (
-                        <div key={s.id || idx} style={{ padding: '14px 20px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <strong style={{ fontSize: '16px', color: 'var(--text-primary)' }}>{s.products?.product_name || s.product_name}</strong>
-                              <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{s.sku}</span>
+                      return (
+                        <div key={group.key} className="glass-panel" style={{ background:'rgba(255,255,255,0.01)', border:'1px solid var(--glass-border)', padding:'18px' }}>
+                          
+                          {/* Group header */}
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px', flexWrap:'wrap', gap:'12px', borderBottom:'1px solid rgba(255,255,255,0.04)', paddingBottom:'12px' }}>
+                            <div>
+                              <strong style={{ fontSize:'16px', color: isPending ? 'var(--status-error)' : 'var(--text-primary)' }}>
+                                {group.name}
+                              </strong>
+                              <span style={{ fontSize:'12px', color:'var(--text-muted)', marginLeft:'12px' }}>
+                                Tổng cộng: <strong>{totalStickersInGroup} nhãn</strong> (Khoảng {totalPages} trang Tommy)
+                              </span>
                             </div>
-                            <div style={{ display: 'flex', gap: '16px', marginTop: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                              <div>Mẻ sợi: <strong>{formatBlendBatch(s.blend_batch)}</strong></div>
-                              <div>Ngày SX bao: <strong>{new Date(s.packaging_date).toLocaleDateString()}</strong> {formatSamplingBox(s.blend_batch)}</div>
-                              <div>Vị trí xếp: <strong style={{ color: 'var(--accent-blue)' }}>Kệ {s.shelf} - Ô {s.slot} - Cột {s.column_number}</strong></div>
+                            
+                            <div style={{ display:'flex', gap:'8px' }}>
+                              {isPending ? (
+                                <span style={{ fontSize:'12px', color:'var(--status-error)', background:'rgba(239,68,68,0.08)', padding:'6px 12px', borderRadius:'6px', border:'1px solid rgba(239,68,68,0.2)' }}>
+                                  ⚠️ Cần bố trí vị trí ở Mục 2 để có thông tin in nhãn
+                                </span>
+                              ) : (
+                                <button className="btn btn-primary" style={{ background:'linear-gradient(135deg, #2563eb, #1d4ed8)', borderColor:'#1d4ed8', fontSize:'13px' }}
+                                  onClick={() => printTommyStickersForGroup(group.name, group.items)}>
+                                  In toàn bộ Ô này ({totalStickersInGroup} Nhãn)
+                                </button>
+                              )}
                             </div>
                           </div>
-                          <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', borderColor: 'var(--status-error)', color: 'var(--status-error)' }} onClick={() => {
-                            setPrintQueue(prev => prev.filter((_, i) => i !== idx));
-                          }}>
-                            Xóa khỏi hàng đợi
-                          </button>
+
+                          {/* List of items in this group */}
+                          <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+                            {group.items.map((s, idx) => {
+                              const labelCount = Math.max(1, Math.floor(s.available_qty / 10));
+                              return (
+                                <div key={s.id || idx} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:'13px', padding:'8px 12px', background:'rgba(255,255,255,0.01)', borderRadius:'6px' }}>
+                                  <div>
+                                    <strong style={{ color:'var(--text-primary)' }}>{s.products?.product_name || s.product_name}</strong>
+                                    <span style={{ color:'var(--text-muted)', fontSize:'11px', marginLeft:'8px' }}>Mẻ {formatBlendBatch(s.blend_batch)} • Bao: {new Date(s.packaging_date).toLocaleDateString()}</span>
+                                  </div>
+                                  <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                                    <span style={{ background:'rgba(255,255,255,0.05)', padding:'2px 8px', borderRadius:'4px', fontSize:'12px' }}>
+                                      {labelCount} nhãn
+                                    </span>
+                                    <button style={{ background:'none', border:'none', color:'var(--status-error)', cursor:'pointer', padding:'2px' }}
+                                      onClick={() => setPrintQueue(prev => prev.filter(item => item.id !== s.id))}>
+                                      ×
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Page breakdown representation */}
+                          {!isPending && totalPages > 0 && (
+                            <div style={{ marginTop:'14px', paddingTop:'12px', borderTop:'1px dotted rgba(255,255,255,0.04)', display:'flex', gap:'6px', flexWrap:'wrap' }}>
+                              {Array.from({ length: totalPages }).map((_, pageIdx) => {
+                                const startLabel = pageIdx * 21 + 1;
+                                const endLabel = Math.min((pageIdx + 1) * 21, totalStickersInGroup);
+                                const isFull = (endLabel - startLabel + 1) === 21;
+                                
+                                return (
+                                  <button key={pageIdx} className="btn btn-secondary" 
+                                    style={{ fontSize:'11px', padding:'4px 10px', display:'flex', flexDirection:'column', alignItems:'center', gap:'2px', background: isFull ? 'rgba(16,185,129,0.05)' : 'rgba(245,158,11,0.05)', borderColor: isFull ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)' }}
+                                    onClick={() => {
+                                      // Print only this specific page slice of the group
+                                      const groupStickersExpanded = [];
+                                      group.items.forEach(item => {
+                                        const count = Math.max(1, Math.floor(item.available_qty / 10));
+                                        for (let i = 0; i < count; i++) groupStickersExpanded.push(item);
+                                      });
+                                      const pageSlice = groupStickersExpanded.slice(pageIdx * 21, (pageIdx + 1) * 21);
+                                      printTommyStickersForGroup(`${group.name} - Trang ${pageIdx + 1}`, pageSlice);
+                                    }}>
+                                    <span style={{ fontWeight:700 }}>Trang {pageIdx + 1}</span>
+                                    <span style={{ fontSize:'9px', color:'var(--text-muted)' }}>({endLabel - startLabel + 1} tem)</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div style={{ textAlign: 'center', padding: '60px 40px', color: 'var(--text-muted)' }}>
                     <QrCode size={48} style={{ opacity: 0.15, marginBottom: '16px' }} />
                     <p style={{ fontSize: '15px' }}>Không có nhãn dán nào trong hàng đợi in.</p>
-                    <p style={{ fontSize: '13px', marginTop: '4px' }}>Sau khi tiến hành nhập kho mẫu mới ở tab "Nhập Kho Mẫu", nhãn sẽ tự động được xếp vào đây.</p>
+                    <p style={{ fontSize: '13px', marginTop: '4px' }}>Sau khi tiến hành nhập kho mẫu mới ở các tab nhập hàng, nhãn sẽ tự động được xếp vào đây.</p>
                   </div>
                 )}
               </div>
             )}
+
 
             {/* PRODUCT CATALOG MANAGEMENT PAGE */}
             {activeTab === 'catalog' && (
