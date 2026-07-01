@@ -2001,10 +2001,11 @@ export default function App() {
             width: 210mm;
             height: 297mm;
             box-sizing: border-box;
-            padding: 8.5mm 6mm; /* Tommy 135 standard padding */
-            display: flex;
-            flex-wrap: wrap;
-            align-content: flex-start;
+            padding: 8.5mm 6mm; /* Tommy 135 standard margins */
+            display: grid;
+            grid-template-columns: repeat(3, 66mm);
+            grid-template-rows: repeat(7, 40mm);
+            grid-gap: 0;
             page-break-after: always;
           }
           .page:last-child {
@@ -2014,7 +2015,7 @@ export default function App() {
             width: 66mm;
             height: 40mm;
             box-sizing: border-box;
-            padding: 4px 6px;
+            padding: 4px 10px; /* Increased horizontal padding to keep text safe from physical printer shifts */
             display: flex;
             border: 1px dashed #ddd; /* Preview grid borders */
             overflow: hidden;
