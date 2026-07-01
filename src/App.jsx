@@ -3859,8 +3859,19 @@ export default function App() {
                                   <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#ffffff', lineHeight: '1.2', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
                                     {sampleInCol.products?.product_name || sampleInCol.product_name}
                                   </span>
-                                  <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.9)', marginTop: '4px', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
-                                    {new Date(sampleInCol.packaging_date).toLocaleDateString('vi-VN')}
+                                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.95)', marginTop: '4px', textShadow: '0 1px 2px rgba(0,0,0,0.8)', fontWeight: 600 }}>
+                                    {(() => {
+                                      const colSamples = slotSamples.filter(s => s.column_number === col);
+                                      if (colSamples.length === 1) {
+                                        return new Date(colSamples[0].packaging_date).toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'});
+                                      } else if (colSamples.length > 1) {
+                                        const dates = colSamples.map(s => new Date(s.packaging_date).getTime());
+                                        const minD = new Date(Math.min(...dates)).toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'});
+                                        const maxD = new Date(Math.max(...dates)).toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'});
+                                        return `${minD} - ${maxD} (${colSamples.length} lô)`;
+                                      }
+                                      return '';
+                                    })()}
                                   </span>
                                 </div>
                               )}
@@ -3887,45 +3898,63 @@ export default function App() {
                       const colsToRender = Array.from({ length: Math.min(maxOccupiedCol + 1, 8) }, (_, i) => i + 1);
 
                       return colsToRender.map(col => {
-                        const sample = getColumnProduct(selectedSlot.shelf, selectedSlot.slot, col);
-                        if (!sample) return null;
-                        const format = sample.products?.format || 'Kingsize';
-                        const maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
-                        const cartons = Math.ceil(sample.available_qty / 10);
+                        const colSamples = slotSamples.filter(s => s.column_number === col);
+                        if (colSamples.length === 0) return null;
                         
+                        const firstSample = colSamples[0];
+                        const format = firstSample.products?.format || 'Kingsize';
+                        const maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
+                        const totalCartons = colSamples.reduce((sum, s) => sum + Math.ceil(s.available_qty / 10), 0);
+
                         return (
-                          <div key={col} style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Cột {col}</span>
-                                <strong>{sample.products?.product_name || sample.product_name}</strong>
-                                {sample.products?.warning_code && (
-                                  <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                                    {sample.products.warning_code}
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                Mẻ sợi: {formatBlendBatch(sample.blend_batch)} | Ngày SX bao: {new Date(sample.packaging_date).toLocaleDateString()} {formatSamplingBox(sample.blend_batch)}
-                              </div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                Mã QR: <strong>{sample.sku}</strong> | Chiều cao: <strong>{cartons}/{maxHeight} cây</strong>
-                              </div>
-                            </div>
-                            
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => setQrCodeModal(sample)}>
-                                <QrCode size={14} /> QR
-                              </button>
-                              {profile?.role === 'admin' && (
-                                <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--status-error)' }} onClick={() => {
-                                  if (confirm("Bạn có chắc chắn muốn xuất hủy thủ công lô mẫu này không?")) {
-                                    handleDestroySample(sample.id);
-                                  }
-                                }}>
-                                  <Trash2 size={14} /> Hủy
-                                </button>
+                          <div key={col} style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', marginBottom: '10px' }}>
+                              <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>Cột {col}</span>
+                              <strong style={{ fontSize: '14px' }}>{firstSample.products?.product_name || firstSample.product_name}</strong>
+                              {firstSample.products?.warning_code && (
+                                <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>
+                                  {firstSample.products.warning_code}
+                                </span>
                               )}
+                              <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text-muted)' }}>
+                                Chiều cao: <strong>{totalCartons}/{maxHeight} cây</strong>
+                              </span>
+                            </div>
+
+                            {/* Render each stacked batch in this column */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {colSamples.map((sample, sIdx) => {
+                                const cartons = Math.ceil(sample.available_qty / 10);
+                                return (
+                                  <div key={sample.id || sIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', padding: '8px 12px', borderRadius: '6px', fontSize: '12.5px', border: '1px dotted rgba(255,255,255,0.04)' }}>
+                                    <div>
+                                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        Mẻ sợi: {formatBlendBatch(sample.blend_batch)}
+                                      </div>
+                                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                        Ngày SX bao: <strong>{new Date(sample.packaging_date).toLocaleDateString('vi-VN')}</strong> {formatSamplingBox(sample.blend_batch)}
+                                      </div>
+                                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                        Mã QR: <strong style={{ color: 'var(--accent-blue)' }}>{sample.sku}</strong> | Số lượng: <strong>{cartons} cây</strong> ({sample.available_qty} bao)
+                                      </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                      <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => setQrCodeModal(sample)}>
+                                        <QrCode size={14} /> QR
+                                      </button>
+                                      {profile?.role === 'admin' && (
+                                        <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--status-error)' }} onClick={() => {
+                                          if (confirm("Bạn có chắc chắn muốn xuất hủy thủ công lô mẫu này không?")) {
+                                            handleDestroySample(sample.id);
+                                          }
+                                        }}>
+                                          <Trash2 size={14} /> Hủy
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         );
