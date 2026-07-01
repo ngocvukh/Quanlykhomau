@@ -2069,7 +2069,29 @@ export default function App() {
       </body>
       </html>
     `);
-    printWindow.document.close();
+  };
+
+  const printAllReadyLabels = () => {
+    // Filter out pending samples that don't have location
+    const readySamples = printQueue.filter(s => s.status !== 'pending' && (s.shelf || s.box_id));
+    if (readySamples.length === 0) {
+      showToast("Không có nhãn nào có vị trí để in!", "warning");
+      return;
+    }
+
+    // Sort: boxes first, then shelf ascending, slot ascending, column_number ascending
+    const sorted = [...readySamples].sort((a, b) => {
+      if (a.box_id && !b.box_id) return -1;
+      if (!a.box_id && b.box_id) return 1;
+      if (a.box_id && b.box_id) {
+        return a.box_id.localeCompare(b.box_id);
+      }
+      if (a.shelf !== b.shelf) return a.shelf - b.shelf;
+      if (a.slot !== b.slot) return a.slot - b.slot;
+      return a.column_number - b.column_number;
+    });
+
+    printTommyStickersForGroup("Tất Cả Mẫu Gom Trang A4", sorted);
   };
 
   const getGroupedPrintQueue = () => {
@@ -3018,22 +3040,41 @@ export default function App() {
             {/* LABEL PRINTING PAGE */}
             {activeTab === 'labels' && (
               <div className="glass-panel">
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid var(--glass-border)', paddingBottom:'16px', marginBottom:'20px' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', borderBottom:'1px solid var(--glass-border)', paddingBottom:'16px', marginBottom:'20px', flexWrap:'wrap', gap:'16px' }}>
                   <div>
                     <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin:0 }}>
                       <QrCode size={22} color="var(--accent-blue)" /> In Nhãn Tommy 135 Hàng Loạt ({printQueue.length})
                     </h2>
                     <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin:'4px 0 0' }}>
-                      Nhãn được gom theo từng Ô lưu hoặc Thùng và chia thành các trang in A4 Tommy 135 (21 tem/trang)
+                      Cảnh báo: Hãy dùng nút "In Toàn Bộ" màu xanh bên phải để tự động gom nối tiếp đầy các trang A4 Tommy 135 (21 tem/trang), tránh hao phí tem trống.
                     </p>
                   </div>
-                  {printQueue.length > 0 && (
-                    <button className="btn btn-secondary" style={{ color:'var(--status-error)', borderColor:'rgba(239,68,68,0.2)' }} onClick={() => {
-                      if (confirm("Xóa toàn bộ hàng đợi in nhãn?")) setPrintQueue([]);
-                    }}>
-                      Xóa hàng đợi
-                    </button>
-                  )}
+                  <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
+                    {(() => {
+                      const readyCount = printQueue.filter(s => s.status !== 'pending' && (s.shelf || s.box_id)).reduce((sum, s) => sum + Math.max(1, Math.floor(s.available_qty / 10)), 0);
+                      const fullPages = Math.floor(readyCount / 21);
+                      const remainder = readyCount % 21;
+                      
+                      return readyCount > 0 ? (
+                        <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
+                          <span style={{ fontSize:'12px', color:'var(--text-secondary)' }}>
+                            Sẵn sàng: <strong>{readyCount} tem</strong> ({fullPages} trang đầy, lẻ {remainder} tem)
+                          </span>
+                          <button className="btn btn-primary" style={{ background:'linear-gradient(135deg, #10b981, #059669)', borderColor:'#059669', fontWeight:600 }}
+                            onClick={printAllReadyLabels}>
+                            <QrCode size={16} /> In Toàn Bộ (Gom Đầy Trang A4)
+                          </button>
+                        </div>
+                      ) : null;
+                    })()}
+                    {printQueue.length > 0 && (
+                      <button className="btn btn-secondary" style={{ color:'var(--status-error)', borderColor:'rgba(239,68,68,0.2)' }} onClick={() => {
+                        if (confirm("Xóa toàn bộ hàng đợi in nhãn?")) setPrintQueue([]);
+                      }}>
+                        Xóa hàng đợi
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {printQueue.length > 0 ? (
