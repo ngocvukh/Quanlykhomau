@@ -141,6 +141,10 @@ export default function App() {
   const [authMode, setAuthMode] = useState('login'); // 'login', 'signup', or 'guest'
   const [loading, setLoading] = useState(false);
 
+  // Undo States
+  const [lastAssignedIds, setLastAssignedIds] = useState(null);
+  const [isUndoing, setIsUndoing] = useState(false);
+
   // Database States
   const [products, setProducts] = useState([]);
   const [samples, setSamples] = useState([]);
@@ -629,6 +633,7 @@ export default function App() {
         });
       }
 
+      setLastAssignedIds(assignedIds);
       showToast(`✅ Đã bố trí ${scanPreview.toShelf.length} mẫu lên kệ và ${scanPreview.toBox.length} mẫu vào thùng!`, 'success');
       setScanPreview(null);
       // Auto redirect to print tab
@@ -639,6 +644,39 @@ export default function App() {
       setScanSaving(false);
     }
   };
+
+  const handleUndoAssignment = async () => {
+    if (!lastAssignedIds || lastAssignedIds.length === 0) return;
+    setIsUndoing(true);
+    try {
+      if (isDemoMode) {
+        setSamples(prev => prev.map(s => lastAssignedIds.includes(s.id)
+          ? { ...s, shelf: null, slot: null, column_number: null, box_id: null, status: 'pending' }
+          : s
+        ));
+      } else {
+        const { error } = await supabase.from('samples')
+          .update({ shelf: null, slot: null, column_number: null, box_id: null, status: 'pending' })
+          .in('id', lastAssignedIds);
+        if (error) throw error;
+        
+        // Fetch fresh samples
+        const { data: freshSamples } = await supabase.from('samples').select('*, products(*)').order('created_at', { ascending: false });
+        if (freshSamples) setSamples(freshSamples);
+      }
+      
+      // Remove from printQueue
+      setPrintQueue(prev => prev.filter(s => !lastAssignedIds.includes(s.id)));
+      
+      setLastAssignedIds(null);
+      showToast('✅ Đã hoàn tác bố trí thành công!', 'success');
+    } catch (err) {
+      showToast('Lỗi hoàn tác: ' + err.message, 'error');
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+
   // ──────────────────────────────────────────────────────────────────────────
 
   // Staff Search Form
@@ -3284,6 +3322,22 @@ export default function App() {
             {/* LABEL PRINTING PAGE */}
             {activeTab === 'labels' && (
               <div className="glass-panel">
+                {lastAssignedIds && lastAssignedIds.length > 0 && (
+                  <div style={{ background: 'rgba(255, 165, 0, 0.1)', border: '1px solid orange', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <AlertTriangle size={18} color="orange" />
+                      <span style={{ color: 'orange', fontWeight: '500' }}>Vừa bố trí {lastAssignedIds.length} mẫu. Nếu nhầm lẫn, bạn có thể hoàn tác.</span>
+                    </div>
+                    <button 
+                      className="btn" 
+                      style={{ background: 'orange', color: '#fff', padding: '6px 12px', fontSize: '13px' }}
+                      onClick={handleUndoAssignment}
+                      disabled={isUndoing}
+                    >
+                      {isUndoing ? <Loader size={14} className="spin" /> : 'Hoàn tác ngay'}
+                    </button>
+                  </div>
+                )}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', borderBottom:'1px solid var(--glass-border)', paddingBottom:'16px', marginBottom:'20px', flexWrap:'wrap', gap:'16px' }}>
                   <div>
                     <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin:0 }}>
@@ -3604,9 +3658,43 @@ export default function App() {
                   {/* Toolbar */}
                   <div style={{ display:'flex', gap:'8px', marginBottom:'16px', flexWrap:'wrap', alignItems:'center' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:'8px', background:'rgba(255,255,255,0.03)', padding:'5px 12px', borderRadius:'6px', border:'1px solid var(--glass-border)', marginRight:'8px' }}>
-                      <span style={{ fontSize:'13px', fontWeight:'bold', color:'var(--text-secondary)' }}>Khay số:</span>
-                      <input type="number" min="1" value={bulkTrayNumber} onChange={e => setBulkTrayNumber(e.target.value)}
-                        style={{ width:'60px', padding:'4px 6px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'4px', color:'var(--text-primary)', fontSize:'13px', textAlign:'center', fontWeight:'bold', outline:'none' }} />
+                      <span style={{ fontSize:'13px', fontWeight:'bold', color:'var(--text-secondary)' }}>Chọn Khay:</span>
+                      <select 
+                        value={bulkTrayNumber} 
+                        onChange={e => setBulkTrayNumber(e.target.value)}
+                        style={{ padding:'4px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'4px', color:'var(--text-primary)', fontSize:'13px', outline:'none', cursor: 'pointer' }}
+                      >
+                        {(() => {
+                          const maxTray = samples.reduce((max, s) => Math.max(max, s.tray_number || 0), 0);
+                          const nextTray = maxTray + 1;
+                          
+                          const pendingTrays = {};
+                          samples.forEach(s => {
+                            if (s.status === 'pending' && s.tray_number) {
+                              pendingTrays[s.tray_number] = (pendingTrays[s.tray_number] || 0) + 1;
+                            }
+                          });
+                          
+                          const options = [];
+                          
+                          if (!pendingTrays[nextTray] && parseInt(bulkTrayNumber) === nextTray) {
+                             options.push(<option key="new" value={nextTray}>Khay mới (Số {nextTray})</option>);
+                          } else if (!pendingTrays[nextTray]) {
+                             options.push(<option key="new" value={nextTray}>+ Tạo khay mới (Số {nextTray})</option>);
+                          }
+                          
+                          Object.keys(pendingTrays).sort((a,b)=> parseInt(b)-parseInt(a)).forEach(tNum => {
+                            options.push(<option key={tNum} value={tNum}>Khay số {tNum} (đang có {pendingTrays[tNum]} mẫu)</option>);
+                          });
+                          
+                          const currentVal = parseInt(bulkTrayNumber);
+                          if (!isNaN(currentVal) && currentVal !== nextTray && !pendingTrays[currentVal]) {
+                             options.push(<option key={currentVal} value={currentVal}>Khay số {currentVal} (Trống)</option>);
+                          }
+                          
+                          return options;
+                        })()}
+                      </select>
                     </div>
                     <button className="btn btn-secondary" style={{ fontSize:'13px' }} onClick={() => addBulkRows(1)}>
                       <Plus size={14} /> Thêm hàng
