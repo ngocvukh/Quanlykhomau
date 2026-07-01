@@ -251,6 +251,14 @@ export default function App() {
     return isNaN(d.getTime()) ? null : d;
   };
 
+  const formatLocalYYYYMMDD = (date) => {
+    if (!date) return '';
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   const updateBulkRow = (idx, field, value) => {
     setBulkRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
   };
@@ -422,18 +430,20 @@ export default function App() {
         const packD = parseDMY(r.packagingDate);
         const blendD = parseDMY(r.blendDate);
         const sampD = parseDMY(r.samplingDate);
-        sampD.setHours(parseInt(r.samplingHour), parseInt(r.samplingMinute), 0, 0);
+        const hourVal = parseInt(r.samplingHour, 10) || 0;
+        const minuteVal = parseInt(r.samplingMinute, 10) || 0;
+        sampD.setHours(hourVal, minuteVal, 0, 0);
         const sku = `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
         samplesToInsert.push({
           sku, product_id: prod.id,
           order_number: r.orderNumber || null,
           blend_batch: `${parseInt(r.blendBatch)}|${parseInt(r.boxSeq)}`,
-          blend_date: blendD.toISOString().split('T')[0],
-          packaging_date: packD.toISOString().split('T')[0],
+          blend_date: formatLocalYYYYMMDD(blendD),
+          packaging_date: formatLocalYYYYMMDD(packD),
           sampling_time: sampD.toISOString(),
           shelf: null, slot: null, column_number: null, box_id: null,
           total_qty: parseInt(r.qty) * 10, available_qty: parseInt(r.qty) * 10,
-          entry_date: new Date().toISOString().split('T')[0],
+          entry_date: formatLocalYYYYMMDD(new Date()),
           status: 'pending'
         });
       }
@@ -1073,8 +1083,8 @@ export default function App() {
     // Combine date with selected hour & minute
     sampD.setHours(parseInt(importSamplingHour, 10), parseInt(importSamplingMinute, 10), 0, 0);
 
-    const importBlendDate = blendD.toISOString().split('T')[0];
-    const importPackagingDate = packD.toISOString().split('T')[0];
+    const importBlendDate = formatLocalYYYYMMDD(blendD);
+    const importPackagingDate = formatLocalYYYYMMDD(packD);
     const importSamplingTime = sampD.toISOString();
 
     const prod = products.find(p => p.id === importProductId);
@@ -1150,7 +1160,7 @@ export default function App() {
       box_id: null,
       total_qty: qtyPacks,
       available_qty: qtyPacks,
-      entry_date: new Date().toISOString().split('T')[0],
+      entry_date: formatLocalYYYYMMDD(new Date()),
       status: 'stored'
     };
 
@@ -3441,11 +3451,33 @@ export default function App() {
                             <td style={{ padding:'8px 12px', width:'100px' }}>
                               <div style={{ display:'flex', gap:'4px' }}>
                                 <input type="number" min="0" max="23" value={row.samplingHour}
-                                  onChange={e => updateBulkRow(idx,'samplingHour', String(e.target.value).padStart(2,'0'))}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    if (val === '') {
+                                      updateBulkRow(idx, 'samplingHour', '');
+                                      return;
+                                    }
+                                    let h = parseInt(val, 10);
+                                    if (isNaN(h)) h = 0;
+                                    if (h < 0) h = 0;
+                                    if (h > 23) h = 23;
+                                    updateBulkRow(idx, 'samplingHour', String(h).padStart(2, '0'));
+                                  }}
                                   style={{ width:'44px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center' }} />
                                 <span style={{ lineHeight:'30px', color:'var(--text-muted)' }}>:</span>
                                 <input type="number" min="0" max="59" value={row.samplingMinute}
-                                  onChange={e => updateBulkRow(idx,'samplingMinute', String(e.target.value).padStart(2,'0'))}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    if (val === '') {
+                                      updateBulkRow(idx, 'samplingMinute', '');
+                                      return;
+                                    }
+                                    let m = parseInt(val, 10);
+                                    if (isNaN(m)) m = 0;
+                                    if (m < 0) m = 0;
+                                    if (m > 59) m = 59;
+                                    updateBulkRow(idx, 'samplingMinute', String(m).padStart(2, '0'));
+                                  }}
                                   style={{ width:'44px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center' }} />
                               </div>
                             </td>
