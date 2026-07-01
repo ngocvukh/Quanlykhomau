@@ -288,6 +288,7 @@ export default function App() {
       productId: prod.id,
       productObj: prod,
       searchQuery: prod.product_name + (prod.warning_code ? ` (${prod.warning_code})` : ''),
+      orderNumber: prod.is_export ? r.orderNumber : '',
       suggestions: []
     } : r));
   };
@@ -3376,9 +3377,24 @@ export default function App() {
                               </div>
                             </td>
                             <td style={{ padding:'8px 12px', width:'110px' }}>
-                              <input type="text" placeholder={row.productObj?.is_export ? 'Bắt buộc' : 'Tùy chọn'} value={row.orderNumber}
+                              <input 
+                                type="text" 
+                                placeholder={row.productObj ? (row.productObj.is_export ? 'Bắt buộc' : 'Không có') : 'Tùy chọn'} 
+                                value={row.orderNumber}
+                                disabled={row.productObj && !row.productObj.is_export}
                                 onChange={e => updateBulkRow(idx,'orderNumber',e.target.value)}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:`1px solid ${row.productObj?.is_export && !row.orderNumber ? 'var(--status-error)' : 'var(--glass-border)'}`, borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                                style={{ 
+                                  width:'100%', 
+                                  padding:'6px 8px', 
+                                  background: row.productObj && !row.productObj.is_export ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
+                                  border:`1px solid ${row.productObj?.is_export && !row.orderNumber ? 'var(--status-error)' : 'var(--glass-border)'}`, 
+                                  borderRadius:'6px', 
+                                  color: row.productObj && !row.productObj.is_export ? 'var(--text-muted)' : 'var(--text-primary)', 
+                                  fontSize:'12px',
+                                  cursor: row.productObj && !row.productObj.is_export ? 'not-allowed' : 'text',
+                                  opacity: row.productObj && !row.productObj.is_export ? 0.5 : 1
+                                }} 
+                              />
                             </td>
                             <td style={{ padding:'8px 12px', width:'80px' }}>
                               <input type="number" min="1" placeholder="10" value={row.qty}
