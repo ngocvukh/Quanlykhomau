@@ -3349,13 +3349,19 @@ export default function App() {
                               <input type="text" placeholder="dd/mm/yyyy" value={row.packagingDate}
                                 onChange={e => {
                                   const val = liveFormatDate(e.target.value, row.packagingDate);
+                                  const prevPack = row.packagingDate;
                                   updateBulkRow(idx,'packagingDate', val);
-                                  if (!row.samplingDate) updateBulkRow(idx,'samplingDate', val);
+                                  if (!row.samplingDate || row.samplingDate === prevPack) {
+                                    updateBulkRow(idx,'samplingDate', val);
+                                  }
                                 }}
                                 onBlur={e => {
                                   const formatted = autoFormatDate(e.target.value);
+                                  const prevPack = row.packagingDate;
                                   updateBulkRow(idx,'packagingDate', formatted);
-                                  if (!row.samplingDate || row.samplingDate === row.packagingDate) updateBulkRow(idx,'samplingDate', formatted);
+                                  if (!row.samplingDate || row.samplingDate === prevPack || row.samplingDate === row.packagingDate) {
+                                    updateBulkRow(idx,'samplingDate', formatted);
+                                  }
                                 }}
                                 style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.packagingDate && !parseDMY(row.packagingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
                             </td>
