@@ -2738,8 +2738,8 @@ export default function App() {
         <div style={{ display: 'flex', flex: 1, gap: '24px', flexDirection: 'column' }}>
           
           {/* TAB NAVIGATION BAR */}
-          <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div className="glass-panel hide-scrollbar" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '12px', overflowX: 'auto' }}>
+            <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
               {/* Common Tab */}
               <button className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('search')}>
                 <Search size={16} /> Tìm Kiếm Mẫu
@@ -2791,7 +2791,7 @@ export default function App() {
 
             {/* Back button from Guest Guest Mode */}
             {authMode === 'guest' && (
-              <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
+              <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)', marginLeft: 'auto', flexShrink: 0 }} onClick={() => setAuthMode('login')}>
                 Thoát Khách (Đăng Nhập Admin)
               </button>
             )}
