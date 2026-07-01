@@ -2745,12 +2745,13 @@ export default function App() {
                 <Search size={16} /> Tìm Kiếm Mẫu
               </button>
 
+              <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
+                <Database size={16} /> Sơ Đồ Kệ Kho
+              </button>
+
               {/* Admin-only Tabs */}
               {(profile?.role === 'admin') && (
                 <>
-                  <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
-                    <Database size={16} /> Sơ Đồ Kệ Kho
-                  </button>
                   <button className={`btn ${activeTab === 'import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('import')}>
                     <Plus size={16} /> Nhập Kho Mẫu
                   </button>
