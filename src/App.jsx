@@ -154,7 +154,7 @@ export default function App() {
   // Bulk Import State
   const createEmptyBulkRow = (id) => ({
     id, productId: '', productObj: null, searchQuery: '', suggestions: [],
-    blendBatch: '', boxSeq: '', blendDate: '', packagingDate: '',
+    blendBatch: '', boxSeq: '', blendDate: '', packagingDate: '', samplingDate: '',
     samplingHour: '08', samplingMinute: '00', orderNumber: '', qty: ''
   });
   const [bulkRows, setBulkRows] = useState([createEmptyBulkRow(1)]);
@@ -407,6 +407,7 @@ export default function App() {
       if (!r.boxSeq || isNaN(parseInt(r.boxSeq))) errors.push(`Hàng ${i+1}: Số thùng không hợp lệ`);
       if (!parseDMY(r.packagingDate)) errors.push(`Hàng ${i+1}: Ngày SX bao không hợp lệ`);
       if (!parseDMY(r.blendDate)) errors.push(`Hàng ${i+1}: Ngày SX sợi không hợp lệ`);
+      if (!parseDMY(r.samplingDate)) errors.push(`Hàng ${i+1}: Ngày lấy mẫu không hợp lệ`);
       if (!r.qty || parseInt(r.qty) < 1) errors.push(`Hàng ${i+1}: Số cây không hợp lệ`);
       if (r.productObj?.is_export && !r.orderNumber) errors.push(`Hàng ${i+1}: Hàng xuất khẩu cần đơn hàng`);
     });
@@ -419,7 +420,7 @@ export default function App() {
         const prod = r.productObj;
         const packD = parseDMY(r.packagingDate);
         const blendD = parseDMY(r.blendDate);
-        const sampD = new Date(packD);
+        const sampD = parseDMY(r.samplingDate);
         sampD.setHours(parseInt(r.samplingHour), parseInt(r.samplingMinute), 0, 0);
         const sku = `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
         samplesToInsert.push({
@@ -3291,7 +3292,7 @@ export default function App() {
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'1100px' }}>
                       <thead>
                         <tr style={{ background:'rgba(255,255,255,0.04)' }}>
-                          {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày SX sợi','Ngày SX bao','Giờ lấy mẫu','Đơn hàng','Số cây',''].map(h => (
+                          {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày SX sợi','Ngày SX bao','Ngày lấy mẫu','Giờ lấy mẫu','Đơn hàng','Số cây',''].map(h => (
                             <th key={h} style={{ padding:'10px 12px', textAlign:'left', borderBottom:'1px solid var(--glass-border)', color:'var(--text-secondary)', fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -3349,9 +3350,23 @@ export default function App() {
                             </td>
                             <td style={{ padding:'8px 12px', width:'120px' }}>
                               <input type="text" placeholder="dd/mm/yyyy" value={row.packagingDate}
-                                onChange={e => updateBulkRow(idx,'packagingDate', liveFormatDate(e.target.value, row.packagingDate))}
-                                onBlur={e => updateBulkRow(idx,'packagingDate', autoFormatDate(e.target.value))}
+                                onChange={e => {
+                                  const val = liveFormatDate(e.target.value, row.packagingDate);
+                                  updateBulkRow(idx,'packagingDate', val);
+                                  if (!row.samplingDate) updateBulkRow(idx,'samplingDate', val);
+                                }}
+                                onBlur={e => {
+                                  const formatted = autoFormatDate(e.target.value);
+                                  updateBulkRow(idx,'packagingDate', formatted);
+                                  if (!row.samplingDate || row.samplingDate === row.packagingDate) updateBulkRow(idx,'samplingDate', formatted);
+                                }}
                                 style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.packagingDate && !parseDMY(row.packagingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                              <input type="text" placeholder="dd/mm/yyyy" value={row.samplingDate}
+                                onChange={e => updateBulkRow(idx,'samplingDate', liveFormatDate(e.target.value, row.samplingDate))}
+                                onBlur={e => updateBulkRow(idx,'samplingDate', autoFormatDate(e.target.value))}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.samplingDate && !parseDMY(row.samplingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
                             </td>
                             <td style={{ padding:'8px 12px', width:'100px' }}>
                               <div style={{ display:'flex', gap:'4px' }}>
