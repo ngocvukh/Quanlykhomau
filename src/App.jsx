@@ -174,6 +174,30 @@ export default function App() {
     }
   }, [samples]);
 
+  const [bulkActiveSuggestIdx, setBulkActiveSuggestIdx] = useState(-1);
+
+  const handleBulkSearchKeyDown = (e, rowIdx) => {
+    const row = bulkRows[rowIdx];
+    if (!row || !row.suggestions || row.suggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setBulkActiveSuggestIdx(prev => (prev + 1 < row.suggestions.length) ? prev + 1 : 0);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setBulkActiveSuggestIdx(prev => (prev - 1 >= 0) ? prev - 1 : row.suggestions.length - 1);
+    } else if (e.key === 'Enter') {
+      if (bulkActiveSuggestIdx >= 0 && bulkActiveSuggestIdx < row.suggestions.length) {
+        e.preventDefault();
+        selectBulkProduct(rowIdx, row.suggestions[bulkActiveSuggestIdx]);
+        setBulkActiveSuggestIdx(-1);
+      }
+    } else if (e.key === 'Escape') {
+      updateBulkRow(rowIdx, 'suggestions', []);
+      setBulkActiveSuggestIdx(-1);
+    }
+  };
+
   const [bulkPreview, setBulkPreview] = useState(null); // kept for compat, unused now
   const [bulkStep, setBulkStep] = useState(1); // unused now, kept for compat
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -295,6 +319,7 @@ export default function App() {
 
   const handleBulkProductSearch = (idx, val) => {
     updateBulkRow(idx, 'searchQuery', val);
+    setBulkActiveSuggestIdx(-1);
     if (val.trim().length >= 1) {
       const regex = new RegExp(val, 'i');
       const matches = products.filter(p => regex.test(p.product_name) || (p.warning_code && regex.test(p.warning_code))).slice(0, 8);
@@ -315,6 +340,7 @@ export default function App() {
       orderNumber: prod.is_export ? r.orderNumber : '',
       suggestions: []
     } : r));
+    setBulkActiveSuggestIdx(-1);
   };
 
   // ─── AUTO-ASSIGN ALGORITHM ────────────────────────────────────────────────
@@ -3621,6 +3647,7 @@ export default function App() {
                                 type="text" placeholder="Nhập tên sản phẩm..."
                                 value={row.searchQuery}
                                 onChange={e => handleBulkProductSearch(idx, e.target.value)}
+                                onKeyDown={e => handleBulkSearchKeyDown(e, idx)}
                                 onBlur={() => setTimeout(() => updateBulkRow(idx,'suggestions',[]), 200)}
                                 style={{ width:'100%', padding:'6px 10px', background:'var(--glass-bg)', border:`1px solid ${row.suggestions.length > 0 ? 'var(--accent-blue)' : row.productObj ? 'var(--status-success)' : 'var(--glass-border)'}`, borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', boxSizing:'border-box', outline:'none' }}
                               />
@@ -3629,12 +3656,33 @@ export default function App() {
                               )}
                               {row.suggestions.length > 0 && (
                                 <div style={{ position:'absolute', top:'calc(100% + 2px)', left:0, right:0, background:'var(--bg-secondary)', border:'1px solid var(--accent-blue)', borderRadius:'8px', zIndex:9999, maxHeight:'220px', overflowY:'auto', boxShadow:'0 12px 32px rgba(0,0,0,0.6)' }}>
-                                  {row.suggestions.map(p => (
-                                    <div key={p.id} onMouseDown={() => selectBulkProduct(idx, p)}
-                                      style={{ padding:'10px 16px', cursor:'pointer', fontSize:'13px', borderBottom:'1px solid rgba(255,255,255,0.03)', display:'flex', justifyContent:'space-between', alignItems:'center', color:'var(--text-primary)', transition:'background 0.2s' }}
+                                  {row.suggestions.map((p, pIdx) => (
+                                    <div key={p.id} 
+                                      onMouseDown={() => selectBulkProduct(idx, p)}
+                                      onMouseEnter={() => setBulkActiveSuggestIdx(pIdx)}
+                                      style={{ 
+                                        padding:'10px 16px', 
+                                        cursor:'pointer', 
+                                        fontSize:'13px', 
+                                        borderBottom:'1px solid rgba(255,255,255,0.03)', 
+                                        display:'flex', 
+                                        justifyContent:'space-between', 
+                                        alignItems:'center', 
+                                        color:'var(--text-primary)', 
+                                        transition:'background 0.15s, color 0.15s',
+                                        background: pIdx === bulkActiveSuggestIdx ? 'rgba(37,99,235,0.25)' : 'transparent'
+                                      }}
                                       className="suggestion-item">
-                                      <span style={{ fontWeight:600 }}>{p.product_name}</span>
-                                      {p.warning_code && <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.warning_code}</span>}
+                                      <span style={{ fontWeight: 600, color: pIdx === bulkActiveSuggestIdx ? 'var(--accent-blue)' : 'var(--text-primary)' }}>{p.product_name}</span>
+                                      {p.warning_code && (
+                                        <span style={{ 
+                                          fontSize: '11px', 
+                                          background: pIdx === bulkActiveSuggestIdx ? 'rgba(37,99,235,0.1)' : 'rgba(255,255,255,0.06)', 
+                                          padding: '2px 6px', 
+                                          borderRadius: '4px', 
+                                          color: pIdx === bulkActiveSuggestIdx ? 'var(--accent-blue)' : 'var(--text-secondary)' 
+                                        }}>{p.warning_code}</span>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
