@@ -3711,7 +3711,7 @@ export default function App() {
                   </div>
 
                   {/* Table */}
-                  <div style={{ overflowX:'auto', borderRadius:'10px', border:'1px solid var(--glass-border)' }}>
+                  <div style={{ overflowX:'auto', borderRadius:'10px', border:'1px solid var(--glass-border)', paddingBottom: bulkRows.some(r => r.suggestions?.length > 0) ? '220px' : '0', transition: 'padding-bottom 0.2s' }}>
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'1100px' }}>
                       <thead>
                         <tr style={{ background:'rgba(255,255,255,0.04)' }}>
