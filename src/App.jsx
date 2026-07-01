@@ -3,7 +3,8 @@ import { supabase } from './supabaseClient';
 import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
-  ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader
+  ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
+  UploadCloud, ChevronDown, ChevronUp, AlertTriangle
 } from 'lucide-react';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
@@ -148,7 +149,19 @@ export default function App() {
   const [profilesList, setProfilesList] = useState([]);
 
   // Application UI States
-  const [activeTab, setActiveTab] = useState('search'); // 'search', 'shelves', 'import', 'catalog', 'requests', 'archives'
+  const [activeTab, setActiveTab] = useState('search'); // 'search', 'shelves', 'import', 'bulk_import', 'catalog', 'requests', 'archives'
+
+  // Bulk Import State
+  const createEmptyBulkRow = (id) => ({
+    id, productId: '', productObj: null, searchQuery: '', suggestions: [],
+    blendBatch: '', boxSeq: '', blendDate: '', packagingDate: '',
+    samplingHour: '08', samplingMinute: '00', orderNumber: '', qty: ''
+  });
+  const [bulkRows, setBulkRows] = useState([createEmptyBulkRow(1)]);
+  const [bulkPreview, setBulkPreview] = useState(null); // { toShelf, toBox, boxGroups }
+  const [bulkStep, setBulkStep] = useState(1); // 1 = nhập, 2 = xem trước
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkNextId, setBulkNextId] = useState(2);
   const [theme, setTheme] = useState('dark');
   const [toasts, setToasts] = useState([]);
   
@@ -225,6 +238,261 @@ export default function App() {
   const [catFormat, setCatFormat] = useState('Kingsize');
   const [catIsExport, setCatIsExport] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+
+  // ─── BULK IMPORT HELPERS ───────────────────────────────────────────────────
+  const parseDMY = (str) => {
+    if (!str) return null;
+    const p = str.split('/');
+    if (p.length !== 3) return null;
+    const d = new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const updateBulkRow = (idx, field, value) => {
+    setBulkRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+  };
+
+  const addBulkRows = (count = 1) => {
+    setBulkRows(prev => {
+      const newRows = [];
+      let nextId = bulkNextId;
+      for (let i = 0; i < count; i++) newRows.push(createEmptyBulkRow(nextId++));
+      setBulkNextId(nextId);
+      return [...prev, ...newRows];
+    });
+  };
+
+  const removeBulkRow = (idx) => {
+    setBulkRows(prev => prev.length === 1 ? prev : prev.filter((_, i) => i !== idx));
+  };
+
+  const handleBulkProductSearch = (idx, val) => {
+    updateBulkRow(idx, 'searchQuery', val);
+    if (val.trim().length >= 1) {
+      const regex = new RegExp(val, 'i');
+      const matches = products.filter(p => regex.test(p.product_name) || (p.warning_code && regex.test(p.warning_code))).slice(0, 8);
+      updateBulkRow(idx, 'suggestions', matches);
+    } else {
+      updateBulkRow(idx, 'suggestions', []);
+      updateBulkRow(idx, 'productId', '');
+      updateBulkRow(idx, 'productObj', null);
+    }
+  };
+
+  const selectBulkProduct = (idx, prod) => {
+    setBulkRows(prev => prev.map((r, i) => i === idx ? {
+      ...r,
+      productId: prod.id,
+      productObj: prod,
+      searchQuery: prod.product_name + (prod.warning_code ? ` (${prod.warning_code})` : ''),
+      suggestions: []
+    } : r));
+  };
+
+  // ─── AUTO-ASSIGN ALGORITHM ────────────────────────────────────────────────
+  const autoAssignBulkSamples = (rows) => {
+    // Build virtual warehouse state from current stored samples
+    const vState = {};
+    for (let s = 1; s <= 6; s++) {
+      vState[s] = {};
+      for (let slot = 1; slot <= 4; slot++) {
+        vState[s][slot] = {}; // { [colNum]: { productId, packsCount } }
+      }
+    }
+    samples.filter(s => s.status === 'stored' && s.shelf && s.slot <= 4 && s.column_number)
+      .forEach(s => {
+        if (!vState[s.shelf][s.slot][s.column_number])
+          vState[s.shelf][s.slot][s.column_number] = { productId: s.product_id, packsCount: 0 };
+        vState[s.shelf][s.slot][s.column_number].packsCount += s.available_qty;
+      });
+
+    // Sort: newest packaging_date first; same date → export before domestic
+    const sorted = [...rows].sort((a, b) => {
+      const da = parseDMY(a.packagingDate), db = parseDMY(b.packagingDate);
+      if (da && db && db - da !== 0) return db - da;
+      const ae = a.productObj?.is_export ? 1 : 0, be = b.productObj?.is_export ? 1 : 0;
+      return be - ae;
+    });
+
+    const toShelf = [], toBox = [];
+
+    for (const row of sorted) {
+      const prod = row.productObj;
+      if (!prod || !row.qty) { toBox.push(row); continue; }
+      const qtyPacks = parseInt(row.qty) * 10;
+      const fmt = prod.format || 'Kingsize';
+      const lim = FORMAT_CAPACITIES[fmt] || FORMAT_CAPACITIES['Kingsize'];
+      // Shelf iteration order
+      const shelfRange = prod.is_export ? [1,2,3,4,5,6] : [6,5,4,3,2,1];
+
+      let assigned = false;
+      for (const shelf of shelfRange) {
+        if (assigned) break;
+        for (let slot = 1; slot <= 4; slot++) {
+          if (assigned) break;
+          const slotCols = vState[shelf][slot];
+          const newCartons = Math.ceil(qtyPacks / 10);
+
+          // 1) Try stacking on existing column with SAME product
+          for (const [colStr, colData] of Object.entries(slotCols)) {
+            if (colData.productId === prod.id) {
+              const cur = Math.ceil(colData.packsCount / 10);
+              if (cur + newCartons <= lim.height) {
+                slotCols[colStr].packsCount += qtyPacks;
+                toShelf.push({ ...row, shelf, slot, column: parseInt(colStr), qtyPacks });
+                assigned = true;
+                break;
+              }
+            }
+          }
+          if (assigned) break;
+
+          // 2) Try next consecutive empty column
+          const occupiedCols = Object.keys(slotCols).map(Number);
+          const nextCol = occupiedCols.length > 0 ? Math.max(...occupiedCols) + 1 : 1;
+          if (nextCol <= lim.columns && newCartons <= lim.height) {
+            // Ensure nextCol is not occupied by different product
+            if (!slotCols[nextCol]) {
+              slotCols[nextCol] = { productId: prod.id, packsCount: qtyPacks };
+              toShelf.push({ ...row, shelf, slot, column: nextCol, qtyPacks });
+              assigned = true;
+            }
+          }
+        }
+      }
+      if (!assigned) toBox.push({ ...row, qtyPacks: parseInt(row.qty || 0) * 10 });
+    }
+
+    // Group toBox by packaging month (MM/YYYY)
+    const boxGroups = {};
+    for (const item of toBox) {
+      const d = parseDMY(item.packagingDate);
+      const key = d ? `${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : 'Không rõ';
+      if (!boxGroups[key]) boxGroups[key] = [];
+      boxGroups[key].push(item);
+    }
+
+    return { toShelf, toBox, boxGroups };
+  };
+
+  const handleBulkCalculate = () => {
+    // Validate rows
+    const errors = [];
+    bulkRows.forEach((r, i) => {
+      if (!r.productObj) errors.push(`Hàng ${i+1}: Chưa chọn sản phẩm`);
+      if (!r.blendBatch || isNaN(parseInt(r.blendBatch))) errors.push(`Hàng ${i+1}: Mẻ sợi không hợp lệ`);
+      if (!r.boxSeq || isNaN(parseInt(r.boxSeq))) errors.push(`Hàng ${i+1}: Số thùng không hợp lệ`);
+      if (!parseDMY(r.packagingDate)) errors.push(`Hàng ${i+1}: Ngày đóng gói không hợp lệ`);
+      if (!parseDMY(r.blendDate)) errors.push(`Hàng ${i+1}: Ngày phối sợi không hợp lệ`);
+      if (!r.qty || parseInt(r.qty) < 1) errors.push(`Hàng ${i+1}: Số cây không hợp lệ`);
+      if (r.productObj?.is_export && !r.orderNumber) errors.push(`Hàng ${i+1}: Hàng xuất khẩu cần số đơn hàng`);
+    });
+    if (errors.length > 0) { showToast(errors[0], 'error'); return; }
+    const result = autoAssignBulkSamples(bulkRows);
+    setBulkPreview(result);
+    setBulkStep(2);
+  };
+
+  const handleBulkSave = async () => {
+    if (!bulkPreview) return;
+    setBulkSaving(true);
+    try {
+      const allSamples = [];
+      // Prepare shelf samples
+      for (const r of bulkPreview.toShelf) {
+        const prod = r.productObj;
+        const packD = parseDMY(r.packagingDate);
+        const blendD = parseDMY(r.blendDate);
+        const sampD = parseDMY(r.packagingDate); // fallback sampling = packaging date
+        sampD.setHours(parseInt(r.samplingHour), parseInt(r.samplingMinute), 0, 0);
+        const sku = `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
+        allSamples.push({
+          sku, product_id: prod.id,
+          order_number: r.orderNumber || null,
+          blend_batch: `${parseInt(r.blendBatch)}|${parseInt(r.boxSeq)}`,
+          blend_date: blendD.toISOString().split('T')[0],
+          packaging_date: packD.toISOString().split('T')[0],
+          sampling_time: sampD.toISOString(),
+          shelf: r.shelf, slot: r.slot, column_number: r.column,
+          box_id: null,
+          total_qty: r.qtyPacks, available_qty: r.qtyPacks,
+          entry_date: new Date().toISOString().split('T')[0],
+          status: 'stored'
+        });
+      }
+
+      // Prepare boxed samples — create boxes first
+      const createdBoxMap = {}; // key -> box_id
+      for (const [boxKey, items] of Object.entries(bulkPreview.boxGroups)) {
+        const boxName = `Thùng ${boxKey}`;
+        let boxId;
+        if (isDemoMode) {
+          boxId = `box-bulk-${Date.now()}-${boxKey.replace('/','-')}`;
+          setBoxes(prev => [...prev, { id: boxId, box_name: boxName, status: 'stored', created_at: new Date().toISOString() }]);
+        } else {
+          const { data: bx, error } = await supabase.from('boxes').insert([{ box_name: boxName }]).select().single();
+          if (error && !error.message.includes('duplicate')) throw error;
+          if (error) {
+            const { data: existing } = await supabase.from('boxes').select('id').eq('box_name', boxName).single();
+            boxId = existing?.id;
+          } else boxId = bx.id;
+        }
+        createdBoxMap[boxKey] = boxId;
+        for (const r of items) {
+          const prod = r.productObj;
+          if (!prod) continue;
+          const packD = parseDMY(r.packagingDate);
+          const blendD = parseDMY(r.blendDate);
+          const sampD = parseDMY(r.packagingDate);
+          sampD.setHours(parseInt(r.samplingHour), parseInt(r.samplingMinute), 0, 0);
+          const sku = `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
+          allSamples.push({
+            sku, product_id: prod.id,
+            order_number: r.orderNumber || null,
+            blend_batch: `${parseInt(r.blendBatch)}|${parseInt(r.boxSeq)}`,
+            blend_date: blendD.toISOString().split('T')[0],
+            packaging_date: packD.toISOString().split('T')[0],
+            sampling_time: sampD.toISOString(),
+            shelf: null, slot: null, column_number: null,
+            box_id: boxId,
+            total_qty: r.qtyPacks, available_qty: r.qtyPacks,
+            entry_date: new Date().toISOString().split('T')[0],
+            status: 'boxed'
+          });
+        }
+      }
+
+      if (isDemoMode) {
+        const newSamples = allSamples.map((s, i) => ({
+          ...s,
+          id: `s-bulk-${Date.now()}-${i}`,
+          products: products.find(p => p.id === s.product_id)
+        }));
+        setSamples(prev => [...prev, ...newSamples]);
+      } else {
+        const CHUNK = 20;
+        for (let i = 0; i < allSamples.length; i += CHUNK) {
+          const { error } = await supabase.from('samples').insert(allSamples.slice(i, i + CHUNK));
+          if (error) throw error;
+        }
+        const { data: freshSamples } = await supabase.from('samples').select('*, products(*)').order('created_at', { ascending: false });
+        if (freshSamples) setSamples(freshSamples);
+        const { data: freshBoxes } = await supabase.from('boxes').select('*').order('created_at', { ascending: false });
+        if (freshBoxes) setBoxes(freshBoxes);
+      }
+
+      showToast(`✅ Đã lưu ${bulkPreview.toShelf.length} mẫu lên kệ và ${bulkPreview.toBox.length} mẫu vào thùng thành công!`, 'success');
+      setBulkRows([createEmptyBulkRow(1)]);
+      setBulkNextId(2);
+      setBulkPreview(null);
+      setBulkStep(1);
+    } catch(err) {
+      showToast('Lỗi khi lưu: ' + err.message, 'error');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Staff Search Form
   const [searchName, setSearchName] = useState('');
@@ -2036,6 +2304,9 @@ export default function App() {
                       </span>
                     )}
                   </button>
+                  <button className={`btn ${activeTab === 'bulk_import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('bulk_import')} style={{ background: activeTab === 'bulk_import' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : undefined, borderColor: activeTab === 'bulk_import' ? '#7c3aed' : undefined }}>
+                    <UploadCloud size={16} /> Nhập Hàng Loạt
+                  </button>
                   <button className={`btn ${activeTab === 'archives' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('archives')}>
                     <Archive size={16} /> Đóng Thùng & Hủy
                     {getExpiredSamples().length > 0 && (
@@ -2785,6 +3056,294 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════════
+                 BULK IMPORT TAB
+            ═══════════════════════════════════════════════════════════════ */}
+            {activeTab === 'bulk_import' && (
+              <div className="glass-panel">
+                {/* Header */}
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid var(--glass-border)', paddingBottom:'16px', marginBottom:'24px', flexWrap:'wrap', gap:'12px' }}>
+                  <div>
+                    <h2 style={{ fontSize:'20px', display:'flex', alignItems:'center', gap:'8px', margin:0 }}>
+                      <UploadCloud size={22} color="#7c3aed" /> Nhập Hàng Loạt & Tự Động Bố Trí Kho
+                    </h2>
+                    <p style={{ fontSize:'12px', color:'var(--text-muted)', margin:'4px 0 0' }}>
+                      Nhập nhiều mẫu cùng lúc — hệ thống sẽ tự tính toán vị trí kệ và đóng thùng
+                    </p>
+                  </div>
+                  {bulkStep === 2 && (
+                    <button className="btn btn-secondary" onClick={() => { setBulkStep(1); setBulkPreview(null); }}>
+                      ← Quay lại chỉnh sửa
+                    </button>
+                  )}
+                </div>
+
+                {/* STEP INDICATOR */}
+                <div style={{ display:'flex', gap:'0', marginBottom:'28px', borderRadius:'10px', overflow:'hidden', border:'1px solid var(--glass-border)' }}>
+                  {[['1','Nhập dữ liệu'],['2','Xem trước & Xác nhận']].map(([step, label]) => (
+                    <div key={step} style={{
+                      flex:1, padding:'12px', textAlign:'center', fontSize:'13px', fontWeight:600,
+                      background: bulkStep === parseInt(step) ? 'linear-gradient(135deg,#7c3aed22,#4f46e522)' : 'transparent',
+                      color: bulkStep === parseInt(step) ? '#a78bfa' : 'var(--text-muted)',
+                      borderRight: step==='1' ? '1px solid var(--glass-border)' : 'none'
+                    }}>
+                      <span style={{ display:'inline-block', width:'22px', height:'22px', borderRadius:'50%', background: bulkStep === parseInt(step) ? '#7c3aed' : 'var(--glass-border)', color:'#fff', lineHeight:'22px', fontSize:'12px', marginRight:'8px' }}>{step}</span>
+                      {label}
+                    </div>
+                  ))}
+                </div>
+
+                {/* ── STEP 1: DATA ENTRY TABLE ── */}
+                {bulkStep === 1 && (
+                  <div>
+                    <div style={{ display:'flex', gap:'8px', marginBottom:'16px', flexWrap:'wrap', alignItems:'center' }}>
+                      <button className="btn btn-secondary" style={{ fontSize:'13px' }} onClick={() => addBulkRows(1)}>
+                        <Plus size={14} /> Thêm hàng
+                      </button>
+                      <button className="btn btn-secondary" style={{ fontSize:'13px' }} onClick={() => addBulkRows(10)}>
+                        <Plus size={14} /> Thêm 10 hàng
+                      </button>
+                      <button className="btn btn-secondary" style={{ fontSize:'13px', color:'var(--status-error)' }} onClick={() => setBulkRows([createEmptyBulkRow(1)])}>
+                        <Trash2 size={14} /> Xóa tất cả
+                      </button>
+                      <span style={{ marginLeft:'auto', fontSize:'12px', color:'var(--text-muted)' }}>
+                        {bulkRows.length} mẫu • {bulkRows.filter(r=>r.productObj).length} đã chọn sản phẩm
+                      </span>
+                    </div>
+
+                    {/* Scrollable table */}
+                    <div style={{ overflowX:'auto', borderRadius:'10px', border:'1px solid var(--glass-border)' }}>
+                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'1100px' }}>
+                        <thead>
+                          <tr style={{ background:'rgba(255,255,255,0.04)' }}>
+                            {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày phối sợi','Ngày đóng gói','Giờ lấy mẫu','Số đơn','Số cây (cây)',''].map(h => (
+                              <th key={h} style={{ padding:'10px 12px', textAlign:'left', borderBottom:'1px solid var(--glass-border)', color:'var(--text-secondary)', fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bulkRows.map((row, idx) => (
+                            <tr key={row.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
+                              <td style={{ padding:'8px 12px', color:'var(--text-muted)', width:'32px' }}>{idx+1}</td>
+
+                              {/* Product search */}
+                              <td style={{ padding:'8px 12px', minWidth:'220px', position:'relative' }}>
+                                <input
+                                  type="text" placeholder="Tìm sản phẩm..."
+                                  value={row.searchQuery}
+                                  onChange={e => handleBulkProductSearch(idx, e.target.value)}
+                                  onBlur={() => setTimeout(() => updateBulkRow(idx,'suggestions',[]), 200)}
+                                  style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', boxSizing:'border-box' }}
+                                />
+                                {row.productObj && (
+                                  <span style={{ position:'absolute', top:'50%', right:'16px', transform:'translateY(-50%)', color:'var(--status-success)', fontSize:'14px' }}>✓</span>
+                                )}
+                                {row.suggestions.length > 0 && (
+                                  <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'var(--bg-secondary)', border:'1px solid var(--glass-border)', borderRadius:'8px', zIndex:999, maxHeight:'200px', overflowY:'auto', boxShadow:'0 8px 24px rgba(0,0,0,0.4)' }}>
+                                    {row.suggestions.map(p => (
+                                      <div key={p.id} onMouseDown={() => selectBulkProduct(idx, p)}
+                                        style={{ padding:'8px 12px', cursor:'pointer', fontSize:'12px', borderBottom:'1px solid rgba(255,255,255,0.03)' }}
+                                        className="suggestion-item">
+                                        <div style={{ fontWeight:600 }}>{p.product_name}</div>
+                                        {p.warning_code && <div style={{ color:'var(--text-muted)', fontSize:'11px' }}>{p.warning_code} • {p.is_export ? '🌍 XK' : '🏠 NĐ'}</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Blend batch */}
+                              <td style={{ padding:'8px 12px', width:'80px' }}>
+                                <input type="number" min="1" max="999" placeholder="123" value={row.blendBatch}
+                                  onChange={e => updateBulkRow(idx,'blendBatch',e.target.value)}
+                                  style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                              </td>
+
+                              {/* Box seq */}
+                              <td style={{ padding:'8px 12px', width:'70px' }}>
+                                <input type="number" min="1" placeholder="1" value={row.boxSeq}
+                                  onChange={e => updateBulkRow(idx,'boxSeq',e.target.value)}
+                                  style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                              </td>
+
+                              {/* Blend date */}
+                              <td style={{ padding:'8px 12px', width:'120px' }}>
+                                <input type="text" placeholder="dd/mm/yyyy" value={row.blendDate}
+                                  onChange={e => updateBulkRow(idx,'blendDate', liveFormatDate(e.target.value, row.blendDate))}
+                                  onBlur={e => updateBulkRow(idx,'blendDate', autoFormatDate(e.target.value))}
+                                  style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                              </td>
+
+                              {/* Packaging date */}
+                              <td style={{ padding:'8px 12px', width:'120px' }}>
+                                <input type="text" placeholder="dd/mm/yyyy" value={row.packagingDate}
+                                  onChange={e => updateBulkRow(idx,'packagingDate', liveFormatDate(e.target.value, row.packagingDate))}
+                                  onBlur={e => updateBulkRow(idx,'packagingDate', autoFormatDate(e.target.value))}
+                                  style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.packagingDate && !parseDMY(row.packagingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
+                              </td>
+
+                              {/* Sampling time */}
+                              <td style={{ padding:'8px 12px', width:'100px' }}>
+                                <div style={{ display:'flex', gap:'4px' }}>
+                                  <input type="number" min="0" max="23" value={row.samplingHour}
+                                    onChange={e => updateBulkRow(idx,'samplingHour', String(e.target.value).padStart(2,'0'))}
+                                    style={{ width:'44px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center' }} />
+                                  <span style={{ lineHeight:'30px', color:'var(--text-muted)' }}>:</span>
+                                  <input type="number" min="0" max="59" value={row.samplingMinute}
+                                    onChange={e => updateBulkRow(idx,'samplingMinute', String(e.target.value).padStart(2,'0'))}
+                                    style={{ width:'44px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center' }} />
+                                </div>
+                              </td>
+
+                              {/* Order number */}
+                              <td style={{ padding:'8px 12px', width:'100px' }}>
+                                <input type="text" placeholder={row.productObj?.is_export ? 'Bắt buộc' : 'Tùy chọn'} value={row.orderNumber}
+                                  onChange={e => updateBulkRow(idx,'orderNumber',e.target.value)}
+                                  style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:`1px solid ${row.productObj?.is_export && !row.orderNumber ? 'var(--status-error)' : 'var(--glass-border)'}`, borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                              </td>
+
+                              {/* Qty in cây */}
+                              <td style={{ padding:'8px 12px', width:'80px' }}>
+                                <input type="number" min="1" placeholder="10" value={row.qty}
+                                  onChange={e => updateBulkRow(idx,'qty',e.target.value)}
+                                  style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                              </td>
+
+                              {/* Remove */}
+                              <td style={{ padding:'8px 12px', width:'36px' }}>
+                                <button onClick={() => removeBulkRow(idx)} style={{ background:'none', border:'none', color:'var(--status-error)', cursor:'pointer', padding:'4px', borderRadius:'4px' }}>
+                                  <X size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Calculate button */}
+                    <div style={{ marginTop:'20px', display:'flex', justifyContent:'flex-end' }}>
+                      <button className="btn btn-primary" style={{ background:'linear-gradient(135deg,#7c3aed,#4f46e5)', borderColor:'#7c3aed', padding:'12px 32px', fontSize:'15px' }}
+                        onClick={handleBulkCalculate}>
+                        <UploadCloud size={18} /> Tính toán bố trí kho →
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── STEP 2: PREVIEW ── */}
+                {bulkStep === 2 && bulkPreview && (
+                  <div>
+                    {/* Summary cards */}
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:'12px', marginBottom:'24px' }}>
+                      {[
+                        { label:'Tổng mẫu nhập', value: bulkPreview.toShelf.length + bulkPreview.toBox.length, color:'#a78bfa', icon:'📦' },
+                        { label:'Xếp lên kệ', value: bulkPreview.toShelf.length, color:'var(--status-success)', icon:'🗄️' },
+                        { label:'Đóng thùng', value: bulkPreview.toBox.length, color:'#f59e0b', icon:'📫' },
+                        { label:'Số thùng tạo', value: Object.keys(bulkPreview.boxGroups).length, color:'#60a5fa', icon:'🗃️' },
+                      ].map(c => (
+                        <div key={c.label} style={{ padding:'16px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--glass-border)', borderRadius:'12px', textAlign:'center' }}>
+                          <div style={{ fontSize:'28px', marginBottom:'4px' }}>{c.icon}</div>
+                          <div style={{ fontSize:'28px', fontWeight:'bold', color:c.color }}>{c.value}</div>
+                          <div style={{ fontSize:'12px', color:'var(--text-muted)' }}>{c.label}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Shelf assignments */}
+                    {bulkPreview.toShelf.length > 0 && (
+                      <div style={{ marginBottom:'24px' }}>
+                        <h3 style={{ fontSize:'15px', color:'var(--status-success)', marginBottom:'12px', display:'flex', alignItems:'center', gap:'8px' }}>
+                          <Check size={16} /> Mẫu xếp lên kệ ({bulkPreview.toShelf.length} lô)
+                        </h3>
+                        <div style={{ maxHeight:'280px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)' }}>
+                          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
+                            <thead>
+                              <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0 }}>
+                                {['Sản phẩm','Mẻ|Thùng','Đóng gói','Cây','Vị trí','Loại'].map(h => (
+                                  <th key={h} style={{ padding:'8px 12px', textAlign:'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)', whiteSpace:'nowrap' }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bulkPreview.toShelf.map((r,i) => {
+                                const shelfLetter = String.fromCharCode(64 + r.shelf);
+                                return (
+                                  <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
+                                    <td style={{ padding:'8px 12px', fontWeight:500 }}>{r.productObj?.product_name}</td>
+                                    <td style={{ padding:'8px 12px', color:'var(--text-secondary)' }}>{r.blendBatch}|{r.boxSeq}</td>
+                                    <td style={{ padding:'8px 12px', color:'var(--text-secondary)' }}>{r.packagingDate}</td>
+                                    <td style={{ padding:'8px 12px' }}><strong>{r.qty}</strong></td>
+                                    <td style={{ padding:'8px 12px' }}>
+                                      <span style={{ background:'rgba(16,185,129,0.15)', color:'var(--status-success)', padding:'2px 10px', borderRadius:'6px', fontWeight:700, fontSize:'13px' }}>
+                                        {shelfLetter}{r.slot} / Cột {r.column}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding:'8px 12px', fontSize:'11px', color: r.productObj?.is_export ? '#60a5fa' : '#a78bfa' }}>
+                                      {r.productObj?.is_export ? '🌍 XK' : '🏠 NĐ'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Box groups */}
+                    {bulkPreview.toBox.length > 0 && (
+                      <div style={{ marginBottom:'24px' }}>
+                        <h3 style={{ fontSize:'15px', color:'#f59e0b', marginBottom:'12px', display:'flex', alignItems:'center', gap:'8px' }}>
+                          <Box size={16} /> Mẫu đóng thùng ({bulkPreview.toBox.length} lô • {Object.keys(bulkPreview.boxGroups).length} thùng)
+                        </h3>
+                        {Object.entries(bulkPreview.boxGroups).map(([boxKey, items]) => (
+                          <div key={boxKey} style={{ marginBottom:'12px', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'10px', overflow:'hidden' }}>
+                            <div style={{ background:'rgba(245,158,11,0.1)', padding:'8px 16px', fontWeight:700, fontSize:'13px', color:'#f59e0b', display:'flex', justifyContent:'space-between' }}>
+                              <span>📦 Thùng {boxKey}</span>
+                              <span style={{ fontWeight:400, color:'var(--text-muted)' }}>{items.length} lô • {items.reduce((s,r)=>s+(parseInt(r.qty)||0),0)} cây</span>
+                            </div>
+                            <div style={{ maxHeight:'150px', overflowY:'auto' }}>
+                              {items.map((r,i) => (
+                                <div key={i} style={{ padding:'6px 16px', fontSize:'12px', borderBottom:'1px solid rgba(255,255,255,0.03)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                  <span style={{ color:'var(--text-primary)' }}>{r.productObj?.product_name}</span>
+                                  <span style={{ color:'var(--text-muted)' }}>Mẻ {r.blendBatch}|{r.boxSeq} • {r.qty} cây • {r.packagingDate}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Warning if kho is full */}
+                    {bulkPreview.toBox.length > 0 && (
+                      <div style={{ padding:'12px 16px', background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'8px', marginBottom:'20px', display:'flex', gap:'10px', alignItems:'flex-start' }}>
+                        <AlertTriangle size={16} color="#f59e0b" style={{ marginTop:'2px', flexShrink:0 }} />
+                        <div style={{ fontSize:'13px', color:'var(--text-secondary)' }}>
+                          Kệ kho không còn đủ chỗ cho {bulkPreview.toBox.length} lô mẫu cũ hơn.
+                          Chúng sẽ được tự động đóng thùng theo tháng đóng gói để lưu trữ bên ngoài kệ.
+                          Bạn vẫn có thể truy xuất mẫu trong thùng thông qua tab <strong>Tìm Kiếm Mẫu</strong>.
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Confirm button */}
+                    <div style={{ display:'flex', gap:'12px', justifyContent:'flex-end' }}>
+                      <button className="btn btn-secondary" onClick={() => { setBulkStep(1); setBulkPreview(null); }}>
+                        ← Chỉnh sửa lại
+                      </button>
+                      <button className="btn btn-primary"
+                        style={{ background:'linear-gradient(135deg,#7c3aed,#4f46e5)', borderColor:'#7c3aed', padding:'12px 32px', fontSize:'15px', minWidth:'200px' }}
+                        onClick={handleBulkSave} disabled={bulkSaving}>
+                        {bulkSaving ? <><Loader size={16} className="spin" /> Đang lưu...</> : <><Check size={18} /> Xác nhận lưu tất cả</>}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
