@@ -3119,7 +3119,7 @@ export default function App() {
                       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'1100px' }}>
                         <thead>
                           <tr style={{ background:'rgba(255,255,255,0.04)' }}>
-                            {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày phối sợi','Ngày đóng gói','Giờ lấy mẫu','Số đơn','Số cây (cây)',''].map(h => (
+                            {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày SX sợi','Ngày SX bao','Giờ lấy mẫu','Đơn hàng','Số cây (cây)',''].map(h => (
                               <th key={h} style={{ padding:'10px 12px', textAlign:'left', borderBottom:'1px solid var(--glass-border)', color:'var(--text-secondary)', fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
                             ))}
                           </tr>
@@ -3130,25 +3130,29 @@ export default function App() {
                               <td style={{ padding:'8px 12px', color:'var(--text-muted)', width:'32px' }}>{idx+1}</td>
 
                               {/* Product search */}
-                              <td style={{ padding:'8px 12px', minWidth:'220px', position:'relative' }}>
+                              <td style={{ padding:'8px 12px', minWidth:'240px', position:'relative', zIndex: row.suggestions.length > 0 ? 100 : 'auto' }}>
                                 <input
-                                  type="text" placeholder="Tìm sản phẩm..."
+                                  type="text" placeholder="Nhập tên sản phẩm..."
                                   value={row.searchQuery}
                                   onChange={e => handleBulkProductSearch(idx, e.target.value)}
                                   onBlur={() => setTimeout(() => updateBulkRow(idx,'suggestions',[]), 200)}
-                                  style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', boxSizing:'border-box' }}
+                                  style={{ width:'100%', padding:'6px 10px', background:'var(--glass-bg)', border:`1px solid ${row.suggestions.length > 0 ? 'var(--accent-blue)' : row.productObj ? 'var(--status-success)' : 'var(--glass-border)'}`, borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', boxSizing:'border-box', outline:'none' }}
                                 />
-                                {row.productObj && (
+                                {row.productObj && !row.suggestions.length && (
                                   <span style={{ position:'absolute', top:'50%', right:'16px', transform:'translateY(-50%)', color:'var(--status-success)', fontSize:'14px' }}>✓</span>
                                 )}
                                 {row.suggestions.length > 0 && (
-                                  <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'var(--bg-secondary)', border:'1px solid var(--glass-border)', borderRadius:'8px', zIndex:999, maxHeight:'200px', overflowY:'auto', boxShadow:'0 8px 24px rgba(0,0,0,0.4)' }}>
+                                  <div style={{ position:'absolute', top:'calc(100% + 2px)', left:0, right:0, background:'var(--bg-secondary)', border:'1px solid var(--accent-blue)', borderRadius:'8px', zIndex:9999, maxHeight:'220px', overflowY:'auto', boxShadow:'0 12px 32px rgba(0,0,0,0.6)' }}>
                                     {row.suggestions.map(p => (
                                       <div key={p.id} onMouseDown={() => selectBulkProduct(idx, p)}
-                                        style={{ padding:'8px 12px', cursor:'pointer', fontSize:'12px', borderBottom:'1px solid rgba(255,255,255,0.03)' }}
+                                        style={{ padding:'9px 12px', cursor:'pointer', fontSize:'12px', borderBottom:'1px solid rgba(255,255,255,0.04)', transition:'background 0.15s' }}
                                         className="suggestion-item">
-                                        <div style={{ fontWeight:600 }}>{p.product_name}</div>
-                                        {p.warning_code && <div style={{ color:'var(--text-muted)', fontSize:'11px' }}>{p.warning_code} • {p.is_export ? '🌍 XK' : '🏠 NĐ'}</div>}
+                                        <div style={{ fontWeight:600, color:'var(--text-primary)', marginBottom: p.warning_code ? '2px' : 0 }}>{p.product_name}</div>
+                                        <div style={{ color:'var(--text-muted)', fontSize:'11px', display:'flex', gap:'8px' }}>
+                                          {p.warning_code && <span>{p.warning_code}</span>}
+                                          <span style={{ color: p.is_export ? '#60a5fa' : '#a78bfa' }}>{p.is_export ? '🌍 Xuất khẩu' : '🏠 Nội địa'}</span>
+                                          <span>{p.format}</span>
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
