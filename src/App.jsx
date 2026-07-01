@@ -540,15 +540,40 @@ export default function App() {
         }
       }
 
-      if (!isDemoMode) {
+      // Find all samples that were just assigned and add them to print queue
+      const assignedIds = [
+        ...scanPreview.toShelf.map(r => r._sampleId),
+        ...Object.values(scanPreview.boxGroups).flatMap(items => items.map(r => r._sampleId))
+      ];
+
+      let samplesForPrint = [];
+      if (isDemoMode) {
+        // For demo mode, local state updates are synchronous
+        samplesForPrint = samples.filter(s => assignedIds.includes(s.id));
+      } else {
         const { data: freshSamples } = await supabase.from('samples').select('*, products(*)').order('created_at', { ascending: false });
-        if (freshSamples) setSamples(freshSamples);
+        if (freshSamples) {
+          setSamples(freshSamples);
+          samplesForPrint = freshSamples.filter(s => assignedIds.includes(s.id));
+        }
         const { data: freshBoxes } = await supabase.from('boxes').select('*').order('created_at', { ascending: false });
         if (freshBoxes) setBoxes(freshBoxes);
       }
 
+      if (samplesForPrint.length > 0) {
+        // Add them to the bulk print queue
+        setPrintQueue(prev => {
+          // Filter duplicates to prevent adding the same sample twice
+          const existingIds = new Set(prev.map(p => p.id));
+          const newItems = samplesForPrint.filter(s => !existingIds.has(s.id));
+          return [...newItems, ...prev];
+        });
+      }
+
       showToast(`✅ Đã bố trí ${scanPreview.toShelf.length} mẫu lên kệ và ${scanPreview.toBox.length} mẫu vào thùng!`, 'success');
       setScanPreview(null);
+      // Auto redirect to print tab
+      setActiveTab('labels');
     } catch(err) {
       showToast('Lỗi: ' + err.message, 'error');
     } finally {
