@@ -3448,37 +3448,23 @@ export default function App() {
                                 onBlur={e => updateBulkRow(idx,'samplingDate', autoFormatDate(e.target.value))}
                                 style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.samplingDate && !parseDMY(row.samplingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'100px' }}>
-                              <div style={{ display:'flex', gap:'4px' }}>
-                                <input type="number" min="0" max="23" value={row.samplingHour}
-                                  onChange={e => {
-                                    const val = e.target.value;
-                                    if (val === '') {
-                                      updateBulkRow(idx, 'samplingHour', '');
-                                      return;
-                                    }
-                                    let h = parseInt(val, 10);
-                                    if (isNaN(h)) h = 0;
-                                    if (h < 0) h = 0;
-                                    if (h > 23) h = 23;
-                                    updateBulkRow(idx, 'samplingHour', String(h).padStart(2, '0'));
-                                  }}
-                                  style={{ width:'44px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center' }} />
-                                <span style={{ lineHeight:'30px', color:'var(--text-muted)' }}>:</span>
-                                <input type="number" min="0" max="59" value={row.samplingMinute}
-                                  onChange={e => {
-                                    const val = e.target.value;
-                                    if (val === '') {
-                                      updateBulkRow(idx, 'samplingMinute', '');
-                                      return;
-                                    }
-                                    let m = parseInt(val, 10);
-                                    if (isNaN(m)) m = 0;
-                                    if (m < 0) m = 0;
-                                    if (m > 59) m = 59;
-                                    updateBulkRow(idx, 'samplingMinute', String(m).padStart(2, '0'));
-                                  }}
-                                  style={{ width:'44px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center' }} />
+                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                              <div style={{ display:'flex', gap:'4px', alignItems:'center' }}>
+                                <select value={row.samplingHour}
+                                  onChange={e => updateBulkRow(idx, 'samplingHour', e.target.value)}
+                                  style={{ width:'48px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none', cursor:'pointer' }}>
+                                  {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
+                                    <option key={h} value={h} style={{ background:'var(--bg-secondary)', color:'var(--text-primary)' }}>{h}</option>
+                                  ))}
+                                </select>
+                                <span style={{ color:'var(--text-muted)' }}>:</span>
+                                <select value={row.samplingMinute}
+                                  onChange={e => updateBulkRow(idx, 'samplingMinute', e.target.value)}
+                                  style={{ width:'48px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none', cursor:'pointer' }}>
+                                  {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map(m => (
+                                    <option key={m} value={m} style={{ background:'var(--bg-secondary)', color:'var(--text-primary)' }}>{m}</option>
+                                  ))}
+                                </select>
                               </div>
                             </td>
                             <td style={{ padding:'8px 12px', width:'110px' }}>
