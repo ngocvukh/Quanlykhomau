@@ -677,6 +677,22 @@ export default function App() {
     }
   };
 
+  const handleDeletePendingSample = async (id) => {
+    if (!window.confirm("Bạn có chắc chắn muốn xóa mẫu chờ bố trí này không?")) return;
+    try {
+      if (isDemoMode) {
+        setSamples(prev => prev.filter(s => s.id !== id));
+      } else {
+        const { error } = await supabase.from('samples').delete().eq('id', id);
+        if (error) throw error;
+        setSamples(prev => prev.filter(s => s.id !== id));
+      }
+      showToast("✅ Đã xóa mẫu chờ thành công!", 'success');
+    } catch (err) {
+      showToast("Lỗi xóa mẫu: " + err.message, 'error');
+    }
+  };
+
   // ──────────────────────────────────────────────────────────────────────────
 
   // Staff Search Form
@@ -3935,8 +3951,8 @@ export default function App() {
                       <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
                         <thead>
                           <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0 }}>
-                            {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Số cây','Ngày nhập'].map(h => (
-                              <th key={h} style={{ padding:'8px 12px', textAlign:'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>{h}</th>
+                            {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Số cây','Ngày nhập', 'Thao tác'].map((h, i) => (
+                              <th key={i} style={{ padding:'8px 12px', textAlign: h === 'Thao tác' ? 'right' : 'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
@@ -3948,6 +3964,11 @@ export default function App() {
                               <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
                               <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
                               <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
+                              <td style={{ padding:'7px 12px', textAlign:'right' }}>
+                                <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
+                                  <Trash2 size={16} />
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
