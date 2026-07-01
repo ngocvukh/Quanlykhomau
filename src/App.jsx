@@ -2172,15 +2172,8 @@ export default function App() {
     sortedTrays.forEach(trayNum => {
       const samplesInTray = trayGroups[trayNum];
       
-      // Sort samples within this tray: boxes first, then shelf -> slot -> column
-      const sortedSamplesInTray = [...samplesInTray].sort((a, b) => {
-        if (a.box_id && !b.box_id) return -1;
-        if (!a.box_id && b.box_id) return 1;
-        if (a.box_id && b.box_id) return a.box_id.localeCompare(b.box_id);
-        if (a.shelf !== b.shelf) return a.shelf - b.shelf;
-        if (a.slot !== b.slot) return a.slot - b.slot;
-        return a.column_number - b.column_number;
-      });
+      // Sort samples within this tray by created_at ascending (the order of input)
+      const sortedSamplesInTray = [...samplesInTray].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
       // Expand to individual stickers
       const trayStickers = [];
@@ -2370,6 +2363,9 @@ export default function App() {
         };
       }
       groups[key].items.push(s);
+    });
+    Object.values(groups).forEach(g => {
+      g.items.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     });
     return Object.values(groups).sort((a, b) => a.trayNumber - b.trayNumber);
   };
