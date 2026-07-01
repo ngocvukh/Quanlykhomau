@@ -1930,6 +1930,7 @@ export default function App() {
       const locText = s.box_id
         ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
         : formatLocation(s.shelf, s.slot, s.column_number);
+      const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
 
       for (let i = 0; i < numLabels; i++) {
         allStickers.push(`
@@ -1938,7 +1939,7 @@ export default function App() {
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
               <div class="info-row">
                 <span class="info-label">Sản phẩm:</span>
-                <span class="info-val" style="font-weight: bold; font-size: 10px;">${s.products?.product_name || s.product_name}</span>
+                <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Cảnh báo:</span>
@@ -1946,7 +1947,7 @@ export default function App() {
               </div>
               ${s.order_number ? `
               <div class="info-row">
-                <span class="info-label">Số Order:</span>
+                <span class="info-label">Số đơn hàng:</span>
                 <span class="info-val">${s.order_number}</span>
               </div>` : ''}
               <div class="info-row">
@@ -1954,18 +1955,22 @@ export default function App() {
                 <span class="info-val">${formatBlendBatch(s.blend_batch)}</span>
               </div>
               <div class="info-row">
+                <span class="info-label">Thùng lấy mẫu:</span>
+                <span class="info-val">${boxSeqStr}</span>
+              </div>
+              <div class="info-row">
                 <span class="info-label">Ngày SX sợi:</span>
                 <span class="info-val">${new Date(s.blend_date).toLocaleDateString()}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Ngày SX bao:</span>
-                <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()} ${formatSamplingBox(s.blend_batch)}</span>
+                <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
               </div>
               <div class="info-row">
-                <span class="info-label">Thời gian lấy:</span>
+                <span class="info-label">Thời điểm lấy mẫu:</span>
                 <span class="info-val">${new Date(s.sampling_time).toLocaleString()}</span>
               </div>
-              <div class="info-row" style="margin-top: 3px;">
+              <div class="info-row" style="margin-top: 2px; border-top: 1px dashed #bbb; padding-top: 2px;">
                 <span class="info-label">Vị trí lưu:</span>
                 <span class="info-val" style="font-weight: bold; color: #000;">${locText.toUpperCase()}</span>
               </div>
@@ -2039,14 +2044,16 @@ export default function App() {
             flex: 1;
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            font-size: 8.5px;
-            line-height: 1.35;
+            justify-content: flex-start;
+            font-size: 7.8px;
+            line-height: 1.25;
+            padding-top: 1px;
           }
           .info-title {
-            font-size: 11px;
+            font-size: 10px;
             font-weight: bold;
-            margin-bottom: 3px;
+            margin-top: 0px;
+            margin-bottom: 4px;
             border-bottom: 1px solid #000;
             padding-bottom: 1px;
             text-transform: uppercase;
