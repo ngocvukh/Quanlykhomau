@@ -3318,14 +3318,10 @@ export default function App() {
                                 <div style={{ position:'absolute', top:'calc(100% + 2px)', left:0, right:0, background:'var(--bg-secondary)', border:'1px solid var(--accent-blue)', borderRadius:'8px', zIndex:9999, maxHeight:'220px', overflowY:'auto', boxShadow:'0 12px 32px rgba(0,0,0,0.6)' }}>
                                   {row.suggestions.map(p => (
                                     <div key={p.id} onMouseDown={() => selectBulkProduct(idx, p)}
-                                      style={{ padding:'9px 12px', cursor:'pointer', fontSize:'12px', borderBottom:'1px solid rgba(255,255,255,0.04)', transition:'background 0.15s' }}
+                                      style={{ padding:'10px 16px', cursor:'pointer', fontSize:'13px', borderBottom:'1px solid rgba(255,255,255,0.03)', display:'flex', justifyContent:'space-between', alignItems:'center', color:'var(--text-primary)', transition:'background 0.2s' }}
                                       className="suggestion-item">
-                                      <div style={{ fontWeight:600, color:'var(--text-primary)', marginBottom: p.warning_code ? '2px' : 0 }}>{p.product_name}</div>
-                                      <div style={{ color:'var(--text-muted)', fontSize:'11px', display:'flex', gap:'8px' }}>
-                                        {p.warning_code && <span>{p.warning_code}</span>}
-                                        <span style={{ color: p.is_export ? '#60a5fa' : '#a78bfa' }}>{p.is_export ? '🌍 Xuất khẩu' : '🏠 Nội địa'}</span>
-                                        <span>{p.format}</span>
-                                      </div>
+                                      <span style={{ fontWeight:600 }}>{p.product_name}</span>
+                                      {p.warning_code && <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.warning_code}</span>}
                                     </div>
                                   ))}
                                 </div>
