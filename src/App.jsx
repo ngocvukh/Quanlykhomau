@@ -3826,55 +3826,61 @@ export default function App() {
                               flexDirection: 'column-reverse', 
                               overflow: 'hidden' 
                             }}>
-                              {Array.from({ length: maxHeight }).map((_, idx) => {
-                                const isOccupied = idx < height;
-                                return (
-                                  <div key={idx} style={{
-                                    flex: 1,
-                                    width: '100%',
-                                    borderBottom: idx > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
-                                    background: isOccupied ? 'rgba(74, 144, 226, 0.25)' : 'transparent',
-                                  }}></div>
-                                );
-                              })}
-                              
-                              {/* Overlay content */}
-                              {sampleInCol && (
-                                <div style={{
-                                  position: 'absolute',
-                                  bottom: 0,
-                                  left: 0,
-                                  width: '100%',
-                                  height: `${Math.min(height / maxHeight, 1) * 100}%`,
-                                  background: height >= maxHeight ? 'var(--status-error)' : 'var(--accent-gradient)',
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  padding: '4px',
-                                  textAlign: 'center',
-                                  transition: 'height 0.3s ease',
-                                  boxShadow: 'inset 0 0 10px rgba(0,0,0,0.2)'
-                                }}>
-                                  <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#ffffff', lineHeight: '1.2', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
-                                    {sampleInCol.products?.product_name || sampleInCol.product_name}
-                                  </span>
-                                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.95)', marginTop: '4px', textShadow: '0 1px 2px rgba(0,0,0,0.8)', fontWeight: 600 }}>
-                                    {(() => {
-                                      const colSamples = slotSamples.filter(s => s.column_number === col);
-                                      if (colSamples.length === 1) {
-                                        return new Date(colSamples[0].packaging_date).toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'});
-                                      } else if (colSamples.length > 1) {
-                                        const dates = colSamples.map(s => new Date(s.packaging_date).getTime());
-                                        const minD = new Date(Math.min(...dates)).toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'});
-                                        const maxD = new Date(Math.max(...dates)).toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'});
-                                        return `${minD} - ${maxD} (${colSamples.length} lô)`;
-                                      }
-                                      return '';
-                                    })()}
-                                  </span>
-                                </div>
-                              )}
+                              {(() => {
+                                const colSamples = slotSamples.filter(s => s.column_number === col);
+                                // Sort ascending (oldest first, which renders at the bottom due to column-reverse)
+                                colSamples.sort((a, b) => new Date(a.packaging_date) - new Date(b.packaging_date));
+                                
+                                const totalOccupied = colSamples.reduce((sum, s) => sum + Math.ceil(s.available_qty / 10), 0);
+                                const emptySlotsCount = maxHeight - totalOccupied;
+
+                                const elements = [];
+                                
+                                // 1. Render actual batch blocks
+                                colSamples.forEach((s, sIdx) => {
+                                  const cartons = Math.ceil(s.available_qty / 10);
+                                  const blockHeight = cartons * (240 / maxHeight);
+                                  elements.push(
+                                    <div key={`batch-${s.id || sIdx}`} style={{
+                                      height: `${blockHeight}px`,
+                                      width: '100%',
+                                      background: 'var(--accent-gradient)',
+                                      borderTop: '1px solid rgba(255,255,255,0.15)',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      padding: '2px',
+                                      boxSizing: 'border-box',
+                                      textAlign: 'center',
+                                      overflow: 'hidden',
+                                      boxShadow: 'inset 0 0 10px rgba(0,0,0,0.2)',
+                                      position: 'relative'
+                                    }}>
+                                      <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#ffffff', lineHeight: '1.2', textShadow: '0 1px 2px rgba(0,0,0,0.8)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%' }}>
+                                        {s.products?.product_name || s.product_name}
+                                      </span>
+                                      <span style={{ fontSize: '8px', color: 'rgba(255,255,255,0.95)', marginTop: '2px', textShadow: '0 1px 2px rgba(0,0,0,0.8)', fontWeight: 600 }}>
+                                        {new Date(s.packaging_date).toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})}
+                                      </span>
+                                    </div>
+                                  );
+                                });
+
+                                // 2. Render empty cells grid (for capacity guide)
+                                for (let i = 0; i < emptySlotsCount; i++) {
+                                  elements.push(
+                                    <div key={`empty-${i}`} style={{
+                                      height: `${240 / maxHeight}px`,
+                                      width: '100%',
+                                      borderTop: i > 0 || totalOccupied > 0 ? '1px dashed rgba(255,255,255,0.06)' : 'none',
+                                      background: 'transparent'
+                                    }}></div>
+                                  );
+                                }
+
+                                return elements;
+                              })()}
                             </div>
 
                             <span style={{ fontSize: '12px', fontWeight: 'bold', color: height > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)' }}>
