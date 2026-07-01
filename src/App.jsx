@@ -3078,6 +3078,17 @@ export default function App() {
                         </div>
                       ) : null;
                     })()}
+                    <button className="btn btn-secondary" style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '13px' }} onClick={() => {
+                      const activeSamples = samples.filter(s => s.status === 'stored' || s.status === 'boxed');
+                      if (activeSamples.length === 0) {
+                        showToast("Không có mẫu nào đang lưu trong kho để nạp!", "warning");
+                        return;
+                      }
+                      setPrintQueue(activeSamples);
+                      showToast(`✅ Đã nạp ${activeSamples.length} mẫu trong kho vào hàng đợi in!`, 'success');
+                    }}>
+                      Nạp toàn bộ nhãn trong kho ({samples.filter(s => s.status === 'stored' || s.status === 'boxed').length})
+                    </button>
                     {printQueue.length > 0 && (
                       <button className="btn btn-secondary" style={{ color:'var(--status-error)', borderColor:'rgba(239,68,68,0.2)' }} onClick={() => {
                         if (confirm("Xóa toàn bộ hàng đợi in nhãn?")) setPrintQueue([]);
