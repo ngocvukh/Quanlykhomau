@@ -159,7 +159,7 @@ export default function App() {
   const createEmptyBulkRow = (id) => ({
     id, productId: '', productObj: null, searchQuery: '', suggestions: [],
     blendBatch: '', boxSeq: '', blendDate: '', packagingDate: '', samplingDate: '',
-    samplingHour: '08', samplingMinute: '00', orderNumber: '', qty: ''
+    samplingHour: '08', samplingMinute: '00', orderNumber: '', qty: '', note: ''
   });
   const [bulkRows, setBulkRows] = useState([createEmptyBulkRow(1)]);
   const [bulkTrayNumber, setBulkTrayNumber] = useState('1');
@@ -552,7 +552,8 @@ export default function App() {
           total_qty: parseInt(r.qty) * 10, available_qty: parseInt(r.qty) * 10,
           entry_date: formatLocalYYYYMMDD(new Date()),
           status: 'pending',
-          tray_number: trayNumVal
+          tray_number: trayNumVal,
+          note: r.note || null
         });
       }
 
@@ -2997,6 +2998,11 @@ export default function App() {
                                       ? `Khay số ${s.tray_number || '—'} (Chờ bố trí)`
                                       : 'Chưa xác định'}
                               </span></div>
+                              {s.note && (
+                                <div style={{ gridColumn: 'span 3', padding: '6px 12px', background: 'rgba(245,158,11,0.06)', border: '1px dashed rgba(245,158,11,0.25)', borderRadius: '6px', marginTop: '4px', fontSize: '12.5px' }}>
+                                  <strong>Ghi chú:</strong> <span style={{ color: '#f59e0b', fontWeight: '500' }}>{s.note}</span>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -3806,7 +3812,7 @@ export default function App() {
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'1100px' }}>
                       <thead>
                         <tr style={{ background:'rgba(255,255,255,0.04)' }}>
-                          {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày SX sợi','Ngày SX bao','Ngày lấy mẫu','Giờ lấy mẫu','Đơn hàng','Số cây',''].map(h => (
+                          {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày SX sợi','Ngày SX bao','Ngày lấy mẫu','Giờ lấy mẫu','Đơn hàng','Số cây','Ghi chú',''].map(h => (
                             <th key={h} style={{ padding:'10px 12px', textAlign:'left', borderBottom:'1px solid var(--glass-border)', color:'var(--text-secondary)', fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -3948,6 +3954,11 @@ export default function App() {
                             <td style={{ padding:'8px 12px', width:'80px' }}>
                               <input type="number" min="1" placeholder="10" value={row.qty}
                                 onChange={e => updateBulkRow(idx,'qty',e.target.value)}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'150px' }}>
+                              <input type="text" placeholder="Ghi chú..." value={row.note}
+                                onChange={e => updateBulkRow(idx,'note',e.target.value)}
                                 style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
                             </td>
                             <td style={{ padding:'8px 12px', width:'36px' }}>
