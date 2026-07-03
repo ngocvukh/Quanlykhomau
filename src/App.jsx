@@ -828,7 +828,10 @@ export default function App() {
 
   const saveVisitorName = () => {
     const trimmed = nameInput.trim();
-    if (!trimmed) { showToast('Vui lòng nhập tên!', 'warning'); return; }
+    if (!trimmed) {
+      window.location.href = 'https://www.google.com.vn';
+      return;
+    }
     localStorage.setItem('visitor_name', trimmed);
     setVisitorName(trimmed);
     setShowNamePrompt(false);
@@ -5070,7 +5073,7 @@ export default function App() {
               />
             </div>
             <div className="modal-footer" style={{ display: 'flex', gap: '12px' }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setVisitorName('Khách ẩn danh'); setShowNamePrompt(false); }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { window.location.href = 'https://www.google.com.vn'; }}>
                 Bỏ qua
               </button>
               <button className="btn btn-primary" style={{ flex: 2 }} onClick={saveVisitorName}>
