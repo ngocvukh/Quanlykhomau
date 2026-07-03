@@ -24,6 +24,40 @@ Date.prototype.toLocaleString = function() {
   return `${hours}:${minutes} ngày ${day}/${month}/${year}`;
 };
 
+// ── Hỗ trợ lấy tên thiết bị từ UserAgent ──
+const getDeviceDescription = () => {
+  const ua = navigator.userAgent;
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) {
+    const match = ua.match(/Android\s+[^;]+;\s+([^;\)]+)/);
+    if (match && match[1]) {
+      const model = match[1].replace(/Build\/.+/i, '').trim();
+      return model || 'Android';
+    }
+    return 'Android';
+  }
+  let os = 'PC';
+  if (/Windows/i.test(ua)) os = 'Windows';
+  else if (/Macintosh|Mac OS X/i.test(ua)) os = 'Mac';
+  else if (/Linux/i.test(ua)) os = 'Linux';
+  
+  let browser = 'Browser';
+  if (/Edg/i.test(ua)) browser = 'Edge';
+  else if (/Chrome/i.test(ua)) browser = 'Chrome';
+  else if (/Firefox/i.test(ua)) browser = 'Firefox';
+  else if (/Safari/i.test(ua)) browser = 'Safari';
+  
+  return `${os} (${browser})`;
+};
+
+// ── Lấy phần mô tả thiết bị thân thiện để hiển thị ──
+const getDisplayDeviceName = (did) => {
+  if (!did) return 'Không rõ';
+  const match = did.match(/\(([^)]+)\)/);
+  return match ? match[1] : did.slice(0, 12) + '...';
+};
+
 // ── Device Fingerprint (thuần JS, không cần thư viện ngoài) ──
 const generateDeviceId = async () => {
   try {
@@ -46,9 +80,11 @@ const generateDeviceId = async () => {
       hash = ((hash << 5) - hash) + raw.charCodeAt(i);
       hash |= 0;
     }
-    return 'dev-' + Math.abs(hash).toString(36);
+    const deviceName = getDeviceDescription();
+    return `dev-${Math.abs(hash).toString(36)} (${deviceName})`;
   } catch {
-    return 'dev-' + Math.random().toString(36).slice(2, 10);
+    const deviceName = getDeviceDescription();
+    return `dev-${Math.random().toString(36).slice(2, 10)} (${deviceName})`;
   }
 };
 
@@ -816,7 +852,8 @@ export default function App() {
   useEffect(() => {
     (async () => {
       let did = localStorage.getItem('visitor_device_id');
-      if (!did) {
+      // Nếu chưa có thiết bị hoặc thiết bị cũ chưa được định danh thân thiện (không chứa dấu ngoặc đơn)
+      if (!did || !did.includes('(')) {
         did = await generateDeviceId();
         localStorage.setItem('visitor_device_id', did);
       }
@@ -4575,9 +4612,9 @@ export default function App() {
                                   })()}
                                 </span>
                               </td>
-                              <td style={{ padding: '9px 14px', color: 'var(--text-muted)', fontSize: '11px' }}>
-                                <code style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>
-                                  {log.device_id?.slice(0, 12)}...
+                              <td style={{ padding: '9px 14px', color: 'var(--text-muted)' }} title={log.device_id}>
+                                <code style={{ background: 'rgba(255,255,255,0.06)', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                                  {getDisplayDeviceName(log.device_id)}
                                 </code>
                               </td>
                               <td style={{ padding: '9px 14px' }}>
