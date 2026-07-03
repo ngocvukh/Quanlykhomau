@@ -833,6 +833,18 @@ export default function App() {
   const [searchLogsLoading, setSearchLogsLoading] = useState(false);
   const [resetDevices, setResetDevices] = useState([]); // danh sách device_id đã reset/chặn
 
+  // Nhật ký tìm kiếm: bộ lọc khoảng ngày (mặc định 30 ngày gần nhất)
+  const getOffsetDateString = (offsetDays) => {
+    const d = new Date();
+    d.setDate(d.getDate() - offsetDays);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const [logFilterStartDate, setLogFilterStartDate] = useState(() => getOffsetDateString(30));
+  const [logFilterEndDate, setLogFilterEndDate] = useState(() => getOffsetDateString(0));
+
   // Admin Notifications
   const [notifications, setNotifications] = useState([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -1026,8 +1038,17 @@ export default function App() {
     if (isDemoMode) return;
     setSearchLogsLoading(true);
     try {
+      // Chuyển đổi sang định dạng ISO cho Supabase (từ 00:00:00 của ngày bắt đầu đến 23:59:59 của ngày kết thúc)
+      const startIso = new Date(`${logFilterStartDate}T00:00:00`).toISOString();
+      const endIso = new Date(`${logFilterEndDate}T23:59:59`).toISOString();
+
       const [{ data: logs }, { data: resets }] = await Promise.all([
-        supabase.from('search_logs').select('*').order('searched_at', { ascending: false }).limit(1000),
+        supabase
+          .from('search_logs')
+          .select('*')
+          .gte('searched_at', startIso)
+          .lte('searched_at', endIso)
+          .order('searched_at', { ascending: false }),
         supabase.from('visitor_resets').select('device_id, is_blocked')
       ]);
       setSearchLogs(logs || []);
@@ -4560,9 +4581,31 @@ export default function App() {
                   <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                     <FileText size={22} color="var(--accent-blue)" /> Nhật Ký Tìm Kiếm Mẫu
                   </h2>
-                  <button className="btn btn-secondary" onClick={fetchSearchLogs} disabled={searchLogsLoading}>
-                    {searchLogsLoading ? <Loader size={16} className="spin" /> : <Search size={16} />} Làm mới
-                  </button>
+                  
+                  {/* Bộ lọc khoảng ngày */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Từ ngày:</span>
+                      <input 
+                        type="date" 
+                        value={logFilterStartDate} 
+                        onChange={e => setLogFilterStartDate(e.target.value)}
+                        style={{ padding: '6px 12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Đến ngày:</span>
+                      <input 
+                        type="date" 
+                        value={logFilterEndDate} 
+                        onChange={e => setLogFilterEndDate(e.target.value)}
+                        style={{ padding: '6px 12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }}
+                      />
+                    </div>
+                    <button className="btn btn-primary" onClick={fetchSearchLogs} disabled={searchLogsLoading} style={{ padding: '6px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {searchLogsLoading ? <Loader size={14} className="spin" /> : <Search size={14} />} Lọc dữ liệu
+                    </button>
+                  </div>
                 </div>
 
                 {searchLogsLoading ? (
