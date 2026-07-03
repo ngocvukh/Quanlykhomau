@@ -1120,10 +1120,14 @@ export default function App() {
         .single();
       
       if (error) throw error;
-      setProfile(data);
-      if (data.role === 'admin') {
-        setActiveTab('shelves');
-      }
+
+      // Chỉ chuyển tab nếu đây là lần đầu tiên load profile (lúc đăng nhập hoặc khởi động app)
+      setProfile(prev => {
+        if (!prev && data.role === 'admin') {
+          setActiveTab('shelves');
+        }
+        return data;
+      });
     } catch (err) {
       console.error("Error fetching profile:", err);
       // Auto-create profile if missing
@@ -1141,8 +1145,12 @@ export default function App() {
     };
     try {
       await supabase.from('profiles').insert(fallback);
-      setProfile(fallback);
-      if (fallback.role === 'admin') setActiveTab('shelves');
+      setProfile(prev => {
+        if (!prev && fallback.role === 'admin') {
+          setActiveTab('shelves');
+        }
+        return fallback;
+      });
     } catch (e) {
       console.error("Error creating profile:", e);
     }
