@@ -377,8 +377,11 @@ export default function App() {
     updateBulkRow(idx, 'searchQuery', val);
     setBulkActiveSuggestIdx(-1);
     if (val.trim().length >= 1) {
-      const regex = new RegExp(val, 'i');
-      const matches = products.filter(p => regex.test(p.product_name) || (p.warning_code && regex.test(p.warning_code))).slice(0, 8);
+      const searchLower = val.toLowerCase().trim();
+      const matches = products.filter(p => 
+        p.product_name.toLowerCase().includes(searchLower) || 
+        (p.warning_code && p.warning_code.toLowerCase().includes(searchLower))
+      ).slice(0, 8);
       updateBulkRow(idx, 'suggestions', matches);
     } else {
       updateBulkRow(idx, 'suggestions', []);
@@ -1045,8 +1048,8 @@ export default function App() {
   const handleImportSearchChange = (val) => {
     setImportSearchQuery(val);
     if (val.trim().length >= 1) {
-      const regex = new RegExp(val, 'i');
-      const matches = products.filter(p => regex.test(p.product_name)).slice(0, 10);
+      const searchLower = val.toLowerCase().trim();
+      const matches = products.filter(p => p.product_name.toLowerCase().includes(searchLower)).slice(0, 10);
       setImportSuggestions(matches);
     } else {
       setImportSuggestions([]);
@@ -1520,10 +1523,10 @@ export default function App() {
       return;
     }
 
-    const regex = new RegExp(nameVal, 'i');
+    const searchLower = nameVal.toLowerCase().trim();
     let filtered = samples.filter(s => {
-      const prodName = s.products?.product_name || s.product_name || '';
-      return regex.test(prodName) && s.status !== 'destroyed';
+      const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
+      return prodName.includes(searchLower) && s.status !== 'destroyed';
     });
 
     if (monthVal) {
@@ -1549,8 +1552,8 @@ export default function App() {
   const handleSearchInputChange = (val) => {
     setSearchName(val);
     if (val.trim().length >= 1) {
-      const regex = new RegExp(val, 'i');
-      const matches = products.filter(p => regex.test(p.product_name)).slice(0, 8);
+      const searchLower = val.toLowerCase().trim();
+      const matches = products.filter(p => p.product_name.toLowerCase().includes(searchLower)).slice(0, 8);
       setSearchSuggestions(matches);
     } else {
       setSearchSuggestions([]);
