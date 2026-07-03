@@ -1927,6 +1927,41 @@ export default function App() {
     executeSearch(searchName, monthVal);
   };
 
+  // Phục vụ tính năng tìm kiếm động / thời gian thực khi gõ bất kỳ kí tự nào
+  useEffect(() => {
+    const trimmed = searchName.trim();
+    if (trimmed.length >= 1) {
+      // Lưu lại tab nghiệp vụ trước đó (nếu không phải search) và chuyển ngay sang tab search
+      if (activeTab !== 'search') {
+        setPreviousTabBeforeSearch(activeTab);
+        setActiveTab('search');
+      }
+
+      const searchLower = trimmed.toLowerCase();
+      const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
+      
+      let filtered = samples.filter(s => {
+        const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
+        return prodName.includes(searchLower) && s.status !== 'destroyed';
+      });
+
+      if (monthVal) {
+        filtered = filtered.filter(s => {
+          const pDate = new Date(s.packaging_date);
+          const sYear = parseInt(monthVal.split('-')[0]);
+          const sMonth = parseInt(monthVal.split('-')[1]);
+          return pDate.getFullYear() === sYear && (pDate.getMonth() + 1) === sMonth;
+        });
+      }
+      setSearchResults(filtered);
+    } else {
+      // Nếu xóa hết ô tìm kiếm và đang ở tab search, tự động trả về tab nghiệp vụ trước đó
+      if (activeTab === 'search') {
+        setActiveTab(previousTabBeforeSearch || 'shelves');
+      }
+    }
+  }, [searchName, searchSelMonth, searchSelYear]);
+
   const handleSearchInputChange = (val) => {
     setSearchName(val);
     if (val.trim().length >= 1) {
@@ -3360,7 +3395,7 @@ export default function App() {
                         onMouseDown={() => {
                           setSearchName(p.product_name);
                           setSearchSuggestions([]);
-                          const monthVal = (searchSelYear && searchSelMonth) ? \`\${searchSelYear}-\${searchSelMonth}\` : '';
+                          const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
                           executeSearch(p.product_name, monthVal);
                         }}
                         className="suggestion-item"
