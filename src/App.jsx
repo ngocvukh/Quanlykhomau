@@ -212,43 +212,52 @@ export default function App() {
   const [theme, setTheme] = useState('dark');
   const [toasts, setToasts] = useState([]);
   
-  // Tray merge and split states & functions
-  const [selectedPendingIds, setSelectedPendingIds] = useState([]);
-  const [targetTrayNum, setTargetTrayNum] = useState('');
+  // Tray merge and split side-by-side modal states & functions
+  const [showTrayAdjusterModal, setShowTrayAdjusterModal] = useState(false);
+  const [sourceTrayNum, setSourceTrayNum] = useState('');
+  const [destTrayNum, setDestTrayNum] = useState('');
+  const [isNewDestTray, setIsNewDestTray] = useState(false);
+  const [newDestTrayNum, setNewDestTrayNum] = useState('');
+  const [sourceSelectedIds, setSourceSelectedIds] = useState([]);
 
-  const handleMoveSamplesToTray = async () => {
-    if (selectedPendingIds.length === 0) {
-      showToast("Chưa chọn mẫu nào để chuyển!", "warning");
+  const handleTransferBetweenTrays = async () => {
+    if (sourceSelectedIds.length === 0) {
+      showToast("Vui lòng chọn các mẫu cần chuyển ở Khay gửi!", "warning");
       return;
     }
-    const trayNumVal = parseInt(targetTrayNum, 10);
-    if (isNaN(trayNumVal) || trayNumVal < 1) {
-      showToast("Vui lòng nhập số khay hợp lệ (lớn hơn 0)!", "error");
+    let targetNumVal = parseInt(destTrayNum, 10);
+    if (isNewDestTray) {
+      targetNumVal = parseInt(newDestTrayNum, 10);
+    }
+    if (isNaN(targetNumVal) || targetNumVal < 1) {
+      showToast("Khay nhận không hợp lệ!", "error");
+      return;
+    }
+    if (targetNumVal === parseInt(sourceTrayNum, 10)) {
+      showToast("Khay nhận phải khác Khay gửi!", "warning");
       return;
     }
 
     setLoading(true);
     try {
       if (isDemoMode) {
-        setSamples(prev => prev.map(s => selectedPendingIds.includes(s.id) ? { ...s, tray_number: trayNumVal } : s));
-        showToast(`✅ Đã chuyển ${selectedPendingIds.length} mẫu sang Khay số ${trayNumVal}!`, "success");
-        setSelectedPendingIds([]);
-        setTargetTrayNum('');
+        setSamples(prev => prev.map(s => sourceSelectedIds.includes(s.id) ? { ...s, tray_number: targetNumVal } : s));
+        showToast(`✅ Đã chuyển ${sourceSelectedIds.length} mẫu sang Khay số ${targetNumVal}!`, "success");
+        setSourceSelectedIds([]);
       } else {
         const { error } = await supabase
           .from('samples')
-          .update({ tray_number: trayNumVal })
-          .in('id', selectedPendingIds);
+          .update({ tray_number: targetNumVal })
+          .in('id', sourceSelectedIds);
 
         if (error) throw error;
 
-        setSamples(prev => prev.map(s => selectedPendingIds.includes(s.id) ? { ...s, tray_number: trayNumVal } : s));
-        showToast(`✅ Đã chuyển ${selectedPendingIds.length} mẫu sang Khay số ${trayNumVal}!`, "success");
-        setSelectedPendingIds([]);
-        setTargetTrayNum('');
+        setSamples(prev => prev.map(s => sourceSelectedIds.includes(s.id) ? { ...s, tray_number: targetNumVal } : s));
+        showToast(`✅ Đã chuyển ${sourceSelectedIds.length} mẫu sang Khay số ${targetNumVal}!`, "success");
+        setSourceSelectedIds([]);
       }
     } catch (e) {
-      console.error("Error moving samples to tray:", e);
+      console.error("Error transferring between trays:", e);
       showToast("Có lỗi xảy ra khi di chuyển khay!", "error");
     } finally {
       setLoading(false);
@@ -3966,6 +3975,27 @@ export default function App() {
                               ✓ Không có mẫu chờ
                             </span>;
                       })()}
+                      {cnt > 0 && !scanPreview && (
+                        <button className="btn btn-secondary"
+                          style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '6px' }}
+                          onClick={() => {
+                            const pendingS = samples.filter(s => s.status === 'pending');
+                            const trays = [...new Set(pendingS.map(s => s.tray_number).filter(t => t !== null && t !== undefined))].sort((a,b)=>a-b);
+                            if (trays.length > 0) {
+                              setSourceTrayNum(String(trays[0]));
+                              setDestTrayNum(trays.length > 1 ? String(trays[1]) : '');
+                            } else {
+                              setSourceTrayNum('');
+                              setDestTrayNum('');
+                            }
+                            setIsNewDestTray(false);
+                            setNewDestTrayNum('');
+                            setSourceSelectedIds([]);
+                            setShowTrayAdjusterModal(true);
+                          }}>
+                          <ClipboardList size={15} /> Công cụ Dồn/Tách Khay
+                        </button>
+                      )}
                       {!scanPreview && (
                         <button className="btn btn-primary"
                           style={{ background:'linear-gradient(135deg,#059669,#10b981)', borderColor:'#10b981' }}
@@ -3990,90 +4020,39 @@ export default function App() {
                   )}
 
                   {/* Pending list (when no scanPreview yet) */}
-                  {!scanPreview && samples.filter(s => s.status === 'pending').length > 0 && (() => {
-                    const pendingSamples = samples.filter(s => s.status === 'pending');
-                    const allChecked = pendingSamples.length > 0 && pendingSamples.every(s => selectedPendingIds.includes(s.id));
-                    const toggleAll = () => {
-                      if (allChecked) {
-                        setSelectedPendingIds([]);
-                      } else {
-                        setSelectedPendingIds(pendingSamples.map(s => s.id));
-                      }
-                    };
-
-                    return (
-                      <div>
-                        {/* Tray merge & split control bar */}
-                        {selectedPendingIds.length > 0 && (
-                          <div className="glass-panel" style={{ background: 'rgba(37, 99, 235, 0.04)', border: '1px solid rgba(37, 99, 235, 0.2)', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderRadius: '8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <Loader size={16} className="logo-icon" style={{ animation: 'none' }} /> Điều chỉnh Khay mẫu
-                              </span>
-                              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                                Đã chọn <strong>{selectedPendingIds.length}</strong> mẫu chờ bố trí
-                              </span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Chuyển (Dồn/Tách) sang Khay số:</span>
-                              <input type="number" min="1" value={targetTrayNum} onChange={e => setTargetTrayNum(e.target.value)} placeholder="Số khay..."
-                                style={{ width: '90px', padding: '5px 8px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', fontWeight: 'bold', outline: 'none' }} />
-                              <button className="btn btn-primary" style={{ padding: '6px 16px', fontSize: '13px', background: 'linear-gradient(135deg,#2563eb,#1d4ed8)', borderColor:'#1d4ed8' }} onClick={handleMoveSamplesToTray} disabled={loading || !targetTrayNum}>
-                                Xác nhận chuyển
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        <div style={{ maxHeight:'280px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)', marginBottom:'0' }}>
-                          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
-                            <thead>
-                              <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0, zIndex:10 }}>
-                                <th style={{ padding:'8px 12px', width:'40px', borderBottom:'1px solid var(--glass-border)' }}>
-                                  <input type="checkbox" checked={allChecked} onChange={toggleAll} style={{ cursor:'pointer' }} />
-                                </th>
-                                <th style={{ padding:'8px 12px', width:'80px', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>Khay</th>
-                                {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Số cây','Ngày nhập', 'Thao tác'].map((h, i) => (
-                                  <th key={i} style={{ padding:'8px 12px', textAlign: h === 'Thao tác' ? 'right' : 'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>{h}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {pendingSamples.sort((a,b) => new Date(b.packaging_date) - new Date(a.packaging_date)).map(s => {
-                                const isChecked = selectedPendingIds.includes(s.id);
-                                return (
-                                  <tr key={s.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)', background: isChecked ? 'rgba(37,99,235,0.02)' : 'transparent' }}>
-                                    <td style={{ padding:'7px 12px', textAlign:'left' }}>
-                                      <input type="checkbox" checked={isChecked}
-                                        onChange={() => {
-                                          setSelectedPendingIds(prev =>
-                                            prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
-                                          );
-                                        }}
-                                        style={{ cursor:'pointer' }} />
-                                    </td>
-                                    <td style={{ padding:'7px 12px', fontWeight:600, color:'var(--accent-blue)' }}>
-                                      Khay {s.tray_number || '—'}
-                                    </td>
-                                    <td style={{ padding:'7px 12px', fontWeight:500 }}>{s.products?.product_name}</td>
-                                    <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.blend_batch}</td>
-                                    <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
-                                    <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
-                                    <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
-                                    <td style={{ padding:'7px 12px', textAlign:'right' }}>
-                                      <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
-                                        <Trash2 size={16} />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {!scanPreview && samples.filter(s => s.status === 'pending').length > 0 && (
+                    <div style={{ maxHeight:'280px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)', marginBottom:'0' }}>
+                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
+                        <thead>
+                          <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0, zIndex:10 }}>
+                            <th style={{ padding:'8px 12px', width:'80px', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>Khay</th>
+                            {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Số cây','Ngày nhập', 'Thao tác'].map((h, i) => (
+                              <th key={i} style={{ padding:'8px 12px', textAlign: h === 'Thao tác' ? 'right' : 'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {samples.filter(s => s.status === 'pending').sort((a,b) => new Date(b.packaging_date) - new Date(a.packaging_date)).map(s => (
+                            <tr key={s.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
+                              <td style={{ padding:'7px 12px', fontWeight:600, color:'var(--accent-blue)' }}>
+                                Khay {s.tray_number || '—'}
+                              </td>
+                              <td style={{ padding:'7px 12px', fontWeight:500 }}>{s.products?.product_name}</td>
+                              <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.blend_batch}</td>
+                              <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
+                              <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
+                              <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
+                              <td style={{ padding:'7px 12px', textAlign:'right' }}>
+                                <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
+                                  <Trash2 size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
                   {/* Scan preview results */}
                   {scanPreview && (
@@ -4538,6 +4517,203 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* TRAY ADJUSTER MODAL (SIDE BY SIDE MERGE/SPLIT TOOL) */}
+      {showTrayAdjusterModal && (() => {
+        const pendingS = samples.filter(s => s.status === 'pending');
+        const traysList = [...new Set(pendingS.map(s => s.tray_number).filter(t => t !== null && t !== undefined))].sort((a,b)=>a-b);
+        
+        // Items in source tray
+        const sourceItems = pendingS.filter(s => s.tray_number === parseInt(sourceTrayNum, 10));
+        
+        // Active destination tray number
+        const activeDestNum = isNewDestTray ? parseInt(newDestTrayNum, 10) : parseInt(destTrayNum, 10);
+        const destItems = (!isNaN(activeDestNum)) ? pendingS.filter(s => s.tray_number === activeDestNum) : [];
+        const destTotalCartons = destItems.reduce((sum, s) => sum + Math.round(s.available_qty / 10), 0);
+
+        // Checkbox select all for source
+        const allSourceChecked = sourceItems.length > 0 && sourceItems.every(s => sourceSelectedIds.includes(s.id));
+        const toggleAllSource = () => {
+          if (allSourceChecked) {
+            setSourceSelectedIds([]);
+          } else {
+            setSourceSelectedIds(sourceItems.map(s => s.id));
+          }
+        };
+
+        return (
+          <div className="modal-overlay" onClick={() => setShowTrayAdjusterModal(false)}>
+            <div className="modal-content" style={{ maxWidth: '1150px', width: '95%' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ClipboardList size={22} color="var(--accent-blue)" /> Công Cụ Dồn & Tách Khay Mẫu Chờ Bố Trí
+                </h3>
+                <button className="close-btn" onClick={() => setShowTrayAdjusterModal(false)}><X size={18} /></button>
+              </div>
+
+              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 65px 1fr', gap: '20px', padding: '20px', minHeight: '400px' }}>
+                
+                {/* COLUMN 1: SOURCE TRAY (SENDER) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
+                    <label className="form-label" style={{ fontWeight: 'bold', marginBottom: '8px', display:'block' }}>1. Khay Muốn Chuyển (Khay Gửi)</label>
+                    <select className="form-select" value={sourceTrayNum} onChange={e => {
+                      setSourceTrayNum(e.target.value);
+                      setSourceSelectedIds([]);
+                    }}>
+                      <option value="">-- Chọn Khay gửi --</option>
+                      {traysList.map(t => (
+                        <option key={t} value={t}>Khay số {t} ({pendingS.filter(s => s.tray_number === t).length} mẫu)</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: 1, border: '1px solid var(--glass-border)', borderRadius: '8px', overflow: 'hidden', background: 'rgba(255,255,255,0.01)' }}>
+                    <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                          <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0, zIndex: 5 }}>
+                            <th style={{ padding: '8px', width: '32px', borderBottom: '1px solid var(--glass-border)' }}>
+                              <input type="checkbox" checked={allSourceChecked} onChange={toggleAllSource} disabled={sourceItems.length === 0} style={{ cursor: 'pointer' }} />
+                            </th>
+                            {['Sản phẩm', 'Mẻ|Thùng', 'Số cây'].map((h, i) => (
+                              <th key={i} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600, borderBottom: '1px solid var(--glass-border)' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sourceItems.map(s => {
+                            const isChecked = sourceSelectedIds.includes(s.id);
+                            return (
+                              <tr key={s.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', background: isChecked ? 'rgba(37,99,235,0.04)' : 'transparent' }}>
+                                <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                                  <input type="checkbox" checked={isChecked} onChange={() => {
+                                    setSourceSelectedIds(prev =>
+                                      prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                                    );
+                                  }} style={{ cursor: 'pointer' }} />
+                                </td>
+                                <td style={{ padding: '6px 8px', fontWeight: 500 }}>{s.products?.product_name}</td>
+                                <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{s.blend_batch}</td>
+                                <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{Math.round(s.available_qty / 10)} cây</td>
+                              </tr>
+                            );
+                          })}
+                          {sourceItems.length === 0 && (
+                            <tr>
+                              <td colSpan="4" style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--text-muted)' }}>Chưa có mẫu hoặc chưa chọn Khay gửi</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* MIDDLE COLUMN: TRANSFER BUTTON */}
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                  <button className="btn btn-primary"
+                    style={{ 
+                      padding: '12px 10px', 
+                      borderRadius: '8px', 
+                      background: sourceSelectedIds.length > 0 ? 'linear-gradient(135deg,#2563eb,#1d4ed8)' : 'rgba(255,255,255,0.03)', 
+                      borderColor: sourceSelectedIds.length > 0 ? '#1d4ed8' : 'var(--glass-border)',
+                      cursor: sourceSelectedIds.length > 0 ? 'pointer' : 'not-allowed',
+                      opacity: sourceSelectedIds.length > 0 ? 1 : 0.4
+                    }}
+                    onClick={handleTransferBetweenTrays}
+                    disabled={sourceSelectedIds.length === 0 || loading}>
+                    <span style={{ fontSize: '16px', fontWeight: 'bold', display: 'block' }}>➡</span>
+                    <span style={{ fontSize: '10px', marginTop: '4px', display: 'block', whiteSpace: 'nowrap' }}>Chuyển ({sourceSelectedIds.length})</span>
+                  </button>
+                </div>
+
+                {/* COLUMN 2: DESTINATION TRAY (RECEIVER) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <label className="form-label" style={{ fontWeight: 'bold', marginBottom: 0 }}>2. Khay Nhận (Khay Đích)</label>
+                      <label style={{ fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <input type="checkbox" checked={isNewDestTray} onChange={e => {
+                          setIsNewDestTray(e.target.checked);
+                          if (e.target.checked) {
+                            const maxT = traysList.length > 0 ? Math.max(...traysList) : 0;
+                            setNewDestTrayNum(String(maxT + 1));
+                          }
+                        }} />
+                        Tạo khay mới
+                      </label>
+                    </div>
+
+                    {isNewDestTray ? (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nhập số khay mới:</span>
+                        <input type="number" min="1" value={newDestTrayNum} onChange={e => setNewDestTrayNum(e.target.value)}
+                          style={{ flex: 1, padding: '5px 10px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 'bold', outline: 'none' }} />
+                      </div>
+                    ) : (
+                      <select className="form-select" value={destTrayNum} onChange={e => setDestTrayNum(e.target.value)}>
+                        <option value="">-- Chọn Khay nhận --</option>
+                        {traysList.map(t => (
+                          <option key={t} value={t}>Khay số {t} ({pendingS.filter(s => s.tray_number === t).length} mẫu)</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  <div style={{ flex: 1, border: '1px solid var(--glass-border)', borderRadius: '8px', overflow: 'hidden', background: 'rgba(255,255,255,0.01)' }}>
+                    <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                          <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0, zIndex: 5 }}>
+                            {['Sản phẩm', 'Mẻ|Thùng', 'Số cây'].map((h, i) => (
+                              <th key={i} style={{ padding: '8px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600, borderBottom: '1px solid var(--glass-border)' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {destItems.map(s => (
+                            <tr key={s.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                              <td style={{ padding: '6px 8px', fontWeight: 500 }}>{s.products?.product_name}</td>
+                              <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{s.blend_batch}</td>
+                              <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{Math.round(s.available_qty / 10)} cây</td>
+                            </tr>
+                          ))}
+                          {destItems.length === 0 && (
+                            <tr>
+                              <td colSpan="3" style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--text-muted)' }}>Chưa có mẫu (Khay nhận đang trống)</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {destItems.length > 0 && (
+                    <div style={{ 
+                      padding: '8px 12px', 
+                      background: destTotalCartons > 21 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.06)', 
+                      border: `1px solid ${destTotalCartons > 21 ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.2)'}`, 
+                      borderRadius: '6px', 
+                      fontSize: '11.5px', 
+                      color: destTotalCartons > 21 ? 'var(--status-error)' : 'var(--status-success)',
+                      fontWeight: 'bold',
+                      textAlign: 'center'
+                    }}>
+                      Khay nhận hiện có: {destTotalCartons} cây {destTotalCartons > 21 ? '⚠️ Quá tải (Nên ≤ 21 cây)' : '✓ Đủ tải'}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setShowTrayAdjusterModal(false)}>Đóng công cụ</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* QR CODE MODAL FOR PRINTING */}
       {qrCodeModal && (
