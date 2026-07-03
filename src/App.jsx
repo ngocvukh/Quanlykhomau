@@ -4,7 +4,7 @@ import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
-  UploadCloud, ChevronDown, ChevronUp, AlertTriangle
+  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell
 } from 'lucide-react';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
@@ -796,6 +796,11 @@ export default function App() {
   const [searchLogs, setSearchLogs] = useState([]);
   const [searchLogsLoading, setSearchLogsLoading] = useState(false);
 
+  // Admin Notifications
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
   // Batch Print Label Queue (persisted in LocalStorage)
   const [printQueue, setPrintQueue] = useState(() => {
     const saved = localStorage.getItem('print_queue');
@@ -837,6 +842,46 @@ export default function App() {
     setShowNamePrompt(false);
     showToast(`Xin chào ${trimmed}! Hệ thống đã ghi nhận.`, 'success');
   };
+
+  // Supabase Realtime — lắng nghe thông báo cho Admin
+  useEffect(() => {
+    if (isDemoMode || !profile || profile.role !== 'admin') return;
+
+    const addNotif = (notif) => {
+      setNotifications(prev => [notif, ...prev].slice(0, 50));
+      setUnreadCount(prev => prev + 1);
+    };
+
+    const channel = supabase
+      .channel('admin-notifications')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
+        const row = payload.new;
+        if (row.type === 'take_request') {
+          addNotif({
+            id: row.id,
+            icon: '📦',
+            title: 'Yêu cầu lấy mẫu mới',
+            body: `Số lượng: ${row.quantity} bao`,
+            time: new Date().toLocaleString(),
+            type: 'take_request'
+          });
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'search_logs' }, (payload) => {
+        const row = payload.new;
+        addNotif({
+          id: row.id,
+          icon: '🔍',
+          title: `${row.user_name} vừa tìm kiếm`,
+          body: `Từ khóa: “${row.keyword}” — ${row.results_count} kết quả`,
+          time: new Date().toLocaleString(),
+          type: 'search'
+        });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [profile, isDemoMode]);
 
   const fetchSearchLogs = async () => {
     if (isDemoMode) return;
@@ -2961,12 +3006,79 @@ export default function App() {
               )}
             </div>
 
-            {/* Back button from Guest Guest Mode */}
+            {/* Back button from Guest Mode */}
             {authMode === 'guest' && (
               <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
                 Thoát Khách (Đăng Nhập Admin)
               </button>
             )}
+
+            {/* Admin Notification Bell */}
+            {profile?.role === 'admin' && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '8px 12px', position: 'relative' }}
+                  onClick={() => { setShowNotifDropdown(v => !v); setUnreadCount(0); }}
+                  title="Thông báo"
+                >
+                  <Bell size={18} />
+                  {unreadCount > 0 && (
+                    <span style={{
+                      position: 'absolute', top: '-6px', right: '-6px',
+                      background: 'var(--status-error)', color: '#fff',
+                      fontSize: '10px', fontWeight: 'bold',
+                      padding: '2px 5px', borderRadius: '10px',
+                      minWidth: '18px', textAlign: 'center',
+                      lineHeight: '14px'
+                    }}>{unreadCount}</span>
+                  )}
+                </button>
+
+                {/* Notification Dropdown */}
+                {showNotifDropdown && (
+                  <div style={{
+                    position: 'absolute', top: '48px', right: 0,
+                    width: '320px', maxHeight: '420px', overflowY: 'auto',
+                    background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)',
+                    borderRadius: '12px', boxShadow: '0 8px 32px var(--glass-shadow)',
+                    backdropFilter: 'blur(16px)', zIndex: 1000
+                  }}>
+                    <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700, fontSize: '14px' }}>🔔 Thông báo</span>
+                      {notifications.length > 0 && (
+                        <button style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                          onClick={() => setNotifications([])}>
+                          Xóa tất cả
+                        </button>
+                      )}
+                    </div>
+                    {notifications.length === 0 ? (
+                      <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                        <Bell size={28} style={{ opacity: 0.3, marginBottom: '8px', display: 'block', margin: '0 auto 8px' }} />
+                        Không có thông báo mới
+                      </div>
+                    ) : (
+                      notifications.map((n, i) => (
+                        <div key={n.id + i} style={{
+                          padding: '12px 16px',
+                          borderBottom: '1px solid rgba(255,255,255,0.04)',
+                          display: 'flex', gap: '10px', alignItems: 'flex-start'
+                        }}>
+                          <span style={{ fontSize: '20px', flexShrink: 0 }}>{n.icon}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '2px' }}>{n.title}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{n.time}</div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
 
           {/* TAB CONTENTS */}
