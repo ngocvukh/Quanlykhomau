@@ -1807,6 +1807,48 @@ export default function App() {
     setCatFormat('Kingsize');
   };
 
+  // Xóa sản phẩm gốc (Đảm bảo an toàn ràng buộc dữ liệu)
+  const handleDeleteProduct = async (productId, productName) => {
+    // 1. Kiểm tra mẫu trong kho
+    const hasSamples = samples.some(s => s.product_id === productId);
+    
+    // 2. Kiểm tra lịch sử giao dịch liên quan
+    const hasTransactions = transactions.some(t => 
+      t.samples?.product_id === productId || 
+      (t.sample_id && samples.find(s => s.id === t.sample_id)?.product_id === productId)
+    );
+
+    if (hasSamples || hasTransactions) {
+      window.alert(`Không thể xóa sản phẩm gốc "${productName}".\n\nSản phẩm này đang có mẫu thuốc lá lưu kho hoặc lịch sử giao dịch liên quan. Hãy đảm bảo bạn đã xóa hết các lô mẫu của sản phẩm này khỏi kho trước khi xóa sản phẩm gốc.`);
+      return;
+    }
+
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa sản phẩm gốc "${productName}"? Hành động này không thể khôi phục.`)) {
+      return;
+    }
+
+    if (isDemoMode) {
+      setProducts(prev => prev.filter(p => p.id !== productId));
+      showToast(`Đã xóa sản phẩm: ${productName}`, "success");
+    } else {
+      try {
+        setLoading(true);
+        const { error } = await supabase
+          .from('products')
+          .delete()
+          .eq('id', productId);
+        
+        if (error) throw error;
+        showToast(`Xóa sản phẩm "${productName}" thành công!`, "success");
+        fetchDatabaseData();
+      } catch (e) {
+        showToast(e.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   // Staff Search Execution
   const executeSearch = async (nameVal, monthVal) => {
     if (!nameVal) {
@@ -4048,9 +4090,14 @@ export default function App() {
                               Định dạng: {p.format} | Cảnh báo: {p.warning_code || 'Không'}
                             </div>
                           </div>
-                          <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => startEditingProduct(p)}>
-                            Sửa
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => startEditingProduct(p)}>
+                              Sửa
+                            </button>
+                            <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11px', background: 'rgba(239,68,68,0.15)', borderColor: 'rgba(239,68,68,0.3)', color: 'var(--status-error)' }} onClick={() => handleDeleteProduct(p.id, p.product_name)}>
+                              Xóa
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
