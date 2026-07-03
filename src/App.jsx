@@ -212,6 +212,49 @@ export default function App() {
   const [theme, setTheme] = useState('dark');
   const [toasts, setToasts] = useState([]);
   
+  // Tray merge and split states & functions
+  const [selectedPendingIds, setSelectedPendingIds] = useState([]);
+  const [targetTrayNum, setTargetTrayNum] = useState('');
+
+  const handleMoveSamplesToTray = async () => {
+    if (selectedPendingIds.length === 0) {
+      showToast("Chưa chọn mẫu nào để chuyển!", "warning");
+      return;
+    }
+    const trayNumVal = parseInt(targetTrayNum, 10);
+    if (isNaN(trayNumVal) || trayNumVal < 1) {
+      showToast("Vui lòng nhập số khay hợp lệ (lớn hơn 0)!", "error");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (isDemoMode) {
+        setSamples(prev => prev.map(s => selectedPendingIds.includes(s.id) ? { ...s, tray_number: trayNumVal } : s));
+        showToast(`✅ Đã chuyển ${selectedPendingIds.length} mẫu sang Khay số ${trayNumVal}!`, "success");
+        setSelectedPendingIds([]);
+        setTargetTrayNum('');
+      } else {
+        const { error } = await supabase
+          .from('samples')
+          .update({ tray_number: trayNumVal })
+          .in('id', selectedPendingIds);
+
+        if (error) throw error;
+
+        setSamples(prev => prev.map(s => selectedPendingIds.includes(s.id) ? { ...s, tray_number: trayNumVal } : s));
+        showToast(`✅ Đã chuyển ${selectedPendingIds.length} mẫu sang Khay số ${trayNumVal}!`, "success");
+        setSelectedPendingIds([]);
+        setTargetTrayNum('');
+      }
+    } catch (e) {
+      console.error("Error moving samples to tray:", e);
+      showToast("Có lỗi xảy ra khi di chuyển khay!", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   // Offline / Demo Mode fallback (for instant preview without Supabase keys)
   const [isDemoMode, setIsDemoMode] = useState(false);
 
@@ -3947,35 +3990,90 @@ export default function App() {
                   )}
 
                   {/* Pending list (when no scanPreview yet) */}
-                  {!scanPreview && samples.filter(s => s.status === 'pending').length > 0 && (
-                    <div style={{ maxHeight:'200px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)', marginBottom:'0' }}>
-                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
-                        <thead>
-                          <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0 }}>
-                            {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Số cây','Ngày nhập', 'Thao tác'].map((h, i) => (
-                              <th key={i} style={{ padding:'8px 12px', textAlign: h === 'Thao tác' ? 'right' : 'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {samples.filter(s => s.status === 'pending').sort((a,b) => new Date(b.packaging_date) - new Date(a.packaging_date)).map(s => (
-                            <tr key={s.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
-                              <td style={{ padding:'7px 12px', fontWeight:500 }}>{s.products?.product_name}</td>
-                              <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.blend_batch}</td>
-                              <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
-                              <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
-                              <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
-                              <td style={{ padding:'7px 12px', textAlign:'right' }}>
-                                <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
-                                  <Trash2 size={16} />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                  {!scanPreview && samples.filter(s => s.status === 'pending').length > 0 && (() => {
+                    const pendingSamples = samples.filter(s => s.status === 'pending');
+                    const allChecked = pendingSamples.length > 0 && pendingSamples.every(s => selectedPendingIds.includes(s.id));
+                    const toggleAll = () => {
+                      if (allChecked) {
+                        setSelectedPendingIds([]);
+                      } else {
+                        setSelectedPendingIds(pendingSamples.map(s => s.id));
+                      }
+                    };
+
+                    return (
+                      <div>
+                        {/* Tray merge & split control bar */}
+                        {selectedPendingIds.length > 0 && (
+                          <div className="glass-panel" style={{ background: 'rgba(37, 99, 235, 0.04)', border: '1px solid rgba(37, 99, 235, 0.2)', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderRadius: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Loader size={16} className="logo-icon" style={{ animation: 'none' }} /> Điều chỉnh Khay mẫu
+                              </span>
+                              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                Đã chọn <strong>{selectedPendingIds.length}</strong> mẫu chờ bố trí
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Chuyển (Dồn/Tách) sang Khay số:</span>
+                              <input type="number" min="1" value={targetTrayNum} onChange={e => setTargetTrayNum(e.target.value)} placeholder="Số khay..."
+                                style={{ width: '90px', padding: '5px 8px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', fontWeight: 'bold', outline: 'none' }} />
+                              <button className="btn btn-primary" style={{ padding: '6px 16px', fontSize: '13px', background: 'linear-gradient(135deg,#2563eb,#1d4ed8)', borderColor:'#1d4ed8' }} onClick={handleMoveSamplesToTray} disabled={loading || !targetTrayNum}>
+                                Xác nhận chuyển
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={{ maxHeight:'280px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)', marginBottom:'0' }}>
+                          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
+                            <thead>
+                              <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0, zIndex:10 }}>
+                                <th style={{ padding:'8px 12px', width:'40px', borderBottom:'1px solid var(--glass-border)' }}>
+                                  <input type="checkbox" checked={allChecked} onChange={toggleAll} style={{ cursor:'pointer' }} />
+                                </th>
+                                <th style={{ padding:'8px 12px', width:'80px', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>Khay</th>
+                                {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Số cây','Ngày nhập', 'Thao tác'].map((h, i) => (
+                                  <th key={i} style={{ padding:'8px 12px', textAlign: h === 'Thao tác' ? 'right' : 'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pendingSamples.sort((a,b) => new Date(b.packaging_date) - new Date(a.packaging_date)).map(s => {
+                                const isChecked = selectedPendingIds.includes(s.id);
+                                return (
+                                  <tr key={s.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)', background: isChecked ? 'rgba(37,99,235,0.02)' : 'transparent' }}>
+                                    <td style={{ padding:'7px 12px', textAlign:'left' }}>
+                                      <input type="checkbox" checked={isChecked}
+                                        onChange={() => {
+                                          setSelectedPendingIds(prev =>
+                                            prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                                          );
+                                        }}
+                                        style={{ cursor:'pointer' }} />
+                                    </td>
+                                    <td style={{ padding:'7px 12px', fontWeight:600, color:'var(--accent-blue)' }}>
+                                      Khay {s.tray_number || '—'}
+                                    </td>
+                                    <td style={{ padding:'7px 12px', fontWeight:500 }}>{s.products?.product_name}</td>
+                                    <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.blend_batch}</td>
+                                    <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
+                                    <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
+                                    <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
+                                    <td style={{ padding:'7px 12px', textAlign:'right' }}>
+                                      <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Scan preview results */}
                   {scanPreview && (
