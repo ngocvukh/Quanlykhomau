@@ -1087,7 +1087,18 @@ export default function App() {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
           setUser(session.user);
-          fetchProfile(session.user.id);
+          // Khôi phục session lần đầu: Lấy profile và đặt tab mặc định tương ứng
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single()
+            .then(({ data: prof }) => {
+              if (prof) {
+                setProfile(prof);
+                setActiveTab(prof.role === 'admin' ? 'shelves' : 'search');
+              }
+            });
         }
       });
 
@@ -1110,7 +1121,7 @@ export default function App() {
     }
   }, []);
 
-  // Fetch user profile from profiles table
+  // Fetch user profile from profiles table (Không can thiệp activeTab nữa)
   const fetchProfile = async (userId) => {
     try {
       const { data, error } = await supabase
@@ -1120,14 +1131,7 @@ export default function App() {
         .single();
       
       if (error) throw error;
-
-      // Chỉ chuyển tab nếu đây là lần đầu tiên load profile (lúc đăng nhập hoặc khởi động app)
-      setProfile(prev => {
-        if (!prev && data.role === 'admin') {
-          setActiveTab('shelves');
-        }
-        return data;
-      });
+      setProfile(data);
     } catch (err) {
       console.error("Error fetching profile:", err);
       // Auto-create profile if missing
@@ -1145,12 +1149,7 @@ export default function App() {
     };
     try {
       await supabase.from('profiles').insert(fallback);
-      setProfile(prev => {
-        if (!prev && fallback.role === 'admin') {
-          setActiveTab('shelves');
-        }
-        return fallback;
-      });
+      setProfile(fallback);
     } catch (e) {
       console.error("Error creating profile:", e);
     }
@@ -1309,6 +1308,16 @@ export default function App() {
         });
         if (error) throw error;
         showToast("Đăng nhập thành công!", "success");
+
+        // Đặt activeTab dựa vào role của profile ngay sau khi đăng nhập thành công
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        if (prof) {
+          setActiveTab(prof.role === 'admin' ? 'shelves' : 'search');
+        }
       } else {
         const { data, error } = await supabase.auth.signUp({
           email: authEmail,
@@ -1318,6 +1327,7 @@ export default function App() {
         showToast("Đăng ký thành công! Đang tạo thông tin...", "success");
         if (data.user) {
           await createFallbackProfile(data.user.id);
+          setActiveTab('search'); // Mặc định là search cho tài khoản mới
         }
       }
     } catch (error) {
