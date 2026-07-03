@@ -795,6 +795,7 @@ export default function App() {
   const [nameInput, setNameInput] = useState('');
   const [searchLogs, setSearchLogs] = useState([]);
   const [searchLogsLoading, setSearchLogsLoading] = useState(false);
+  const [resetDevices, setResetDevices] = useState([]); // danh sách device_id đã reset/chặn
 
   // Admin Notifications
   const [notifications, setNotifications] = useState([]);
@@ -821,14 +822,19 @@ export default function App() {
       }
       setDeviceId(did);
 
-      // Kiểm tra xem Admin có reset tên thiết bị này không
+      // Kiểm tra xem thiết bị bị chặn hoặc bị reset
       try {
         const { data: resetRow } = await supabase
           .from('visitor_resets')
-          .select('device_id')
+          .select('device_id, is_blocked')
           .eq('device_id', did)
           .maybeSingle();
         if (resetRow) {
+          if (resetRow.is_blocked) {
+            // Bị chặn vĩnh viễn → bay sang Google
+            window.location.href = 'https://www.google.com.vn';
+            return;
+          }
           // Admin đã reset → xóa tên khỏi localStorage và xóa khỏi bảng
           localStorage.removeItem('visitor_name');
           await supabase.from('visitor_resets').delete().eq('device_id', did);
@@ -910,10 +916,34 @@ export default function App() {
   const handleResetVisitor = async (devId, userName) => {
     if (!window.confirm(`Xác nhận reset tên "${userName}"?\nLần sau họ vào web sẽ phải khai báo tên lại.`)) return;
     try {
-      await supabase.from('visitor_resets').upsert({ device_id: devId, reset_by: 'admin' });
+      await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: false, reset_by: 'admin' });
       showToast(`Đã reset thiết bị của "${userName}". Họ sẽ phải nhập lại tên lần sau!`, 'success');
+      fetchSearchLogs();
     } catch (e) {
       showToast('Lỗi khi reset. Thử lại.', 'error');
+    }
+  };
+
+  // Admin chặn vĩnh viễn thiết bị
+  const handleBlockVisitor = async (devId, userName) => {
+    if (!window.confirm(`CHẶN VĨNH VIỄN thiết bị "${userName}"?\nHọ sẽ không vào được hệ thống nữa.`)) return;
+    try {
+      await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: true, reset_by: 'admin' });
+      showToast(`Đã chặn vĩnh viễn thiết bị của "${userName}"!`, 'success');
+      fetchSearchLogs();
+    } catch (e) {
+      showToast('Lỗi khi chặn. Thử lại.', 'error');
+    }
+  };
+
+  // Gỡ chặn thiết bị
+  const handleUnblockVisitor = async (devId, userName) => {
+    try {
+      await supabase.from('visitor_resets').delete().eq('device_id', devId);
+      showToast(`Đã gỡ chặn thiết bị của "${userName}".`, 'success');
+      fetchSearchLogs();
+    } catch (e) {
+      showToast('Lỗi khi gỡ chặn.', 'error');
     }
   };
 
@@ -921,12 +951,12 @@ export default function App() {
     if (isDemoMode) return;
     setSearchLogsLoading(true);
     try {
-      const { data } = await supabase
-        .from('search_logs')
-        .select('*')
-        .order('searched_at', { ascending: false })
-        .limit(200);
-      setSearchLogs(data || []);
+      const [{ data: logs }, { data: resets }] = await Promise.all([
+        supabase.from('search_logs').select('*').order('searched_at', { ascending: false }).limit(200),
+        supabase.from('visitor_resets').select('device_id, is_blocked')
+      ]);
+      setSearchLogs(logs || []);
+      setResetDevices(resets || []);
     } catch (e) {
       console.error('Error fetching search logs:', e);
     } finally {
@@ -4485,9 +4515,20 @@ export default function App() {
                                 {new Date(log.searched_at).toLocaleString()}
                               </td>
                               <td style={{ padding: '9px 14px' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, flexWrap: 'wrap' }}>
                                   <User size={12} color="var(--accent-blue)" />
                                   {log.user_name}
+                                  {(() => {
+                                    const status = resetDevices.find(d => d.device_id === log.device_id);
+                                    if (status) {
+                                      if (status.is_blocked) {
+                                        return <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(239,68,68,0.3)' }}>🚫 Bị chặn</span>;
+                                      } else {
+                                        return <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)' }}>⏳ Chờ nhập lại</span>;
+                                      }
+                                    }
+                                    return null;
+                                  })()}
                                 </span>
                               </td>
                               <td style={{ padding: '9px 14px', color: 'var(--text-muted)', fontSize: '11px' }}>
@@ -4513,19 +4554,60 @@ export default function App() {
                                   {log.results_count} mẫu
                                 </span>
                               </td>
-                              <td style={{ padding: '9px 14px', textAlign: 'center' }}>
-                                <button
-                                  onClick={() => handleResetVisitor(log.device_id, log.user_name)}
-                                  title="Reset — lần sau họ phải khai tên lại"
-                                  style={{
-                                    background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
-                                    color: 'var(--status-error)', borderRadius: '8px',
-                                    padding: '4px 10px', fontSize: '11px', cursor: 'pointer',
-                                    fontWeight: 600, whiteSpace: 'nowrap'
-                                  }}
-                                >
-                                  🔄 Reset tên
-                                </button>
+                              <td style={{ padding: '9px 14px', textAlign: 'right' }}>
+                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                  {(() => {
+                                    const status = resetDevices.find(d => d.device_id === log.device_id);
+                                    if (status && status.is_blocked) {
+                                      return (
+                                        <button
+                                          onClick={() => handleUnblockVisitor(log.device_id, log.user_name)}
+                                          title="Bỏ chặn thiết bị này"
+                                          style={{
+                                            background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)',
+                                            color: 'var(--status-success)', borderRadius: '8px',
+                                            padding: '4px 10px', fontSize: '11px', cursor: 'pointer',
+                                            fontWeight: 600, whiteSpace: 'nowrap'
+                                          }}
+                                        >
+                                          🟢 Gỡ chặn
+                                        </button>
+                                      );
+                                    } else {
+                                      return (
+                                        <>
+                                          <button
+                                            onClick={() => handleResetVisitor(log.device_id, log.user_name)}
+                                            title="Yêu cầu thiết bị này nhập lại tên vào lần truy cập sau"
+                                            disabled={!!status}
+                                            style={{
+                                              background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', 
+                                              border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
+                                              color: status ? 'var(--text-muted)' : 'var(--status-warning)', 
+                                              borderRadius: '8px',
+                                              padding: '4px 10px', fontSize: '11px', cursor: status ? 'not-allowed' : 'pointer',
+                                              fontWeight: 600, whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            🔄 {status ? 'Đang chờ nhập' : 'Yêu cầu khai lại'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleBlockVisitor(log.device_id, log.user_name)}
+                                            title="Chặn thiết bị này truy cập hệ thống"
+                                            style={{
+                                              background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+                                              color: 'var(--status-error)', borderRadius: '8px',
+                                              padding: '4px 10px', fontSize: '11px', cursor: 'pointer',
+                                              fontWeight: 600, whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            🚫 Chặn
+                                          </button>
+                                        </>
+                                      );
+                                    }
+                                  })()}
+                                </div>
                               </td>
                             </tr>
                           ))}
