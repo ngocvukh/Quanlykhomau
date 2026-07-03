@@ -3246,72 +3246,85 @@ export default function App() {
         /* APPLICATION WORKSPACE */
         <div style={{ display: 'flex', flex: 1, gap: '24px', flexDirection: 'column' }}>
           
-          {/* TAB NAVIGATION BAR */}
-          <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {/* Common Tab */}
-              <button className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('search')}>
+          {/* TAB NAVIGATION BAR (SPLIT) */}
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch' }}>
+            {/* Hộp Tìm Kiếm Mẫu độc lập */}
+            <div className="glass-panel" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center' }}>
+              <button 
+                className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} 
+                onClick={() => setActiveTab('search')}
+                style={{
+                  background: activeTab === 'search' ? 'linear-gradient(135deg,#0ea5e9,#2563eb)' : undefined,
+                  borderColor: activeTab === 'search' ? '#0ea5e9' : undefined,
+                  boxShadow: activeTab === 'search' ? '0 0 12px rgba(14, 165, 233, 0.4)' : undefined,
+                  fontWeight: 'bold'
+                }}
+              >
                 <Search size={16} /> Tìm Kiếm Mẫu
               </button>
-
-              <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
-                <Database size={16} /> Sơ Đồ Kệ Kho
-              </button>
-
-              {/* Admin-only Tabs */}
-              {(profile?.role === 'admin') && (
-                <>
-                  <button className={`btn ${activeTab === 'import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('import')}>
-                    <Plus size={16} /> Nhập Kho Mẫu
-                  </button>
-                  <button className={`btn ${activeTab === 'labels' ? 'btn-primary' : 'btn-secondary'}`} style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setActiveTab('labels')}>
-                    <QrCode size={16} /> In Nhãn Hàng Loạt
-                    {printQueue.length > 0 && (
-                      <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold' }}>
-                        {printQueue.length}
-                      </span>
-                    )}
-                  </button>
-                  <button className={`btn ${activeTab === 'catalog' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('catalog')}>
-                    <ClipboardList size={16} /> Danh Mục Gốc
-                  </button>
-                  <button className={`btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('requests')}>
-                    <ArrowRightLeft size={16} />
-                    Yêu Cầu Lấy Mẫu
-                    {transactions.filter(t => t.status === 'pending').length > 0 && (
-                      <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
-                        {transactions.filter(t => t.status === 'pending').length}
-                      </span>
-                    )}
-                  </button>
-                  <button className={`btn ${activeTab === 'bulk_import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('bulk_import')} style={{ background: activeTab === 'bulk_import' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : undefined, borderColor: activeTab === 'bulk_import' ? '#7c3aed' : undefined }}>
-                    <UploadCloud size={16} /> Nhập Hàng Loạt
-                  </button>
-                  <button className={`btn ${activeTab === 'archives' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('archives')}>
-                    <Archive size={16} /> Đóng Thùng & Hủy
-                    {getExpiredSamples().length > 0 && (
-                      <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
-                        {getExpiredSamples().length} quá hạn
-                      </span>
-                    )}
-                  </button>
-                  <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }} style={{ background: activeTab === 'search_logs' ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : undefined, borderColor: activeTab === 'search_logs' ? '#0ea5e9' : undefined }}>
-                    <FileText size={16} /> Nhật Ký Tìm Kiếm
-                  </button>
-                </>
-              )}
             </div>
 
-            {/* Back button from Guest Mode */}
-            {authMode === 'guest' && (
-              <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
-                Thoát Khách (Đăng Nhập Admin)
-              </button>
-            )}
+            {/* Hộp quản lý chung cho các tab khác */}
+            <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', flex: 1, justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
+                  <Database size={16} /> Sơ Đồ Kệ Kho
+                </button>
 
+                {/* Admin-only Tabs */}
+                {(profile?.role === 'admin') && (
+                  <>
+                    <button className={`btn ${activeTab === 'import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('import')}>
+                      <Plus size={16} /> Nhập Kho Mẫu
+                    </button>
+                    <button className={`btn ${activeTab === 'labels' ? 'btn-primary' : 'btn-secondary'}`} style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setActiveTab('labels')}>
+                      <QrCode size={16} /> In Nhãn Hàng Loạt
+                      {printQueue.length > 0 && (
+                        <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold' }}>
+                          {printQueue.length}
+                        </span>
+                      )}
+                    </button>
+                    <button className={`btn ${activeTab === 'catalog' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('catalog')}>
+                      <ClipboardList size={16} /> Danh Mục Gốc
+                    </button>
+                    <button className={`btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('requests')}>
+                      <ArrowRightLeft size={16} />
+                      Yêu Cầu Lấy Mẫu
+                      {transactions.filter(t => t.status === 'pending').length > 0 && (
+                        <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
+                          {transactions.filter(t => t.status === 'pending').length}
+                        </span>
+                      )}
+                    </button>
+                    <button className={`btn ${activeTab === 'bulk_import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('bulk_import')} style={{ background: activeTab === 'bulk_import' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : undefined, borderColor: activeTab === 'bulk_import' ? '#7c3aed' : undefined }}>
+                      <UploadCloud size={16} /> Nhập Hàng Loạt
+                    </button>
+                    <button className={`btn ${activeTab === 'archives' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('archives')}>
+                      <Archive size={16} /> Đóng Thùng & Hủy
+                      {getExpiredSamples().length > 0 && (
+                        <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
+                          {getExpiredSamples().length} quá hạn
+                        </span>
+                      )}
+                    </button>
+                    <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }} style={{ background: activeTab === 'search_logs' ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : undefined, borderColor: activeTab === 'search_logs' ? '#0ea5e9' : undefined }}>
+                      <FileText size={16} /> Nhật Ký Tìm Kiếm
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Back button from Guest Mode */}
+              {authMode === 'guest' && (
+                <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
+                  Thoát Khách (Đăng Nhập Admin)
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* TAB CONTENTS */}
+                    {/* TAB CONTENTS */}
           <div style={{ flex: 1 }}>
             {activeTab === 'search' && (
               <div className="glass-panel">
