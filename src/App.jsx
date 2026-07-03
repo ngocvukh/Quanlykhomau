@@ -1027,20 +1027,11 @@ export default function App() {
     setSearchLogsLoading(true);
     try {
       const [{ data: logs }, { data: resets }] = await Promise.all([
-        supabase.from('search_logs').select('*').order('searched_at', { ascending: false }).limit(100),
+        supabase.from('search_logs').select('*').order('searched_at', { ascending: false }).limit(1000),
         supabase.from('visitor_resets').select('device_id, is_blocked')
       ]);
       setSearchLogs(logs || []);
       setResetDevices(resets || []);
-
-      // Tự động dọn dẹp Database: chỉ giữ lại tối đa 100 log tìm kiếm gần nhất
-      if (logs && logs.length === 100) {
-        const oldestKeepTimestamp = logs[99].searched_at;
-        await supabase
-          .from('search_logs')
-          .delete()
-          .lt('searched_at', oldestKeepTimestamp);
-      }
     } catch (e) {
       console.error('Error fetching search logs:', e);
     } finally {
