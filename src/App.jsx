@@ -5058,21 +5058,16 @@ export default function App() {
                 <User size={20} /> Xin chào! Bạn tên gì?
               </h3>
             </div>
-            <div className="modal-body" style={{ padding: '24px 20px' }}>
-              <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.6' }}>
-                Hệ thống cần ghi nhận tên của bạn để theo dõi lịch sử tìm kiếm mẫu. Thông tin này chỉ được Admin xem.
-              </p>
+            <div className="modal-body" style={{ padding: '20px 20px' }}>
               <input
                 className="form-input"
                 type="text"
-                placeholder="Nhập họ tên hoặc tên phòng ban..."
+                placeholder="Nhập tên của bạn..."
                 value={nameInput}
                 onChange={e => setNameInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && saveVisitorName()}
                 autoFocus
-                style={{ marginBottom: '8px' }}
               />
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ví dụ: Nguyễn Văn A, Phòng R&D, Chất lượng...</p>
             </div>
             <div className="modal-footer" style={{ display: 'flex', gap: '12px' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setVisitorName('Khách ẩn danh'); setShowNamePrompt(false); }}>
