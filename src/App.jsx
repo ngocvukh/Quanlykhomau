@@ -24,6 +24,34 @@ Date.prototype.toLocaleString = function() {
   return `${hours}:${minutes} ngày ${day}/${month}/${year}`;
 };
 
+// ── Device Fingerprint (thuần JS, không cần thư viện ngoài) ──
+const generateDeviceId = async () => {
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillText('device-fingerprint', 2, 2);
+    const canvasStr = canvas.toDataURL();
+    const navStr = [
+      navigator.userAgent,
+      navigator.language,
+      screen.width, screen.height, screen.colorDepth,
+      new Date().getTimezoneOffset()
+    ].join('|');
+    const raw = canvasStr + navStr;
+    // Simple hash
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+      hash = ((hash << 5) - hash) + raw.charCodeAt(i);
+      hash |= 0;
+    }
+    return 'dev-' + Math.abs(hash).toString(36);
+  } catch {
+    return 'dev-' + Math.random().toString(36).slice(2, 10);
+  }
+};
+
 // Format capacity mapping
 const FORMAT_CAPACITIES = {
   'Kingsize': { columns: 6, height: 7, total: 42 },
@@ -760,6 +788,14 @@ export default function App() {
   const [takeQuantities, setTakeQuantities] = useState({});
   const [takeNotes, setTakeNotes] = useState({});
 
+  // Visitor Tracking (Device Fingerprint + Tên tự khai)
+  const [deviceId, setDeviceId] = useState('');
+  const [visitorName, setVisitorName] = useState('');
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [searchLogs, setSearchLogs] = useState([]);
+  const [searchLogsLoading, setSearchLogsLoading] = useState(false);
+
   // Batch Print Label Queue (persisted in LocalStorage)
   const [printQueue, setPrintQueue] = useState(() => {
     const saved = localStorage.getItem('print_queue');
@@ -769,6 +805,52 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('print_queue', JSON.stringify(printQueue));
   }, [printQueue]);
+
+  // Init Device Fingerprint + Visitor Name
+  useEffect(() => {
+    (async () => {
+      let did = localStorage.getItem('visitor_device_id');
+      if (!did) {
+        did = await generateDeviceId();
+        localStorage.setItem('visitor_device_id', did);
+      }
+      setDeviceId(did);
+
+      const savedName = localStorage.getItem('visitor_name');
+      if (savedName) {
+        setVisitorName(savedName);
+      } else {
+        // Delay nhỏ để app load xong rồi mới hiện popup
+        setTimeout(() => setShowNamePrompt(true), 1500);
+      }
+    })();
+  }, []);
+
+  const saveVisitorName = () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed) { showToast('Vui lòng nhập tên!', 'warning'); return; }
+    localStorage.setItem('visitor_name', trimmed);
+    setVisitorName(trimmed);
+    setShowNamePrompt(false);
+    showToast(`Xin chào ${trimmed}! Hệ thống đã ghi nhận.`, 'success');
+  };
+
+  const fetchSearchLogs = async () => {
+    if (isDemoMode) return;
+    setSearchLogsLoading(true);
+    try {
+      const { data } = await supabase
+        .from('search_logs')
+        .select('*')
+        .order('searched_at', { ascending: false })
+        .limit(200);
+      setSearchLogs(data || []);
+    } catch (e) {
+      console.error('Error fetching search logs:', e);
+    } finally {
+      setSearchLogsLoading(false);
+    }
+  };
 
   // Toast helper
   const showToast = (message, type = 'info') => {
@@ -1518,20 +1600,16 @@ export default function App() {
   };
 
   // Staff Search Execution
-  const executeSearch = (nameVal, monthVal) => {
+  const executeSearch = async (nameVal, monthVal) => {
     if (!nameVal) {
       showToast("Tên sản phẩm là bắt buộc!", "warning");
       return;
     }
 
-    console.log('[Search] samples count:', samples.length, '| keyword:', nameVal, '| monthVal:', monthVal);
-
     const searchLower = nameVal.toLowerCase().trim();
     let filtered = samples.filter(s => {
       const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
-      const match = prodName.includes(searchLower) && s.status !== 'destroyed';
-      if (match) console.log('[Search] match:', prodName);
-      return match;
+      return prodName.includes(searchLower) && s.status !== 'destroyed';
     });
 
     if (monthVal) {
@@ -1547,11 +1625,26 @@ export default function App() {
     if (filtered.length === 0) {
       showToast("Không tìm thấy mẫu phù hợp", "info");
     }
+
+    // Ghi log tìm kiếm vào Supabase
+    if (!isDemoMode && deviceId) {
+      const currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+      try {
+        await supabase.from('search_logs').insert({
+          device_id: deviceId,
+          user_name: currentName,
+          keyword: nameVal.trim(),
+          month_filter: monthVal || null,
+          results_count: filtered.length
+        });
+      } catch (e) {
+        console.warn('Search log insert failed:', e);
+      }
+    }
   };
 
   const handleSearch = (e) => {
     if (e) e.preventDefault();
-    // Fix: dùng đúng searchSelYear và searchSelMonth thay vì searchMonth (không tồn tại)
     const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
     executeSearch(searchName, monthVal);
   };
@@ -2857,6 +2950,9 @@ export default function App() {
                         {getExpiredSamples().length} quá hạn
                       </span>
                     )}
+                  </button>
+                  <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }} style={{ background: activeTab === 'search_logs' ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : undefined, borderColor: activeTab === 'search_logs' ? '#0ea5e9' : undefined }}>
+                    <FileText size={16} /> Nhật Ký Tìm Kiếm
                   </button>
                 </>
               )}
@@ -4197,6 +4293,87 @@ export default function App() {
               </div>
             )}
 
+            {/* SEARCH LOGS PAGE (Admin only) */}
+            {activeTab === 'search_logs' && (
+              <div className="glass-panel">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+                  <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <FileText size={22} color="var(--accent-blue)" /> Nhật Ký Tìm Kiếm Mẫu
+                  </h2>
+                  <button className="btn btn-secondary" onClick={fetchSearchLogs} disabled={searchLogsLoading}>
+                    {searchLogsLoading ? <Loader size={16} className="spin" /> : <Search size={16} />} Làm mới
+                  </button>
+                </div>
+
+                {searchLogsLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    <Loader size={32} className="spin" style={{ marginBottom: '12px' }} />
+                    <p>Đang tải nhật ký...</p>
+                  </div>
+                ) : searchLogs.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    <FileText size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
+                    <p>Chưa có nhật ký tìm kiếm nào.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ marginBottom: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      Tổng cộng <strong style={{ color: 'var(--accent-blue)' }}>{searchLogs.length}</strong> lượt tìm kiếm được ghi nhận.
+                    </div>
+                    <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                          <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                            {['Thời gian', 'Tên người dùng', 'Thiết bị', 'Từ khóa', 'Lọc tháng', 'Kết quả'].map(h => (
+                              <th key={h} style={{ padding: '10px 14px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {searchLogs.map((log, i) => (
+                            <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                              <td style={{ padding: '9px 14px', color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: '12px' }}>
+                                {new Date(log.searched_at).toLocaleString()}
+                              </td>
+                              <td style={{ padding: '9px 14px' }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+                                  <User size={12} color="var(--accent-blue)" />
+                                  {log.user_name}
+                                </span>
+                              </td>
+                              <td style={{ padding: '9px 14px', color: 'var(--text-muted)', fontSize: '11px' }}>
+                                <code style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                                  {log.device_id?.slice(0, 12)}...
+                                </code>
+                              </td>
+                              <td style={{ padding: '9px 14px' }}>
+                                <span style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-blue)', padding: '3px 10px', borderRadius: '12px', fontWeight: 600, fontSize: '12px' }}>
+                                  🔍 {log.keyword}
+                                </span>
+                              </td>
+                              <td style={{ padding: '9px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                {log.month_filter || <span style={{ opacity: 0.4 }}>Tất cả</span>}
+                              </td>
+                              <td style={{ padding: '9px 14px', textAlign: 'center' }}>
+                                <span style={{ 
+                                  fontWeight: 'bold', 
+                                  color: log.results_count === 0 ? 'var(--status-error)' : 'var(--status-success)',
+                                  background: log.results_count === 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
+                                  padding: '3px 10px', borderRadius: '12px', fontSize: '12px'
+                                }}>
+                                  {log.results_count} mẫu
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* OVERCAPACITY BOXES & EXPIRATION REPORTS PAGE */}
             {activeTab === 'archives' && (
               <div className="glass-panel">
@@ -4869,6 +5046,61 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* NAME PROMPT MODAL */}
+      {showNamePrompt && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal-content" style={{ maxWidth: '400px', border: '1px solid var(--accent-blue)' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1px solid rgba(99,102,241,0.25)' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <User size={20} /> Xin chào! Bạn tên gì?
+              </h3>
+            </div>
+            <div className="modal-body" style={{ padding: '24px 20px' }}>
+              <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.6' }}>
+                Hệ thống cần ghi nhận tên của bạn để theo dõi lịch sử tìm kiếm mẫu. Thông tin này chỉ được Admin xem.
+              </p>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Nhập họ tên hoặc tên phòng ban..."
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveVisitorName()}
+                autoFocus
+                style={{ marginBottom: '8px' }}
+              />
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ví dụ: Nguyễn Văn A, Phòng R&D, Chất lượng...</p>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', gap: '12px' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setVisitorName('Khách ẩn danh'); setShowNamePrompt(false); }}>
+                Bỏ qua
+              </button>
+              <button className="btn btn-primary" style={{ flex: 2 }} onClick={saveVisitorName}>
+                <Check size={16} /> Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VISITOR NAME BADGE + CHANGE NAME BUTTON */}
+      {(user || authMode === 'guest') && visitorName && (
+        <div style={{
+          position: 'fixed', bottom: '80px', right: '24px', zIndex: 1000,
+          background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)',
+          borderRadius: '20px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '8px',
+          fontSize: '12px', color: 'var(--text-secondary)', boxShadow: '0 4px 16px var(--glass-shadow)',
+          backdropFilter: 'blur(8px)', cursor: 'pointer'
+        }}
+          onClick={() => { setNameInput(visitorName); setShowNamePrompt(true); }}
+          title="Nhấn để đổi tên"
+        >
+          <User size={12} />
+          <span>{visitorName}</span>
+          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>✎</span>
         </div>
       )}
     </div>
