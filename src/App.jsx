@@ -1598,7 +1598,12 @@ export default function App() {
       // Show location only after success
       const locStr = sample.shelf 
         ? formatLocation(sample.shelf, sample.slot, sample.column_number)
-        : `Thùng ${boxes.find(b => b.id === sample.box_id)?.box_name || 'Không xác định'}`;
+        : sample.box_id
+          ? `Thùng ${boxes.find(b => b.id === sample.box_id)?.box_name || 'Không xác định'}`
+          : sample.status === 'pending'
+            ? `Khay số ${sample.tray_number || 'chưa đánh số'} (Chờ bố trí)`
+            : 'Chưa xác định';
+
       setTakenLocationModal({
         product_name: sample.products?.product_name || sample.product_name,
         qty: parseInt(qty),
@@ -1609,7 +1614,7 @@ export default function App() {
         setLoading(true);
         const { error } = await supabase.from('transactions').insert({
           sample_id: sample.id,
-          user_id: profile.id,
+          user_id: profile?.id || null, // safe fallback for guest to prevent crashes
           type: 'take_request',
           quantity: parseInt(qty),
           status: 'pending',
@@ -1622,7 +1627,12 @@ export default function App() {
         // Show location only after success
         const locStr = sample.shelf 
           ? formatLocation(sample.shelf, sample.slot, sample.column_number)
-          : `Thùng ${boxes.find(b => b.id === sample.box_id)?.box_name || 'Không xác định'}`;
+          : sample.box_id
+            ? `Thùng ${boxes.find(b => b.id === sample.box_id)?.box_name || 'Không xác định'}`
+            : sample.status === 'pending'
+              ? `Khay số ${sample.tray_number || 'chưa đánh số'} (Chờ bố trí)`
+              : 'Chưa xác định';
+
         setTakenLocationModal({
           product_name: sample.products?.product_name || sample.product_name,
           qty: parseInt(qty),
@@ -2978,6 +2988,15 @@ export default function App() {
                               <div><strong>Tồn khả dụng:</strong> <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{s.available_qty} bao</span> ({Math.floor(s.available_qty/10)} cây, {s.available_qty%10} bao lẻ)</div>
                               {s.order_number && <div><strong>Số đơn hàng:</strong> {s.order_number}</div>}
                               <div><strong>Cảnh báo bao:</strong> {s.products?.warning_code || 'Không'}</div>
+                              <div><strong>Vị trí hiện tại:</strong> <span style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>
+                                {s.shelf 
+                                  ? formatLocation(s.shelf, s.slot, s.column_number) 
+                                  : s.box_id 
+                                    ? `Thùng ${boxes.find(b => b.id === s.box_id)?.box_name || '—'}` 
+                                    : s.status === 'pending'
+                                      ? `Khay số ${s.tray_number || '—'} (Chờ bố trí)`
+                                      : 'Chưa xác định'}
+                              </span></div>
                             </div>
                           </div>
 
