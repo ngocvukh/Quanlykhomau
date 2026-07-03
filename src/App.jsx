@@ -217,7 +217,8 @@ export default function App() {
   const [profilesList, setProfilesList] = useState([]);
 
   // Application UI States
-  const [activeTab, setActiveTab] = useState('search'); // 'search', 'shelves', 'import', 'bulk_import', 'catalog', 'requests', 'archives'
+  const [activeTab, setActiveTab] = useState('shelves');
+  const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
 
   // Bulk Import State
   const createEmptyBulkRow = (id) => ({
@@ -1099,7 +1100,7 @@ export default function App() {
             .then(({ data: prof }) => {
               if (prof) {
                 setProfile(prof);
-                setActiveTab(prof.role === 'admin' ? 'shelves' : 'search');
+                setActiveTab('shelves');
               }
             });
         }
@@ -1298,7 +1299,7 @@ export default function App() {
       setUser(mockUser);
       setProfile(mockProfile);
       showToast(`Đăng nhập thành công với vai trò: ${authRole}`, 'success');
-      setActiveTab(authRole === 'admin' ? 'shelves' : 'search');
+      setActiveTab('shelves');
       return;
     }
 
@@ -1319,7 +1320,7 @@ export default function App() {
           .eq('id', data.user.id)
           .maybeSingle();
         if (prof) {
-          setActiveTab(prof.role === 'admin' ? 'shelves' : 'search');
+          setActiveTab('shelves');
         }
       } else {
         const { data, error } = await supabase.auth.signUp({
@@ -1330,7 +1331,7 @@ export default function App() {
         showToast("Đăng ký thành công! Đang tạo thông tin...", "success");
         if (data.user) {
           await createFallbackProfile(data.user.id);
-          setActiveTab('search'); // Mặc định là search cho tài khoản mới
+          setActiveTab('shelves');
         }
       }
     } catch (error) {
@@ -3246,83 +3247,157 @@ export default function App() {
         /* APPLICATION WORKSPACE */
         <div style={{ display: 'flex', flex: 1, gap: '24px', flexDirection: 'column' }}>
           
-          {/* TAB NAVIGATION BAR (SPLIT) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {/* Ô quản lý kho chung ở trên */}
-            <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
-                  <Database size={16} /> Sơ Đồ Kệ Kho
-                </button>
-
-                {/* Admin-only Tabs */}
-                {(profile?.role === 'admin') && (
-                  <>
-                    <button className={`btn ${activeTab === 'import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('import')}>
-                      <Plus size={16} /> Nhập Kho Mẫu
-                    </button>
-                    <button className={`btn ${activeTab === 'labels' ? 'btn-primary' : 'btn-secondary'}`} style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setActiveTab('labels')}>
-                      <QrCode size={16} /> In Nhãn Hàng Loạt
-                      {printQueue.length > 0 && (
-                        <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold' }}>
-                          {printQueue.length}
-                        </span>
-                      )}
-                    </button>
-                    <button className={`btn ${activeTab === 'catalog' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('catalog')}>
-                      <ClipboardList size={16} /> Danh Mục Gốc
-                    </button>
-                    <button className={`btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('requests')}>
-                      <ArrowRightLeft size={16} />
-                      Yêu Cầu Lấy Mẫu
-                      {transactions.filter(t => t.status === 'pending').length > 0 && (
-                        <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
-                          {transactions.filter(t => t.status === 'pending').length}
-                        </span>
-                      )}
-                    </button>
-                    <button className={`btn ${activeTab === 'bulk_import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('bulk_import')} style={{ background: activeTab === 'bulk_import' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : undefined, borderColor: activeTab === 'bulk_import' ? '#7c3aed' : undefined }}>
-                      <UploadCloud size={16} /> Nhập Hàng Loạt
-                    </button>
-                    <button className={`btn ${activeTab === 'archives' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('archives')}>
-                      <Archive size={16} /> Đóng Thùng & Hủy
-                      {getExpiredSamples().length > 0 && (
-                        <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
-                          {getExpiredSamples().length} quá hạn
-                        </span>
-                      )}
-                    </button>
-                    <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }} style={{ background: activeTab === 'search_logs' ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : undefined, borderColor: activeTab === 'search_logs' ? '#0ea5e9' : undefined }}>
-                      <FileText size={16} /> Nhật Ký Tìm Kiếm
-                    </button>
-                  </>
+          {/* GLOBAL SEARCH PANEL (Luôn hiện ở trên cùng của không gian làm việc) */}
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <h2 style={{ fontSize: '18px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Search size={20} color="var(--accent-blue)" /> Tra Cứu Và Tìm Kiếm Thuốc Lá Mẫu
+            </h2>
+            
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end', position: 'relative' }}>
+              <div className="form-group" style={{ flex: 2, minWidth: '240px', marginBottom: 0, position: 'relative' }}>
+                <label className="form-label">Tên sản phẩm thuốc lá <span style={{ color: 'red' }}>*</span></label>
+                <input 
+                  className="form-input" 
+                  type="text" 
+                  required 
+                  placeholder="Nhập tên sản phẩm (ví dụ: 555, Canyon...)" 
+                  value={searchName} 
+                  onChange={e => handleSearchInputChange(e.target.value)} 
+                  onBlur={() => setTimeout(() => setSearchSuggestions([]), 200)}
+                  autoComplete="off"
+                />
+                
+                {/* Real-time Search Suggestions Autocomplete */}
+                {searchSuggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '75px',
+                    left: 0,
+                    right: 0,
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: 'var(--border-radius-sm)',
+                    boxShadow: '0 8px 32px var(--glass-shadow)',
+                    zIndex: 100,
+                    maxHeight: '220px',
+                    overflowY: 'auto',
+                    backdropFilter: 'blur(12px)',
+                    WebkitBackdropFilter: 'blur(12px)'
+                  }}>
+                    {searchSuggestions.map(p => (
+                      <div 
+                        key={p.id} 
+                        style={{
+                          padding: '10px 16px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid rgba(255,255,255,0.03)',
+                          transition: 'background 0.2s',
+                          fontSize: '14px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          color: 'var(--text-primary)'
+                        }}
+                        onMouseDown={() => {
+                          setSearchName(p.product_name);
+                          setSearchSuggestions([]);
+                          const monthVal = (searchSelYear && searchSelMonth) ? \`\${searchSelYear}-\${searchSelMonth}\` : '';
+                          executeSearch(p.product_name, monthVal);
+                        }}
+                        className="suggestion-item"
+                      >
+                        <span style={{ fontWeight: 600 }}>{p.product_name}</span>
+                        {p.warning_code && <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.warning_code}</span>}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
+              
+              <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '220px', marginBottom: 0 }}>
+                <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                  <label className="form-label">Tháng sản xuất (Tháng)</label>
+                  <select className="form-select" value={searchSelMonth} onChange={e => setSearchSelMonth(e.target.value)}>
+                    <option value="">Tất cả</option>
+                    {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                      <option key={m} value={String(m).padStart(2, '0')}>Tháng {m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                  <label className="form-label">Tháng sản xuất (Năm)</label>
+                  <select className="form-select" value={searchSelYear} onChange={e => setSearchSelYear(e.target.value)}>
+                    <option value="">Tất cả</option>
+                    {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
+                      <option key={y} value={String(y)}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-              {/* Back button from Guest Mode */}
-              {authMode === 'guest' && (
-                <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
-                  Thoát Khách (Đăng Nhập Admin)
-                </button>
+              <button className="btn btn-primary" type="submit" style={{ height: '45px', padding: '0 24px' }}>
+                <Search size={16} /> Tìm kiếm
+              </button>
+            </form>
+          </div>
+
+          {/* TAB NAVIGATION BAR (Chỉ chứa các nút quản lý, tìm kiếm đã được trích xuất lên trên) */}
+          <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
+                <Database size={16} /> Sơ Đồ Kệ Kho
+              </button>
+
+              {/* Admin-only Tabs */}
+              {(profile?.role === 'admin') && (
+                <>
+                  <button className={`btn ${activeTab === 'import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('import')}>
+                    <Plus size={16} /> Nhập Kho Mẫu
+                  </button>
+                  <button className={`btn ${activeTab === 'labels' ? 'btn-primary' : 'btn-secondary'}`} style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setActiveTab('labels')}>
+                    <QrCode size={16} /> In Nhãn Hàng Loạt
+                    {printQueue.length > 0 && (
+                      <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold' }}>
+                        {printQueue.length}
+                      </span>
+                    )}
+                  </button>
+                  <button className={`btn ${activeTab === 'catalog' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('catalog')}>
+                    <ClipboardList size={16} /> Danh Mục Gốc
+                  </button>
+                  <button className={`btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('requests')}>
+                    <ArrowRightLeft size={16} />
+                    Yêu Cầu Lấy Mẫu
+                    {transactions.filter(t => t.status === 'pending').length > 0 && (
+                      <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
+                        {transactions.filter(t => t.status === 'pending').length}
+                      </span>
+                    )}
+                  </button>
+                  <button className={`btn ${activeTab === 'bulk_import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('bulk_import')} style={{ background: activeTab === 'bulk_import' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : undefined, borderColor: activeTab === 'bulk_import' ? '#7c3aed' : undefined }}>
+                    <UploadCloud size={16} /> Nhập Hàng Loạt
+                  </button>
+                  <button className={`btn ${activeTab === 'archives' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('archives')}>
+                    <Archive size={16} /> Đóng Thùng & Hủy
+                    {getExpiredSamples().length > 0 && (
+                      <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
+                        {getExpiredSamples().length} quá hạn
+                      </span>
+                    )}
+                  </button>
+                  <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }} style={{ background: activeTab === 'search_logs' ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : undefined, borderColor: activeTab === 'search_logs' ? '#0ea5e9' : undefined }}>
+                    <FileText size={16} /> Nhật Ký Tìm Kiếm
+                  </button>
+                </>
               )}
             </div>
 
-            {/* Ô tìm kiếm độc lập nằm bên dưới */}
-            <div className="glass-panel" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center' }}>
-              <button 
-                className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} 
-                onClick={() => setActiveTab('search')}
-                style={{
-                  background: activeTab === 'search' ? 'linear-gradient(135deg,#0ea5e9,#2563eb)' : undefined,
-                  borderColor: activeTab === 'search' ? '#0ea5e9' : undefined,
-                  boxShadow: activeTab === 'search' ? '0 0 12px rgba(14, 165, 233, 0.4)' : undefined,
-                  fontWeight: 'bold',
-                  width: '100%' // Cho nút rộng toàn ô để bấm dễ
-                }}
-              >
-                <Search size={16} /> Tìm Kiếm Mẫu
+            {/* Back button from Guest Mode */}
+            {authMode === 'guest' && (
+              <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
+                Thoát Khách (Đăng Nhập Admin)
               </button>
-            </div>
+            )}
           </div>
 
                     {/* TAB CONTENTS */}
