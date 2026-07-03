@@ -820,6 +820,21 @@ export default function App() {
         localStorage.setItem('visitor_device_id', did);
       }
       setDeviceId(did);
+
+      // Kiểm tra xem Admin có reset tên thiết bị này không
+      try {
+        const { data: resetRow } = await supabase
+          .from('visitor_resets')
+          .select('device_id')
+          .eq('device_id', did)
+          .maybeSingle();
+        if (resetRow) {
+          // Admin đã reset → xóa tên khỏi localStorage và xóa khỏi bảng
+          localStorage.removeItem('visitor_name');
+          await supabase.from('visitor_resets').delete().eq('device_id', did);
+        }
+      } catch (e) { /* bỏ qua nếu không kết nối được */ }
+
       const savedName = localStorage.getItem('visitor_name');
       if (savedName) setVisitorName(savedName);
     })();
@@ -890,6 +905,17 @@ export default function App() {
 
     return () => { supabase.removeChannel(channel); };
   }, [profile, isDemoMode]);
+
+  // Admin reset tên visitor theo device_id
+  const handleResetVisitor = async (devId, userName) => {
+    if (!window.confirm(`Xác nhận reset tên "${userName}"?\nLần sau họ vào web sẽ phải khai báo tên lại.`)) return;
+    try {
+      await supabase.from('visitor_resets').upsert({ device_id: devId, reset_by: 'admin' });
+      showToast(`Đã reset thiết bị của "${userName}". Họ sẽ phải nhập lại tên lần sau!`, 'success');
+    } catch (e) {
+      showToast('Lỗi khi reset. Thử lại.', 'error');
+    }
+  };
 
   const fetchSearchLogs = async () => {
     if (isDemoMode) return;
@@ -4447,7 +4473,7 @@ export default function App() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                           <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
-                            {['Thời gian', 'Tên người dùng', 'Thiết bị', 'Từ khóa', 'Lọc tháng', 'Kết quả'].map(h => (
+                            {['Thời gian', 'Tên người dùng', 'Thiết bị', 'Từ khóa', 'Lọc tháng', 'Kết quả', ''].map(h => (
                               <th key={h} style={{ padding: '10px 14px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                           </tr>
@@ -4486,6 +4512,20 @@ export default function App() {
                                 }}>
                                   {log.results_count} mẫu
                                 </span>
+                              </td>
+                              <td style={{ padding: '9px 14px', textAlign: 'center' }}>
+                                <button
+                                  onClick={() => handleResetVisitor(log.device_id, log.user_name)}
+                                  title="Reset — lần sau họ phải khai tên lại"
+                                  style={{
+                                    background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+                                    color: 'var(--status-error)', borderRadius: '8px',
+                                    padding: '4px 10px', fontSize: '11px', cursor: 'pointer',
+                                    fontWeight: 600, whiteSpace: 'nowrap'
+                                  }}
+                                >
+                                  🔄 Reset tên
+                                </button>
                               </td>
                             </tr>
                           ))}
