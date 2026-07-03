@@ -1778,7 +1778,13 @@ export default function App() {
 
     // Ghi log tìm kiếm vào Supabase
     if (!isDemoMode && deviceId) {
-      const currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+      let currentName = 'Khách ẩn danh';
+      if (profile) {
+        currentName = profile.full_name || (profile.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên');
+      } else {
+        currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+      }
+      
       try {
         await supabase.from('search_logs').insert({
           device_id: deviceId,
