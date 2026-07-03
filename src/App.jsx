@@ -539,20 +539,29 @@ export default function App() {
       const samplesToInsert = [];
       for (const r of bulkRows) {
         if (r.isOther) {
+          const prod = r.productObj;
           const sampD = parseDMY(r.samplingDate);
           const hourVal = parseInt(r.samplingHour, 10) || 0;
           const minuteVal = parseInt(r.samplingMinute, 10) || 0;
           sampD.setHours(hourVal, minuteVal, 0, 0);
-          const sku = `QR-OTH-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
+          const sku = prod 
+            ? `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`
+            : `QR-OTH-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
+          
+          const packD = r.packagingDate ? parseDMY(r.packagingDate) : null;
+          const blendD = r.blendDate ? parseDMY(r.blendDate) : null;
+          const calculatedQty = r.qty ? (parseInt(r.qty) * 10) : 0;
+
           samplesToInsert.push({
-            sku, product_id: null,
-            order_number: null,
-            blend_batch: '—',
-            blend_date: null,
-            packaging_date: null,
+            sku, 
+            product_id: prod ? prod.id : null,
+            order_number: r.orderNumber || null,
+            blend_batch: r.blendBatch ? `${parseInt(r.blendBatch)}|${parseInt(r.boxSeq || 1)}` : '—',
+            blend_date: blendD ? formatLocalYYYYMMDD(blendD) : null,
+            packaging_date: packD ? formatLocalYYYYMMDD(packD) : null,
             sampling_time: sampD.toISOString(),
             shelf: null, slot: null, column_number: null, box_id: null,
-            total_qty: 0, available_qty: 0,
+            total_qty: calculatedQty, available_qty: calculatedQty,
             entry_date: formatLocalYYYYMMDD(new Date()),
             status: 'pending',
             tray_number: trayNumVal,
@@ -3859,9 +3868,6 @@ export default function App() {
                                   setBulkRows(prev => prev.map((r, i) => i === idx ? {
                                     ...r,
                                     isOther: checked,
-                                    productId: checked ? '' : r.productId,
-                                    productObj: checked ? null : r.productObj,
-                                    searchQuery: checked ? '' : r.searchQuery,
                                     blendBatch: checked ? '' : r.blendBatch,
                                     boxSeq: checked ? '' : r.boxSeq,
                                     blendDate: checked ? '' : r.blendDate,
@@ -3878,24 +3884,23 @@ export default function App() {
                             <td style={{ padding:'8px 12px', minWidth:'240px', position:'relative', zIndex: row.suggestions.length > 0 ? 100 : 'auto' }}>
                               <input
                                 type="text" 
-                                placeholder={row.isOther ? 'Mẫu khác (không yêu cầu)' : 'Nhập tên sản phẩm...'}
+                                placeholder={row.isOther ? 'Nhập tên sản phẩm (tùy chọn)...' : 'Nhập tên sản phẩm...'}
                                 value={row.searchQuery}
-                                disabled={row.isOther}
                                 onChange={e => handleBulkProductSearch(idx, e.target.value)}
                                 onKeyDown={e => handleBulkSearchKeyDown(e, idx)}
                                 onBlur={() => setTimeout(() => updateBulkRow(idx,'suggestions',[]), 200)}
                                 style={{ 
                                   width:'100%', 
                                   padding:'6px 10px', 
-                                  background: row.isOther ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
+                                  background: 'var(--glass-bg)', 
                                   border:`1px solid ${row.suggestions.length > 0 ? 'var(--accent-blue)' : row.productObj ? 'var(--status-success)' : 'var(--glass-border)'}`, 
                                   borderRadius:'6px', 
-                                  color: row.isOther ? 'var(--text-muted)' : 'var(--text-primary)', 
+                                  color: 'var(--text-primary)', 
                                   fontSize:'12px', 
                                   boxSizing:'border-box', 
                                   outline:'none',
-                                  cursor: row.isOther ? 'not-allowed' : 'text',
-                                  opacity: row.isOther ? 0.5 : 1
+                                  cursor: 'text',
+                                  opacity: 1
                                 }}
                               />
                               {row.productObj && !row.suggestions.length && (
