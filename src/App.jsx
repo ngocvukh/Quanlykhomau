@@ -5407,23 +5407,6 @@ export default function App() {
         </div>
       )}
 
-      {/* VISITOR NAME BADGE + CHANGE NAME BUTTON */}
-      {(user || authMode === 'guest') && visitorName && (
-        <div style={{
-          position: 'fixed', bottom: '80px', right: '24px', zIndex: 1000,
-          background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)',
-          borderRadius: '20px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '8px',
-          fontSize: '12px', color: 'var(--text-secondary)', boxShadow: '0 4px 16px var(--glass-shadow)',
-          backdropFilter: 'blur(8px)', cursor: 'pointer'
-        }}
-          onClick={() => { setNameInput(visitorName); setShowNamePrompt(true); }}
-          title="Nhấn để đổi tên"
-        >
-          <User size={12} />
-          <span>{visitorName}</span>
-          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>✎</span>
-        </div>
-      )}
     </div>
   );
 }
