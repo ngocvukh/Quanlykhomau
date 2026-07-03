@@ -4067,19 +4067,16 @@ export default function App() {
                                />
                              </td>
                              <td style={{ padding:'8px 12px', width:'80px' }}>
-                               <input type="number" min="1" placeholder={row.isOther ? 'Không' : '10'} value={row.qty}
-                                 disabled={row.isOther}
+                               <input type="number" min="1" placeholder="10" value={row.qty}
                                  onChange={e => updateBulkRow(idx,'qty',e.target.value)}
                                  style={{ 
                                    width:'100%', 
                                    padding:'6px 8px', 
-                                   background: row.isOther ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
-                                   border:'1px solid var(--glass-border)', 
+                                   background: 'var(--glass-bg)', 
+                                   border:`1px solid ${row.isOther && !row.qty ? 'var(--status-error)' : 'var(--glass-border)'}`, 
                                    borderRadius:'6px', 
-                                   color: row.isOther ? 'var(--text-muted)' : 'var(--text-primary)', 
-                                   fontSize:'12px',
-                                   cursor: row.isOther ? 'not-allowed' : 'text',
-                                   opacity: row.isOther ? 0.5 : 1
+                                   color: 'var(--text-primary)', 
+                                   fontSize:'12px'
                                  }} />
                              </td>
                              <td style={{ padding:'8px 12px', width:'150px' }}>
