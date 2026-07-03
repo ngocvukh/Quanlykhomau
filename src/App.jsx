@@ -4,7 +4,7 @@ import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
-  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell
+  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move
 } from 'lucide-react';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
@@ -335,6 +335,24 @@ export default function App() {
   // Modal / Detail States
   const [selectedSlot, setSelectedSlot] = useState(null); // { shelf, slot }
   const [qrCodeModal, setQrCodeModal] = useState(null); // sample object
+  const [movingSample, setMovingSample] = useState(null); // sample object to move
+  const [moveType, setMoveType] = useState('shelves');
+  const [moveShelf, setMoveShelf] = useState(1);
+  const [moveSlot, setMoveSlot] = useState(1);
+  const [moveColumn, setMoveColumn] = useState(1);
+  const [moveBoxId, setMoveBoxId] = useState('');
+  const [moveTrayNumber, setMoveTrayNumber] = useState('');
+
+  useEffect(() => {
+    if (movingSample) {
+      setMoveType(movingSample.shelf ? 'shelves' : movingSample.box_id ? 'box' : 'pending');
+      setMoveShelf(movingSample.shelf || 1);
+      setMoveSlot(movingSample.slot || 1);
+      setMoveColumn(movingSample.column_number || 1);
+      setMoveBoxId(movingSample.box_id || (boxes[0]?.id || ''));
+      setMoveTrayNumber(movingSample.tray_number || '');
+    }
+  }, [movingSample, boxes]);
   const [manifestModal, setManifestModal] = useState(null); // box object
   const [takenLocationModal, setTakenLocationModal] = useState(null); // { product_name, qty, location }
 
@@ -2332,6 +2350,111 @@ export default function App() {
     }
   };
 
+  const handleMoveSample = async (sampleId, targetType, targetDetails) => {
+    if (targetType === 'shelves') {
+      const { shelf, slot, column_number } = targetDetails;
+      if (!shelf || !slot) {
+        showToast("Vui lòng chọn Kệ và Ô hợp lệ!", "warning");
+        return;
+      }
+      
+      if (slot !== 5) {
+        if (!column_number) {
+          showToast("Vui lòng chọn Cột!", "warning");
+          return;
+        }
+
+        const samplesInCol = samples.filter(s => s.shelf === shelf && s.slot === slot && s.column_number === column_number && s.status === 'stored' && s.id !== sampleId);
+        if (samplesInCol.length > 0) {
+          const existingProd = samplesInCol[0].products?.product_name || samplesInCol[0].product_name;
+          const movingProd = movingSample.products?.product_name || movingSample.product_name;
+          if (existingProd !== movingProd) {
+            showToast(`Cột ${column_number} đang chứa sản phẩm khác (${existingProd})! Không thể trộn lẫn sản phẩm.`, "error");
+            return;
+          }
+        }
+
+        const totalCartonsInCol = samples.filter(s => s.shelf === shelf && s.slot === slot && s.column_number === column_number && s.status === 'stored' && s.id !== sampleId)
+          .reduce((sum, s) => sum + Math.ceil(s.available_qty / 10), 0);
+        
+        const movingCartons = Math.ceil(movingSample.available_qty / 10);
+        const format = movingSample.products?.format || 'Kingsize';
+        let maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
+        if (format === 'Kingsize') maxHeight = 6;
+
+        if (totalCartonsInCol + movingCartons > maxHeight) {
+          showToast(`Cột ${column_number} vượt quá chiều cao tối đa (${maxHeight} cây). Vui lòng xếp sang cột khác!`, "error");
+          return;
+        }
+      }
+    }
+
+    let updates = {
+      status: targetType === 'shelves' ? 'stored' : targetType === 'box' ? 'archived' : 'pending',
+      shelf: targetType === 'shelves' ? targetDetails.shelf : null,
+      slot: targetType === 'shelves' ? targetDetails.slot : null,
+      column_number: (targetType === 'shelves' && targetDetails.slot !== 5) ? targetDetails.column_number : null,
+      box_id: targetType === 'box' ? targetDetails.box_id : null,
+      tray_number: targetType === 'pending' ? targetDetails.tray_number : null,
+    };
+
+    if (isDemoMode) {
+      setSamples(prev => prev.map(s => {
+        if (s.id === sampleId) {
+          return { ...s, ...updates };
+        }
+        return s;
+      }));
+
+      const oldLoc = movingSample.shelf ? formatLocation(movingSample.shelf, movingSample.slot, movingSample.column_number) : movingSample.box_id ? `Thùng ${boxes.find(b => b.id === movingSample.box_id)?.box_name || '—'}` : `Khay ${movingSample.tray_number || '—'}`;
+      const newLoc = targetType === 'shelves' ? formatLocation(targetDetails.shelf, targetDetails.slot, targetDetails.column_number) : targetType === 'box' ? `Thùng ${boxes.find(b => b.id === targetDetails.box_id)?.box_name || '—'}` : `Khay ${targetDetails.tray_number || '—'}`;
+      
+      const newTx = {
+        id: `t-${Date.now()}`,
+        sample_id: sampleId,
+        samples: movingSample,
+        user_id: profile?.id || 'admin',
+        profiles: profile || { full_name: 'Thủ kho (Admin)' },
+        type: 'move',
+        quantity: movingSample.available_qty,
+        status: 'completed',
+        note: `Di chuyển mẫu từ ${oldLoc} sang ${newLoc}`,
+        created_at: new Date().toISOString()
+      };
+      setTransactions(prev => [newTx, ...prev]);
+      showToast("Di chuyển mẫu thành công!", "success");
+      setMovingSample(null);
+      setSelectedSlot(null);
+    } else {
+      try {
+        setLoading(true);
+        const { error } = await supabase.from('samples').update(updates).eq('id', sampleId);
+        if (error) throw error;
+
+        const oldLoc = movingSample.shelf ? formatLocation(movingSample.shelf, movingSample.slot, movingSample.column_number) : movingSample.box_id ? `Thùng ${boxes.find(b => b.id === movingSample.box_id)?.box_name || '—'}` : `Khay ${movingSample.tray_number || '—'}`;
+        const newLoc = targetType === 'shelves' ? formatLocation(targetDetails.shelf, targetDetails.slot, targetDetails.column_number) : targetType === 'box' ? `Thùng ${boxes.find(b => b.id === targetDetails.box_id)?.box_name || '—'}` : `Khay ${targetDetails.tray_number || '—'}`;
+
+        await supabase.from('transactions').insert({
+          sample_id: sampleId,
+          user_id: user.id,
+          type: 'move',
+          quantity: movingSample.available_qty,
+          status: 'completed',
+          note: `Di chuyển mẫu từ ${oldLoc} sang ${newLoc}`
+        });
+
+        await fetchSamples();
+        showToast("Di chuyển mẫu thành công!", "success");
+        setMovingSample(null);
+        setSelectedSlot(null);
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   // Calculations for Expired samples (>12 months from packaging_date)
   const getExpiredSamples = () => {
     const twelveMonthsAgo = new Date();
@@ -3507,21 +3630,32 @@ export default function App() {
 
                                 {/* Vị trí sẽ hiển thị sau khi nhấn xác nhận */}
 
-                                <button 
-                                  className="btn btn-primary" 
-                                  style={{ height: '36px', padding: '0 16px', fontSize: '13px', alignSelf: 'flex-end' }}
-                                  disabled={!isValidQty}
-                                  onClick={() => {
-                                    handleTakeRequest(s, qtyInt, 'Nhân viên lấy mẫu');
-                                    setTakeQuantities(prev => {
-                                      const copy = { ...prev };
-                                      delete copy[s.id];
-                                      return copy;
-                                    });
-                                  }}
-                                >
-                                  Xác nhận lấy mẫu
-                                </button>
+                                <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end' }}>
+                                  <button 
+                                    className="btn btn-primary" 
+                                    style={{ height: '36px', padding: '0 16px', fontSize: '13px', flex: (profile?.role === 'admin') ? 1 : undefined }}
+                                    disabled={!isValidQty}
+                                    onClick={() => {
+                                      handleTakeRequest(s, qtyInt, 'Nhân viên lấy mẫu');
+                                      setTakeQuantities(prev => {
+                                        const copy = { ...prev };
+                                        delete copy[s.id];
+                                        return copy;
+                                      });
+                                    }}
+                                  >
+                                    Xác nhận lấy mẫu
+                                  </button>
+                                  {profile?.role === 'admin' && (
+                                    <button 
+                                      className="btn btn-secondary" 
+                                      style={{ height: '36px', padding: '0 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
+                                      onClick={() => setMovingSample(s)}
+                                    >
+                                      <Move size={14} /> Di chuyển
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             ) : (
                               <span style={{ color: 'var(--text-muted)', fontWeight: 'bold', fontSize: '14px' }}>Hết mẫu</span>
@@ -4584,7 +4718,10 @@ export default function App() {
                               <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
                               <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
                               <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
-                              <td style={{ padding:'7px 12px', textAlign:'right' }}>
+                              <td style={{ padding:'7px 12px', textAlign:'right', display:'flex', gap:'6px', justifyContent:'flex-end', alignItems:'center' }}>
+                                <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'var(--accent-blue)', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(s)}>
+                                  <Move size={14} /> Bố trí
+                                </button>
                                 <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
                                   <Trash2 size={16} />
                                 </button>
@@ -5199,13 +5336,18 @@ export default function App() {
                                           <QrCode size={14} /> QR
                                         </button>
                                         {profile?.role === 'admin' && (
-                                          <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--status-error)' }} onClick={() => {
-                                            if (confirm("Bạn có chắc chắn muốn xuất hủy thủ công lô mẫu này không?")) {
-                                              handleDestroySample(sample.id);
-                                            }
-                                          }}>
-                                            <Trash2 size={14} /> Hủy
-                                          </button>
+                                          <div style={{ display: 'flex', gap: '6px' }}>
+                                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(sample)}>
+                                              <Move size={14} /> Di chuyển
+                                            </button>
+                                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--status-error)' }} onClick={() => {
+                                              if (confirm("Bạn có chắc chắn muốn xuất hủy thủ công lô mẫu này không?")) {
+                                                handleDestroySample(sample.id);
+                                              }
+                                            }}>
+                                              <Trash2 size={14} /> Hủy
+                                            </button>
+                                          </div>
                                         )}
                                       </div>
                                     </div>
@@ -5425,6 +5567,137 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* MOVE SAMPLE POSITION MODAL */}
+      {movingSample && (
+        <div className="modal-overlay" onClick={() => setMovingSample(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ArrowRightLeft size={20} color="var(--accent-blue)" /> Di Chuyển Vị Trí Mẫu
+              </h3>
+              <button className="close-btn" onClick={() => setMovingSample(null)}><X size={18} /></button>
+            </div>
+            
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <strong style={{ fontSize: '15px' }}>{movingSample.products?.product_name || movingSample.product_name}</strong>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Mẻ sợi: {formatBlendBatch(movingSample.blend_batch)} | SKU: {movingSample.sku}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  Vị trí hiện tại: <span style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>
+                    {movingSample.shelf 
+                      ? formatLocation(movingSample.shelf, movingSample.slot, movingSample.column_number)
+                      : movingSample.box_id
+                        ? `Thùng ${boxes.find(b => b.id === movingSample.box_id)?.box_name || '—'}`
+                        : `Khay số ${movingSample.tray_number || '—'} (Chờ bố trí)`}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label">Hình thức lưu trữ mới</label>
+                <div style={{ display: 'flex', gap: '12px', marginTop: '6px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                    <input type="radio" name="moveType" value="shelves" checked={moveType === 'shelves'} onChange={() => setMoveType('shelves')} />
+                    Lên kệ kho
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                    <input type="radio" name="moveType" value="box" checked={moveType === 'box'} onChange={() => setMoveType('box')} />
+                    Vào thùng lưu trữ
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                    <input type="radio" name="moveType" value="pending" checked={moveType === 'pending'} onChange={() => setMoveType('pending')} />
+                    Khay chờ bố trí
+                  </label>
+                </div>
+              </div>
+              
+              {moveType === 'shelves' && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">Chọn Kệ</label>
+                    <select className="form-select" value={moveShelf} onChange={e => setMoveShelf(parseInt(e.target.value))}>
+                      {[1, 2, 3, 4, 5, 6].map(shelf => (
+                        <option key={shelf} value={shelf}>Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][shelf]}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">Chọn Ô</label>
+                    <select className="form-select" value={moveSlot} onChange={e => setMoveSlot(parseInt(e.target.value))}>
+                      {[1, 2, 3, 4, 5].map(slot => (
+                        <option key={slot} value={slot}>{slot === 5 ? 'Ô 5 (Lẻ)' : `Ô ${slot}`}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {moveSlot !== 5 && (
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Chọn Cột</label>
+                      <select className="form-select" value={moveColumn} onChange={e => setMoveColumn(parseInt(e.target.value))}>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(col => (
+                          <option key={col} value={col}>Cột {col}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {moveType === 'box' && (
+                <div className="form-group">
+                  <label className="form-label">Chọn Thùng</label>
+                  {boxes.length > 0 ? (
+                    <select className="form-select" value={moveBoxId} onChange={e => setMoveBoxId(e.target.value)}>
+                      {boxes.map(b => (
+                        <option key={b.id} value={b.id}>Thùng {b.box_name} ({b.description || 'Không mô tả'})</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ color: 'var(--status-error)', fontSize: '13px', marginTop: '6px' }}>
+                      Chưa có thùng lưu trữ nào được tạo! Hãy tạo thùng trong tab Đóng Thùng trước.
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {moveType === 'pending' && (
+                <div className="form-group">
+                  <label className="form-label">Số Khay Chờ Bố Trí</label>
+                  <input 
+                    type="number" 
+                    className="form-input" 
+                    placeholder="Nhập số khay..." 
+                    value={moveTrayNumber} 
+                    onChange={e => setMoveTrayNumber(e.target.value)} 
+                    min="1"
+                  />
+                </div>
+              )}
+            </div>
+            
+            <div className="modal-footer" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button className="btn btn-secondary" onClick={() => setMovingSample(null)}>Hủy</button>
+              <button 
+                className="btn btn-primary" 
+                disabled={moveType === 'box' && boxes.length === 0}
+                onClick={() => handleMoveSample(movingSample.id, moveType, {
+                  shelf: moveShelf,
+                  slot: moveSlot,
+                  column_number: moveColumn,
+                  box_id: moveBoxId,
+                  tray_number: moveTrayNumber ? parseInt(moveTrayNumber) : null
+                })}
+              >
+                Xác nhận di chuyển
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* QR CODE MODAL FOR PRINTING */}
       {qrCodeModal && (
