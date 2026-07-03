@@ -811,7 +811,7 @@ export default function App() {
     localStorage.setItem('print_queue', JSON.stringify(printQueue));
   }, [printQueue]);
 
-  // Init Device Fingerprint + Visitor Name
+  // Init Device Fingerprint
   useEffect(() => {
     (async () => {
       let did = localStorage.getItem('visitor_device_id');
@@ -820,16 +820,24 @@ export default function App() {
         localStorage.setItem('visitor_device_id', did);
       }
       setDeviceId(did);
-
       const savedName = localStorage.getItem('visitor_name');
-      if (savedName) {
-        setVisitorName(savedName);
-      } else {
-        // Delay nhỏ để app load xong rồi mới hiện popup
-        setTimeout(() => setShowNamePrompt(true), 1500);
-      }
+      if (savedName) setVisitorName(savedName);
     })();
   }, []);
+
+  // Chỉ hiện popup hỏi tên khi là Guest hoặc Staff (không phải Admin)
+  useEffect(() => {
+    const isAdmin = profile?.role === 'admin';
+    if (isAdmin) return; // Admin đã có tên trong profile, không cần hỏi
+    const isLoggedInAsUser = user && profile; // Staff đã đăng nhập
+    const isGuest = authMode === 'guest';
+    if (!isLoggedInAsUser && !isGuest) return; // Chưa vào app, chưa cần hỏi
+
+    const savedName = localStorage.getItem('visitor_name');
+    if (!savedName) {
+      setTimeout(() => setShowNamePrompt(true), 1000);
+    }
+  }, [authMode, profile, user]);
 
   const saveVisitorName = () => {
     const trimmed = nameInput.trim();
