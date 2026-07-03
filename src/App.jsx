@@ -850,6 +850,9 @@ export default function App() {
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Bộ lọc tìm kiếm cho Danh mục gốc
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
+
   // Batch Print Label Queue (persisted in LocalStorage)
   const [printQueue, setPrintQueue] = useState(() => {
     const saved = localStorage.getItem('print_queue');
@@ -4094,30 +4097,52 @@ export default function App() {
                   </form>
 
                   {/* PRODUCTS LIST */}
-                  <div className="glass-panel" style={{ maxHeight: '550px', overflowY: 'auto' }}>
-                    <h3 style={{ fontSize: '16px', marginBottom: '16px' }}>Danh sách sản phẩm gốc ({products.length})</h3>
+                  <div className="glass-panel" style={{ maxHeight: '550px', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                      <h3 style={{ fontSize: '16px', margin: 0 }}>
+                        Danh sách sản phẩm gốc ({products.filter(p => p.product_name.toLowerCase().includes(catalogSearchQuery.toLowerCase().trim())).length} / {products.length})
+                      </h3>
+                      <input 
+                        type="text" 
+                        placeholder="Tìm sản phẩm gốc..." 
+                        value={catalogSearchQuery}
+                        onChange={e => setCatalogSearchQuery(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          background: 'var(--glass-bg)',
+                          border: '1px solid var(--glass-border)',
+                          borderRadius: '8px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          outline: 'none',
+                          width: '200px'
+                        }}
+                      />
+                    </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {products.map((p, idx) => (
-                        <div key={p.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid var(--glass-border)', fontSize: '13px' }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <strong>{p.product_name}</strong>
-                              {p.is_export && <span style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '1px 6px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold' }}>Xuất Khẩu</span>}
+                      {products
+                        .filter(p => p.product_name.toLowerCase().includes(catalogSearchQuery.toLowerCase().trim()))
+                        .map((p, idx) => (
+                          <div key={p.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid var(--glass-border)', fontSize: '13px' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <strong>{p.product_name}</strong>
+                                {p.is_export && <span style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '1px 6px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold' }}>Xuất Khẩu</span>}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                Định dạng: {p.format} | Cảnh báo: {p.warning_code || 'Không'}
+                              </div>
                             </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                              Định dạng: {p.format} | Cảnh báo: {p.warning_code || 'Không'}
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => startEditingProduct(p)}>
+                                Sửa
+                              </button>
+                              <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11px', background: 'rgba(239,68,68,0.15)', borderColor: 'rgba(239,68,68,0.3)', color: 'var(--status-error)' }} onClick={() => handleDeleteProduct(p.id, p.product_name)}>
+                                Xóa
+                              </button>
                             </div>
                           </div>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => startEditingProduct(p)}>
-                              Sửa
-                            </button>
-                            <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11px', background: 'rgba(239,68,68,0.15)', borderColor: 'rgba(239,68,68,0.3)', color: 'var(--status-error)' }} onClick={() => handleDeleteProduct(p.id, p.product_name)}>
-                              Xóa
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   </div>
                 </div>
