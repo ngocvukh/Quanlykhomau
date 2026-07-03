@@ -3061,6 +3061,73 @@ export default function App() {
 
           {user || profile ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Admin Notification Bell */}
+              {profile?.role === 'admin' && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    className="theme-toggle"
+                    style={{ position: 'relative', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => { setShowNotifDropdown(v => !v); setUnreadCount(0); }}
+                    title="Thông báo"
+                  >
+                    <Bell size={20} />
+                    {unreadCount > 0 && (
+                      <span style={{
+                        position: 'absolute', top: '-2px', right: '-2px',
+                        background: 'var(--status-error)', color: '#fff',
+                        fontSize: '9px', fontWeight: 'bold',
+                        padding: '1px 4px', borderRadius: '10px',
+                        minWidth: '16px', textAlign: 'center',
+                        lineHeight: '12px'
+                      }}>{unreadCount}</span>
+                    )}
+                  </button>
+
+                  {/* Notification Dropdown */}
+                  {showNotifDropdown && (
+                    <div style={{
+                      position: 'absolute', top: '48px', right: 0,
+                      width: '320px', maxHeight: '420px', overflowY: 'auto',
+                      background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)',
+                      borderRadius: '12px', boxShadow: '0 8px 32px var(--glass-shadow)',
+                      backdropFilter: 'blur(16px)', zIndex: 1000
+                    }}>
+                      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700, fontSize: '14px' }}>🔔 Thông báo</span>
+                        {notifications.length > 0 && (
+                          <button style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                            onClick={() => setNotifications([])}>
+                            Xóa tất cả
+                          </button>
+                        )}
+                      </div>
+                      {notifications.length === 0 ? (
+                        <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                          <Bell size={28} style={{ opacity: 0.3, marginBottom: '8px', display: 'block', margin: '0 auto 8px' }} />
+                          Không có thông báo mới
+                        </div>
+                      ) : (
+                        notifications.map((n, i) => (
+                          <div key={n.id + i} style={{
+                            padding: '12px 16px',
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            display: 'flex', gap: '10px', alignItems: 'flex-start',
+                            textAlign: 'left'
+                          }}>
+                            <span style={{ fontSize: '20px', flexShrink: 0 }}>{n.icon}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '2px', color: 'var(--text-primary)' }}>{n.title}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{n.time}</div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{profile?.full_name || 'Người dùng'}</div>
                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{profile?.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên'}</div>
@@ -3240,72 +3307,6 @@ export default function App() {
               <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
                 Thoát Khách (Đăng Nhập Admin)
               </button>
-            )}
-
-            {/* Admin Notification Bell */}
-            {profile?.role === 'admin' && (
-              <div style={{ position: 'relative' }}>
-                <button
-                  className="btn btn-secondary"
-                  style={{ padding: '8px 12px', position: 'relative' }}
-                  onClick={() => { setShowNotifDropdown(v => !v); setUnreadCount(0); }}
-                  title="Thông báo"
-                >
-                  <Bell size={18} />
-                  {unreadCount > 0 && (
-                    <span style={{
-                      position: 'absolute', top: '-6px', right: '-6px',
-                      background: 'var(--status-error)', color: '#fff',
-                      fontSize: '10px', fontWeight: 'bold',
-                      padding: '2px 5px', borderRadius: '10px',
-                      minWidth: '18px', textAlign: 'center',
-                      lineHeight: '14px'
-                    }}>{unreadCount}</span>
-                  )}
-                </button>
-
-                {/* Notification Dropdown */}
-                {showNotifDropdown && (
-                  <div style={{
-                    position: 'absolute', top: '48px', right: 0,
-                    width: '320px', maxHeight: '420px', overflowY: 'auto',
-                    background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)',
-                    borderRadius: '12px', boxShadow: '0 8px 32px var(--glass-shadow)',
-                    backdropFilter: 'blur(16px)', zIndex: 1000
-                  }}>
-                    <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700, fontSize: '14px' }}>🔔 Thông báo</span>
-                      {notifications.length > 0 && (
-                        <button style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
-                          onClick={() => setNotifications([])}>
-                          Xóa tất cả
-                        </button>
-                      )}
-                    </div>
-                    {notifications.length === 0 ? (
-                      <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                        <Bell size={28} style={{ opacity: 0.3, marginBottom: '8px', display: 'block', margin: '0 auto 8px' }} />
-                        Không có thông báo mới
-                      </div>
-                    ) : (
-                      notifications.map((n, i) => (
-                        <div key={n.id + i} style={{
-                          padding: '12px 16px',
-                          borderBottom: '1px solid rgba(255,255,255,0.04)',
-                          display: 'flex', gap: '10px', alignItems: 'flex-start'
-                        }}>
-                          <span style={{ fontSize: '20px', flexShrink: 0 }}>{n.icon}</span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '2px' }}>{n.title}</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{n.time}</div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
             )}
 
           </div>
