@@ -1524,10 +1524,14 @@ export default function App() {
       return;
     }
 
+    console.log('[Search] samples count:', samples.length, '| keyword:', nameVal, '| monthVal:', monthVal);
+
     const searchLower = nameVal.toLowerCase().trim();
     let filtered = samples.filter(s => {
       const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
-      return prodName.includes(searchLower) && s.status !== 'destroyed';
+      const match = prodName.includes(searchLower) && s.status !== 'destroyed';
+      if (match) console.log('[Search] match:', prodName);
+      return match;
     });
 
     if (monthVal) {
@@ -1547,7 +1551,9 @@ export default function App() {
 
   const handleSearch = (e) => {
     if (e) e.preventDefault();
-    executeSearch(searchName, searchMonth);
+    // Fix: dùng đúng searchSelYear và searchSelMonth thay vì searchMonth (không tồn tại)
+    const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
+    executeSearch(searchName, monthVal);
   };
 
   const handleSearchInputChange = (val) => {
