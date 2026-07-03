@@ -3247,25 +3247,9 @@ export default function App() {
         <div style={{ display: 'flex', flex: 1, gap: '24px', flexDirection: 'column' }}>
           
           {/* TAB NAVIGATION BAR (SPLIT) */}
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'stretch' }}>
-            {/* Hộp Tìm Kiếm Mẫu độc lập */}
-            <div className="glass-panel" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center' }}>
-              <button 
-                className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} 
-                onClick={() => setActiveTab('search')}
-                style={{
-                  background: activeTab === 'search' ? 'linear-gradient(135deg,#0ea5e9,#2563eb)' : undefined,
-                  borderColor: activeTab === 'search' ? '#0ea5e9' : undefined,
-                  boxShadow: activeTab === 'search' ? '0 0 12px rgba(14, 165, 233, 0.4)' : undefined,
-                  fontWeight: 'bold'
-                }}
-              >
-                <Search size={16} /> Tìm Kiếm Mẫu
-              </button>
-            </div>
-
-            {/* Hộp quản lý chung cho các tab khác */}
-            <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', flex: 1, justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Ô quản lý kho chung ở trên */}
+            <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
                   <Database size={16} /> Sơ Đồ Kệ Kho
@@ -3321,6 +3305,23 @@ export default function App() {
                   Thoát Khách (Đăng Nhập Admin)
                 </button>
               )}
+            </div>
+
+            {/* Ô tìm kiếm độc lập nằm bên dưới */}
+            <div className="glass-panel" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center' }}>
+              <button 
+                className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} 
+                onClick={() => setActiveTab('search')}
+                style={{
+                  background: activeTab === 'search' ? 'linear-gradient(135deg,#0ea5e9,#2563eb)' : undefined,
+                  borderColor: activeTab === 'search' ? '#0ea5e9' : undefined,
+                  boxShadow: activeTab === 'search' ? '0 0 12px rgba(14, 165, 233, 0.4)' : undefined,
+                  fontWeight: 'bold',
+                  width: '100%' // Cho nút rộng toàn ô để bấm dễ
+                }}
+              >
+                <Search size={16} /> Tìm Kiếm Mẫu
+              </button>
             </div>
           </div>
 
