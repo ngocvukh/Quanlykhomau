@@ -3978,7 +3978,7 @@ export default function App() {
                               ✓ Không có mẫu chờ
                             </span>;
                       })()}
-                      {cnt > 0 && !scanPreview && (
+                      {samples.filter(s => s.status === 'pending').length > 0 && !scanPreview && (
                         <button className="btn btn-secondary"
                           style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '6px' }}
                           onClick={() => {
