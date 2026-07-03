@@ -824,6 +824,22 @@ export default function App() {
 
       // Kiểm tra xem thiết bị bị chặn hoặc bị reset
       try {
+        // Kiểm tra xem người dùng hiện tại có phải admin không trước khi áp dụng chặn
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          if (prof && prof.role === 'admin') {
+            // Là admin → bỏ qua hoàn toàn kiểm tra chặn/reset để tránh tự khóa mình
+            const savedName = localStorage.getItem('visitor_name');
+            if (savedName) setVisitorName(savedName);
+            return;
+          }
+        }
+
         const { data: resetRow } = await supabase
           .from('visitor_resets')
           .select('device_id, is_blocked')
