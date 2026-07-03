@@ -831,6 +831,17 @@ export default function App() {
           .maybeSingle();
         if (resetRow) {
           if (resetRow.is_blocked) {
+            // Ghi log cố gắng truy cập bị chặn vào search_logs để kích hoạt thông báo Realtime
+            try {
+              const currentName = localStorage.getItem('visitor_name') || 'Thiết bị bị chặn';
+              await supabase.from('search_logs').insert({
+                device_id: did,
+                user_name: currentName,
+                keyword: '[Truy cập bị chặn]',
+                results_count: 0
+              });
+            } catch (e) { /* bỏ qua nếu lỗi insert */ }
+
             // Bị chặn vĩnh viễn → bay sang Google
             window.location.href = 'https://www.google.com.vn';
             return;
@@ -898,14 +909,25 @@ export default function App() {
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'search_logs' }, (payload) => {
         const row = payload.new;
-        addNotif({
-          id: row.id,
-          icon: '🔍',
-          title: `${row.user_name} vừa tìm kiếm`,
-          body: `Từ khóa: “${row.keyword}” — ${row.results_count} kết quả`,
-          time: new Date().toLocaleString(),
-          type: 'search'
-        });
+        if (row.keyword === '[Truy cập bị chặn]') {
+          addNotif({
+            id: row.id,
+            icon: '🚫',
+            title: `Phát hiện truy cập bị chặn!`,
+            body: `${row.user_name} (ID: ${row.device_id?.slice(0, 8)}...) vừa cố gắng vào hệ thống`,
+            time: new Date().toLocaleString(),
+            type: 'block_attempt'
+          });
+        } else {
+          addNotif({
+            id: row.id,
+            icon: '🔍',
+            title: `${row.user_name} vừa tìm kiếm`,
+            body: `Từ khóa: “${row.keyword}” — ${row.results_count} kết quả`,
+            time: new Date().toLocaleString(),
+            type: 'search'
+          });
+        }
       })
       .subscribe();
 
