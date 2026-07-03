@@ -3404,100 +3404,11 @@ export default function App() {
           <div style={{ flex: 1 }}>
             {activeTab === 'search' && (
               <div className="glass-panel">
-                <h2 style={{ fontSize: '20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Search size={22} color="var(--accent-blue)" /> Tra Cứu Và Tìm Kiếm Thuốc Lá Mẫu
-                </h2>
-                
-                <form onSubmit={handleSearch} style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '24px', position: 'relative' }}>
-                  <div className="form-group" style={{ flex: 2, minWidth: '240px', marginBottom: 0, position: 'relative' }}>
-                    <label className="form-label">Tên sản phẩm thuốc lá <span style={{ color: 'red' }}>*</span></label>
-                    <input 
-                      className="form-input" 
-                      type="text" 
-                      required 
-                      placeholder="Nhập tên sản phẩm (ví dụ: 555, Canyon...)" 
-                      value={searchName} 
-                      onChange={e => handleSearchInputChange(e.target.value)} 
-                      onBlur={() => setTimeout(() => setSearchSuggestions([]), 200)}
-                      autoComplete="off"
-                    />
-                    
-                    {/* Real-time Search Suggestions Autocomplete */}
-                    {searchSuggestions.length > 0 && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '75px',
-                        left: 0,
-                        right: 0,
-                        background: 'var(--bg-secondary)',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: 'var(--border-radius-sm)',
-                        boxShadow: '0 8px 32px var(--glass-shadow)',
-                        zIndex: 100,
-                        maxHeight: '220px',
-                        overflowY: 'auto',
-                        backdropFilter: 'blur(12px)',
-                        WebkitBackdropFilter: 'blur(12px)'
-                      }}>
-                        {searchSuggestions.map(p => (
-                          <div 
-                            key={p.id} 
-                            style={{
-                              padding: '10px 16px',
-                              cursor: 'pointer',
-                              borderBottom: '1px solid rgba(255,255,255,0.03)',
-                              transition: 'background 0.2s',
-                              fontSize: '14px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              color: 'var(--text-primary)'
-                            }}
-                            onMouseDown={() => {
-                              setSearchName(p.product_name);
-                              setSearchSuggestions([]);
-                              const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
-                              executeSearch(p.product_name, monthVal);
-                            }}
-                            className="suggestion-item"
-                          >
-                            <span style={{ fontWeight: 600 }}>{p.product_name}</span>
-                            {p.warning_code && <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.warning_code}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '220px', marginBottom: 0 }}>
-                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <label className="form-label">Tháng sản xuất (Tháng)</label>
-                      <select className="form-select" value={searchSelMonth} onChange={e => setSearchSelMonth(e.target.value)}>
-                        <option value="">Tất cả</option>
-                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <option key={m} value={String(m).padStart(2, '0')}>Tháng {m}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <label className="form-label">Tháng sản xuất (Năm)</label>
-                      <select className="form-select" value={searchSelYear} onChange={e => setSearchSelYear(e.target.value)}>
-                        <option value="">Tất cả</option>
-                        {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
-                          <option key={y} value={String(y)}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <button className="btn btn-primary" type="submit" style={{ height: '45px', padding: '0 24px' }}>
-                    <Search size={16} /> Tìm kiếm
-                  </button>
-                </form>
-
                 {/* SEARCH RESULTS */}
-                <div style={{ marginTop: '24px' }}>
-                  <h3 style={{ fontSize: '16px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Kết quả tìm kiếm ({searchResults.length})</h3>
+                <div>
+                  <h3 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Search size={20} color="var(--accent-blue)" /> Kết quả tìm kiếm thuốc lá mẫu (${searchResults.length})
+                  </h3>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {searchResults.map(s => {
