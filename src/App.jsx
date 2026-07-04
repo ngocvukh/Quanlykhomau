@@ -613,19 +613,14 @@ export default function App() {
     // Validate
     const errors = [];
     bulkRows.forEach((r, i) => {
-      if (r.isOther) {
-        if (!parseDMY(r.samplingDate)) errors.push(`Hàng ${i+1}: Ngày lấy mẫu không hợp lệ`);
-        if (!r.note || !r.note.trim()) errors.push(`Hàng ${i+1}: Ghi chú là bắt buộc đối với mẫu khác`);
-      } else {
-        if (!r.productObj) errors.push(`Hàng ${i+1}: Chưa chọn sản phẩm`);
-        if (!r.blendBatch || isNaN(parseInt(r.blendBatch))) errors.push(`Hàng ${i+1}: Mẻ sợi không hợp lệ`);
-        if (!r.boxSeq || isNaN(parseInt(r.boxSeq))) errors.push(`Hàng ${i+1}: Số thùng không hợp lệ`);
-        if (!parseDMY(r.packagingDate)) errors.push(`Hàng ${i+1}: Ngày SX bao không hợp lệ`);
-        if (!parseDMY(r.blendDate)) errors.push(`Hàng ${i+1}: Ngày SX sợi không hợp lệ`);
-        if (!parseDMY(r.samplingDate)) errors.push(`Hàng ${i+1}: Ngày lấy mẫu không hợp lệ`);
-        if (!r.qty || parseInt(r.qty) < 1) errors.push(`Hàng ${i+1}: Số cây không hợp lệ`);
-        if (r.productObj?.is_export && !r.orderNumber) errors.push(`Hàng ${i+1}: Hàng xuất khẩu cần đơn hàng`);
-      }
+      if (!r.productObj) errors.push(`Hàng ${i+1}: Chưa chọn sản phẩm`);
+      if (!r.blendBatch || isNaN(parseInt(r.blendBatch))) errors.push(`Hàng ${i+1}: Mẻ sợi không hợp lệ`);
+      if (!r.boxSeq || isNaN(parseInt(r.boxSeq))) errors.push(`Hàng ${i+1}: Số thùng không hợp lệ`);
+      if (!parseDMY(r.packagingDate)) errors.push(`Hàng ${i+1}: Ngày SX bao không hợp lệ`);
+      if (!parseDMY(r.blendDate)) errors.push(`Hàng ${i+1}: Ngày SX sợi không hợp lệ`);
+      if (!parseDMY(r.samplingDate)) errors.push(`Hàng ${i+1}: Ngày lấy mẫu không hợp lệ`);
+      if (!r.qty || parseInt(r.qty) < 1) errors.push(`Hàng ${i+1}: Số cây không hợp lệ`);
+      if (r.productObj?.is_export && !r.orderNumber) errors.push(`Hàng ${i+1}: Hàng xuất khẩu cần đơn hàng`);
     });
      const trayNumVal = parseInt(bulkTrayNumber, 10);
     if (isNaN(trayNumVal) || trayNumVal < 1) {
@@ -639,59 +634,28 @@ export default function App() {
     try {
       const samplesToInsert = [];
       for (const r of bulkRows) {
-        if (r.isOther) {
-          const prod = r.productObj;
-          const sampD = parseDMY(r.samplingDate);
-          const hourVal = parseInt(r.samplingHour, 10) || 0;
-          const minuteVal = parseInt(r.samplingMinute, 10) || 0;
-          sampD.setHours(hourVal, minuteVal, 0, 0);
-          const sku = prod 
-            ? `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`
-            : `QR-OTH-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
-          
-          const packD = r.packagingDate ? parseDMY(r.packagingDate) : null;
-          const blendD = r.blendDate ? parseDMY(r.blendDate) : null;
-          const calculatedQty = r.qty ? (parseInt(r.qty) * 10) : 0;
-
-          samplesToInsert.push({
-            sku, 
-            product_id: prod ? prod.id : null,
-            order_number: r.orderNumber || null,
-            blend_batch: r.blendBatch ? `${parseInt(r.blendBatch)}|${parseInt(r.boxSeq || 1)}` : '—',
-            blend_date: blendD ? formatLocalYYYYMMDD(blendD) : null,
-            packaging_date: packD ? formatLocalYYYYMMDD(packD) : null,
-            sampling_time: sampD.toISOString(),
-            shelf: null, slot: null, column_number: null, box_id: null,
-            total_qty: calculatedQty, available_qty: calculatedQty,
-            entry_date: formatLocalYYYYMMDD(new Date()),
-            status: 'pending',
-            tray_number: trayNumVal,
-            note: r.note || null
-          });
-        } else {
-          const prod = r.productObj;
-          const packD = parseDMY(r.packagingDate);
-          const blendD = parseDMY(r.blendDate);
-          const sampD = parseDMY(r.samplingDate);
-          const hourVal = parseInt(r.samplingHour, 10) || 0;
-          const minuteVal = parseInt(r.samplingMinute, 10) || 0;
-          sampD.setHours(hourVal, minuteVal, 0, 0);
-          const sku = `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
-          samplesToInsert.push({
-            sku, product_id: prod.id,
-            order_number: r.orderNumber || null,
-            blend_batch: `${parseInt(r.blendBatch)}|${parseInt(r.boxSeq)}`,
-            blend_date: formatLocalYYYYMMDD(blendD),
-            packaging_date: formatLocalYYYYMMDD(packD),
-            sampling_time: sampD.toISOString(),
-            shelf: null, slot: null, column_number: null, box_id: null,
-            total_qty: parseInt(r.qty) * 10, available_qty: parseInt(r.qty) * 10,
-            entry_date: formatLocalYYYYMMDD(new Date()),
-            status: 'pending',
-            tray_number: trayNumVal,
-            note: r.note || null
-          });
-        }
+        const prod = r.productObj;
+        const packD = parseDMY(r.packagingDate);
+        const blendD = parseDMY(r.blendDate);
+        const sampD = parseDMY(r.samplingDate);
+        const hourVal = parseInt(r.samplingHour, 10) || 0;
+        const minuteVal = parseInt(r.samplingMinute, 10) || 0;
+        sampD.setHours(hourVal, minuteVal, 0, 0);
+        const sku = `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
+        samplesToInsert.push({
+          sku, product_id: prod.id,
+          order_number: r.orderNumber || null,
+          blend_batch: `${parseInt(r.blendBatch)}|${parseInt(r.boxSeq)}`,
+          blend_date: formatLocalYYYYMMDD(blendD),
+          packaging_date: formatLocalYYYYMMDD(packD),
+          sampling_time: sampD.toISOString(),
+          shelf: null, slot: null, column_number: null, box_id: null,
+          total_qty: parseInt(r.qty) * 10, available_qty: parseInt(r.qty) * 10,
+          entry_date: formatLocalYYYYMMDD(new Date()),
+          status: 'pending',
+          tray_number: trayNumVal,
+          note: r.note || null
+        });
       }
 
       if (isDemoMode) {
@@ -2001,7 +1965,7 @@ export default function App() {
 
     const searchLower = nameVal.toLowerCase().trim();
     let filtered = samples.filter(s => {
-      const prodName = (s.products?.product_name || s.product_name || s.note || '').toLowerCase();
+      const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
       return prodName.includes(searchLower) && s.status !== 'destroyed';
     });
 
@@ -2564,7 +2528,7 @@ export default function App() {
     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
     
     return samples.filter(
-      s => s.status !== 'destroyed' && s.packaging_date && new Date(s.packaging_date) < twelveMonthsAgo
+      s => s.status !== 'destroyed' && new Date(s.packaging_date) < twelveMonthsAgo
     );
   };
 
@@ -2575,7 +2539,7 @@ export default function App() {
     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
 
     return samples.filter(
-      s => s.status !== 'destroyed' && s.packaging_date &&
+      s => s.status !== 'destroyed' && 
            new Date(s.packaging_date) < elevenMonthsAgo && 
            new Date(s.packaging_date) >= twelveMonthsAgo
     );
@@ -2746,7 +2710,7 @@ export default function App() {
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
               <div class="info-row">
                 <span class="info-label">Sản phẩm:</span>
-                <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name || s.note || 'Mẫu khác'}</span>
+                <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Cảnh báo:</span>
@@ -2767,11 +2731,11 @@ export default function App() {
               </div>
               <div class="info-row">
                 <span class="info-label">Ngày SX sợi:</span>
-                <span class="info-val">${s.blend_date ? new Date(s.blend_date).toLocaleDateString() : '—'}</span>
+                <span class="info-val">${new Date(s.blend_date).toLocaleDateString()}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Ngày SX bao:</span>
-                <span class="info-val">${s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</span>
+                <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Thời điểm lấy mẫu:</span>
@@ -2949,7 +2913,7 @@ export default function App() {
                 <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
                 <div class="info-row">
                   <span class="info-label">Sản phẩm:</span>
-                  <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name || s.note || 'Mẫu khác'}</span>
+                  <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name}</span>
                 </div>
                 <div class="info-row">
                   <span class="info-label">Cảnh báo:</span>
@@ -2970,11 +2934,11 @@ export default function App() {
                 </div>
                 <div class="info-row">
                   <span class="info-label">Ngày SX sợi:</span>
-                  <span class="info-val">${s.blend_date ? new Date(s.blend_date).toLocaleDateString() : '—'}</span>
+                  <span class="info-val">${new Date(s.blend_date).toLocaleDateString()}</span>
                 </div>
                 <div class="info-row">
                   <span class="info-label">Ngày SX bao:</span>
-                  <span class="info-val">${s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</span>
+                  <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
                 </div>
                 <div class="info-row">
                   <span class="info-label">Thời điểm lấy mẫu:</span>
@@ -3685,8 +3649,8 @@ export default function App() {
                         <div key={s.id} className="glass-panel" style={{ borderLeft: `4px solid ${isExpired ? 'var(--status-error)' : isWarn ? 'var(--status-warning)' : 'var(--accent-blue)'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                           <div style={{ flex: 1, minWidth: '280px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <h4 style={{ fontSize: '18px', fontWeight: 'bold' }}>{s.products?.product_name || s.product_name || s.note || 'Mẫu khác'}</h4>
-                              {s.products?.format && <span style={{ fontSize: '12px', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>{s.products?.format}</span>}
+                              <h4 style={{ fontSize: '18px', fontWeight: 'bold' }}>{s.products?.product_name || s.product_name}</h4>
+                              <span style={{ fontSize: '12px', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>{s.products?.format}</span>
                               {s.products?.is_export && <span style={{ fontSize: '12px', background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>Xuất Khẩu</span>}
                               {isExpired && <span style={{ fontSize: '12px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>Quá Hạn Lưu Trữ ({ageMonths}T)</span>}
                             </div>
@@ -4573,7 +4537,7 @@ export default function App() {
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'1100px' }}>
                       <thead>
                         <tr style={{ background:'rgba(255,255,255,0.04)' }}>
-                          {['#','Khác','Sản phẩm','Mẻ sợi','Thùng','Ngày SX sợi','Ngày SX bao','Ngày lấy mẫu','Giờ lấy mẫu','Đơn hàng','Số cây','Ghi chú',''].map(h => (
+                          {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày SX sợi','Ngày SX bao','Ngày lấy mẫu','Giờ lấy mẫu','Đơn hàng','Số cây','Ghi chú',''].map(h => (
                             <th key={h} style={{ padding:'10px 12px', textAlign:'left', borderBottom:'1px solid var(--glass-border)', color:'var(--text-secondary)', fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -4583,50 +4547,15 @@ export default function App() {
                           <tr key={row.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
                             <td style={{ padding:'8px 12px', color:'var(--text-muted)', width:'32px' }}>{idx+1}</td>
 
-                            {/* Checkbox for Other Sample */}
-                            <td style={{ padding:'8px 12px', textAlign:'center', width:'50px' }}>
-                              <input 
-                                type="checkbox" 
-                                checked={row.isOther || false} 
-                                onChange={e => {
-                                  const checked = e.target.checked;
-                                  setBulkRows(prev => prev.map((r, i) => i === idx ? {
-                                    ...r,
-                                    isOther: checked,
-                                    blendBatch: checked ? '' : r.blendBatch,
-                                    boxSeq: checked ? '' : r.boxSeq,
-                                    blendDate: checked ? '' : r.blendDate,
-                                    packagingDate: checked ? '' : r.packagingDate,
-                                    orderNumber: checked ? '' : r.orderNumber,
-                                    qty: checked ? '' : r.qty
-                                  } : r));
-                                }}
-                                style={{ cursor:'pointer' }}
-                              />
-                            </td>
-
                             {/* Product search */}
                             <td style={{ padding:'8px 12px', minWidth:'240px', position:'relative', zIndex: row.suggestions.length > 0 ? 100 : 'auto' }}>
                               <input
-                                type="text" 
-                                placeholder={row.isOther ? 'Nhập tên sản phẩm (tùy chọn)...' : 'Nhập tên sản phẩm...'}
+                                type="text" placeholder="Nhập tên sản phẩm..."
                                 value={row.searchQuery}
                                 onChange={e => handleBulkProductSearch(idx, e.target.value)}
                                 onKeyDown={e => handleBulkSearchKeyDown(e, idx)}
                                 onBlur={() => setTimeout(() => updateBulkRow(idx,'suggestions',[]), 200)}
-                                style={{ 
-                                  width:'100%', 
-                                  padding:'6px 10px', 
-                                  background: 'var(--glass-bg)', 
-                                  border:`1px solid ${row.suggestions.length > 0 ? 'var(--accent-blue)' : row.productObj ? 'var(--status-success)' : 'var(--glass-border)'}`, 
-                                  borderRadius:'6px', 
-                                  color: 'var(--text-primary)', 
-                                  fontSize:'12px', 
-                                  boxSizing:'border-box', 
-                                  outline:'none',
-                                  cursor: 'text',
-                                  opacity: 1
-                                }}
+                                style={{ width:'100%', padding:'6px 10px', background:'var(--glass-bg)', border:`1px solid ${row.suggestions.length > 0 ? 'var(--accent-blue)' : row.productObj ? 'var(--status-success)' : 'var(--glass-border)'}`, borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', boxSizing:'border-box', outline:'none' }}
                               />
                               {row.productObj && !row.suggestions.length && (
                                 <span style={{ position:'absolute', top:'50%', right:'16px', transform:'translateY(-50%)', color:'var(--status-success)', fontSize:'14px' }}>✓</span>
@@ -4666,157 +4595,97 @@ export default function App() {
                               )}
                             </td>
 
-                             <td style={{ padding:'8px 12px', width:'80px' }}>
-                               <input type="number" min="1" max="999" placeholder="123" value={row.blendBatch}
-                                 disabled={row.isOther}
-                                 onChange={e => updateBulkRow(idx,'blendBatch',e.target.value)}
-                                 style={{ 
-                                   width:'100%', 
-                                   padding:'6px 8px', 
-                                   background: row.isOther ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
-                                   border:'1px solid var(--glass-border)', 
-                                   borderRadius:'6px', 
-                                   color: row.isOther ? 'var(--text-muted)' : 'var(--text-primary)', 
-                                   fontSize:'12px',
-                                   cursor: row.isOther ? 'not-allowed' : 'text',
-                                   opacity: row.isOther ? 0.5 : 1
-                                 }} />
-                             </td>
-                             <td style={{ padding:'8px 12px', width:'70px' }}>
-                               <input type="number" min="1" placeholder="1" value={row.boxSeq}
-                                 disabled={row.isOther}
-                                 onChange={e => updateBulkRow(idx,'boxSeq',e.target.value)}
-                                 style={{ 
-                                   width:'100%', 
-                                   padding:'6px 8px', 
-                                   background: row.isOther ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
-                                   border:'1px solid var(--glass-border)', 
-                                   borderRadius:'6px', 
-                                   color: row.isOther ? 'var(--text-muted)' : 'var(--text-primary)', 
-                                   fontSize:'12px',
-                                   cursor: row.isOther ? 'not-allowed' : 'text',
-                                   opacity: row.isOther ? 0.5 : 1
-                                 }} />
-                             </td>
-                             <td style={{ padding:'8px 12px', width:'120px' }}>
-                               <input type="text" placeholder="dd/mm/yyyy" value={row.blendDate}
-                                 disabled={row.isOther}
-                                 onChange={e => updateBulkRow(idx,'blendDate', liveFormatDate(e.target.value, row.blendDate))}
-                                 onBlur={e => updateBulkRow(idx,'blendDate', autoFormatDate(e.target.value))}
-                                 style={{ 
-                                   width:'100%', 
-                                   padding:'6px 8px', 
-                                   background: row.isOther ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
-                                   border:'1px solid var(--glass-border)', 
-                                   borderRadius:'6px', 
-                                   color: row.isOther ? 'var(--text-muted)' : 'var(--text-primary)', 
-                                   fontSize:'12px',
-                                   cursor: row.isOther ? 'not-allowed' : 'text',
-                                   opacity: row.isOther ? 0.5 : 1
-                                 }} />
-                             </td>
-                             <td style={{ padding:'8px 12px', width:'120px' }}>
-                               <input type="text" placeholder="dd/mm/yyyy" value={row.packagingDate}
-                                 disabled={row.isOther}
-                                 onChange={e => {
-                                   const val = liveFormatDate(e.target.value, row.packagingDate);
-                                   const prevPack = row.packagingDate;
-                                   updateBulkRow(idx,'packagingDate', val);
-                                   if (!row.samplingDate || row.samplingDate === prevPack) {
-                                     updateBulkRow(idx,'samplingDate', val);
-                                   }
-                                 }}
-                                 onBlur={e => {
-                                   const formatted = autoFormatDate(e.target.value);
-                                   const prevPack = row.packagingDate;
-                                   updateBulkRow(idx,'packagingDate', formatted);
-                                   if (!row.samplingDate || row.samplingDate === prevPack || row.samplingDate === row.packagingDate) {
-                                     updateBulkRow(idx,'samplingDate', formatted);
-                                   }
-                                 }}
-                                 style={{ 
-                                   width:'100%', 
-                                   padding:'6px 8px', 
-                                   background: row.isOther ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
-                                   border:`1px solid ${!row.isOther && row.packagingDate && !parseDMY(row.packagingDate) ? 'var(--status-error)' : 'var(--glass-border)'}`, 
-                                   borderRadius:'6px', 
-                                   color: row.isOther ? 'var(--text-muted)' : 'var(--text-primary)', 
-                                   fontSize:'12px', 
-                                   cursor: row.isOther ? 'not-allowed' : 'text',
-                                   opacity: row.isOther ? 0.5 : 1
-                                 }} />
-                             </td>
-                             <td style={{ padding:'8px 12px', width:'120px' }}>
-                               <input type="text" placeholder="dd/mm/yyyy" value={row.samplingDate}
-                                 onChange={e => updateBulkRow(idx,'samplingDate', liveFormatDate(e.target.value, row.samplingDate))}
-                                 onBlur={e => updateBulkRow(idx,'samplingDate', autoFormatDate(e.target.value))}
-                                 style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.samplingDate && !parseDMY(row.samplingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
-                             </td>
-                             <td style={{ padding:'8px 12px', width:'120px' }}>
-                               <div style={{ display:'flex', gap:'4px', alignItems:'center' }}>
-                                 <select value={row.samplingHour}
-                                   onChange={e => updateBulkRow(idx, 'samplingHour', e.target.value)}
-                                   style={{ width:'48px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none', cursor:'pointer' }}>
-                                   {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
-                                     <option key={h} value={h} style={{ background:'var(--bg-secondary)', color:'var(--text-primary)' }}>{h}</option>
-                                   ))}
-                                 </select>
-                                 <span style={{ color:'var(--text-muted)' }}>:</span>
-                                 <select value={row.samplingMinute}
-                                   onChange={e => updateBulkRow(idx, 'samplingMinute', e.target.value)}
-                                   style={{ width:'48px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none', cursor:'pointer' }}>
-                                   {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map(m => (
-                                     <option key={m} value={m} style={{ background:'var(--bg-secondary)', color:'var(--text-primary)' }}>{m}</option>
-                                   ))}
-                                 </select>
-                               </div>
-                             </td>
-                             <td style={{ padding:'8px 12px', width:'110px' }}>
-                               <input 
-                                 type="text" 
-                                 placeholder={row.isOther ? 'Không có' : (row.productObj ? (row.productObj.is_export ? 'Bắt buộc' : 'Không có') : 'Tùy chọn')} 
-                                 value={row.orderNumber}
-                                 disabled={row.isOther || (row.productObj && !row.productObj.is_export)}
-                                 onChange={e => updateBulkRow(idx,'orderNumber',e.target.value)}
-                                 style={{ 
-                                   width:'100%', 
-                                   padding:'6px 8px', 
-                                   background: row.isOther || (row.productObj && !row.productObj.is_export) ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
-                                   border:`1px solid ${!row.isOther && row.productObj?.is_export && !row.orderNumber ? 'var(--status-error)' : 'var(--glass-border)'}`, 
-                                   borderRadius:'6px', 
-                                   color: row.isOther || (row.productObj && !row.productObj.is_export) ? 'var(--text-muted)' : 'var(--text-primary)', 
-                                   fontSize:'12px',
-                                   cursor: row.isOther || (row.productObj && !row.productObj.is_export) ? 'not-allowed' : 'text',
-                                   opacity: row.isOther || (row.productObj && !row.productObj.is_export) ? 0.5 : 1
-                                 }} 
-                               />
-                             </td>
-                             <td style={{ padding:'8px 12px', width:'80px' }}>
-                               <input type="number" min="1" placeholder="10" value={row.qty}
-                                 onChange={e => updateBulkRow(idx,'qty',e.target.value)}
-                                 style={{ 
-                                   width:'100%', 
-                                   padding:'6px 8px', 
-                                   background: 'var(--glass-bg)', 
-                                   border:`1px solid ${row.isOther && !row.qty ? 'var(--status-error)' : 'var(--glass-border)'}`, 
-                                   borderRadius:'6px', 
-                                   color: 'var(--text-primary)', 
-                                   fontSize:'12px'
-                                 }} />
-                             </td>
-                             <td style={{ padding:'8px 12px', width:'150px' }}>
-                               <input type="text" placeholder={row.isOther ? 'Ghi chú (bắt buộc)...' : 'Ghi chú...'} value={row.note}
-                                 onChange={e => updateBulkRow(idx,'note',e.target.value)}
-                                 style={{ 
-                                   width:'100%', 
-                                   padding:'6px 8px', 
-                                   background:'var(--glass-bg)', 
-                                   border:`1px solid ${row.isOther && !row.note?.trim() ? 'var(--status-error)' : 'var(--glass-border)'}`, 
-                                   borderRadius:'6px', 
-                                   color:'var(--text-primary)', 
-                                   fontSize:'12px' 
-                                 }} />
-                             </td>
+                            <td style={{ padding:'8px 12px', width:'80px' }}>
+                              <input type="number" min="1" max="999" placeholder="123" value={row.blendBatch}
+                                onChange={e => updateBulkRow(idx,'blendBatch',e.target.value)}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'70px' }}>
+                              <input type="number" min="1" placeholder="1" value={row.boxSeq}
+                                onChange={e => updateBulkRow(idx,'boxSeq',e.target.value)}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                              <input type="text" placeholder="dd/mm/yyyy" value={row.blendDate}
+                                onChange={e => updateBulkRow(idx,'blendDate', liveFormatDate(e.target.value, row.blendDate))}
+                                onBlur={e => updateBulkRow(idx,'blendDate', autoFormatDate(e.target.value))}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                              <input type="text" placeholder="dd/mm/yyyy" value={row.packagingDate}
+                                onChange={e => {
+                                  const val = liveFormatDate(e.target.value, row.packagingDate);
+                                  const prevPack = row.packagingDate;
+                                  updateBulkRow(idx,'packagingDate', val);
+                                  if (!row.samplingDate || row.samplingDate === prevPack) {
+                                    updateBulkRow(idx,'samplingDate', val);
+                                  }
+                                }}
+                                onBlur={e => {
+                                  const formatted = autoFormatDate(e.target.value);
+                                  const prevPack = row.packagingDate;
+                                  updateBulkRow(idx,'packagingDate', formatted);
+                                  if (!row.samplingDate || row.samplingDate === prevPack || row.samplingDate === row.packagingDate) {
+                                    updateBulkRow(idx,'samplingDate', formatted);
+                                  }
+                                }}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.packagingDate && !parseDMY(row.packagingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                              <input type="text" placeholder="dd/mm/yyyy" value={row.samplingDate}
+                                onChange={e => updateBulkRow(idx,'samplingDate', liveFormatDate(e.target.value, row.samplingDate))}
+                                onBlur={e => updateBulkRow(idx,'samplingDate', autoFormatDate(e.target.value))}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.samplingDate && !parseDMY(row.samplingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                              <div style={{ display:'flex', gap:'4px', alignItems:'center' }}>
+                                <select value={row.samplingHour}
+                                  onChange={e => updateBulkRow(idx, 'samplingHour', e.target.value)}
+                                  style={{ width:'48px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none', cursor:'pointer' }}>
+                                  {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
+                                    <option key={h} value={h} style={{ background:'var(--bg-secondary)', color:'var(--text-primary)' }}>{h}</option>
+                                  ))}
+                                </select>
+                                <span style={{ color:'var(--text-muted)' }}>:</span>
+                                <select value={row.samplingMinute}
+                                  onChange={e => updateBulkRow(idx, 'samplingMinute', e.target.value)}
+                                  style={{ width:'48px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none', cursor:'pointer' }}>
+                                  {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map(m => (
+                                    <option key={m} value={m} style={{ background:'var(--bg-secondary)', color:'var(--text-primary)' }}>{m}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'110px' }}>
+                              <input 
+                                type="text" 
+                                placeholder={row.productObj ? (row.productObj.is_export ? 'Bắt buộc' : 'Không có') : 'Tùy chọn'} 
+                                value={row.orderNumber}
+                                disabled={row.productObj && !row.productObj.is_export}
+                                onChange={e => updateBulkRow(idx,'orderNumber',e.target.value)}
+                                style={{ 
+                                  width:'100%', 
+                                  padding:'6px 8px', 
+                                  background: row.productObj && !row.productObj.is_export ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
+                                  border:`1px solid ${row.productObj?.is_export && !row.orderNumber ? 'var(--status-error)' : 'var(--glass-border)'}`, 
+                                  borderRadius:'6px', 
+                                  color: row.productObj && !row.productObj.is_export ? 'var(--text-muted)' : 'var(--text-primary)', 
+                                  fontSize:'12px',
+                                  cursor: row.productObj && !row.productObj.is_export ? 'not-allowed' : 'text',
+                                  opacity: row.productObj && !row.productObj.is_export ? 0.5 : 1
+                                }} 
+                              />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'80px' }}>
+                              <input type="number" min="1" placeholder="10" value={row.qty}
+                                onChange={e => updateBulkRow(idx,'qty',e.target.value)}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'150px' }}>
+                              <input type="text" placeholder="Ghi chú..." value={row.note}
+                                onChange={e => updateBulkRow(idx,'note',e.target.value)}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                            </td>
                             <td style={{ padding:'8px 12px', width:'36px' }}>
                               <button onClick={() => removeBulkRow(idx)} style={{ background:'none', border:'none', color:'var(--status-error)', cursor:'pointer', padding:'4px', borderRadius:'4px' }}>
                                 <X size={16} />
@@ -4926,10 +4795,10 @@ export default function App() {
                               <td style={{ padding:'7px 12px', fontWeight:600, color:'var(--accent-blue)' }}>
                                 Khay {s.tray_number || '—'}
                               </td>
-                              <td style={{ padding:'7px 12px', fontWeight:500 }}>{s.products?.product_name || s.note || 'Mẫu khác'}</td>
+                              <td style={{ padding:'7px 12px', fontWeight:500 }}>{s.products?.product_name}</td>
                               <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.blend_batch}</td>
                               <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
-                              <td style={{ padding:'7px 12px' }}>{s.available_qty > 0 ? `${Math.round(s.available_qty / 10)} cây` : '—'}</td>
+                              <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
                               <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
                               <td style={{ padding:'7px 12px', textAlign:'right', display:'flex', gap:'6px', justifyContent:'flex-end', alignItems:'center' }}>
                                 <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'var(--accent-blue)', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(s)}>
@@ -5712,9 +5581,9 @@ export default function App() {
                                     );
                                   }} style={{ cursor: 'pointer' }} />
                                 </td>
-                                <td style={{ padding: '6px 8px', fontWeight: 500 }}>{s.products?.product_name || s.note || 'Mẫu khác'}</td>
+                                <td style={{ padding: '6px 8px', fontWeight: 500 }}>{s.products?.product_name}</td>
                                 <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{s.blend_batch}</td>
-                                <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{s.available_qty > 0 ? `${Math.round(s.available_qty / 10)} cây` : '—'}</td>
+                                <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{Math.round(s.available_qty / 10)} cây</td>
                               </tr>
                             );
                           })}
@@ -5793,9 +5662,9 @@ export default function App() {
                         <tbody>
                           {destItems.map(s => (
                             <tr key={s.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                              <td style={{ padding: '6px 8px', fontWeight: 500 }}>{s.products?.product_name || s.note || 'Mẫu khác'}</td>
+                              <td style={{ padding: '6px 8px', fontWeight: 500 }}>{s.products?.product_name}</td>
                               <td style={{ padding: '6px 8px', color: 'var(--text-secondary)' }}>{s.blend_batch}</td>
-                              <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{s.available_qty > 0 ? `${Math.round(s.available_qty / 10)} cây` : '—'}</td>
+                              <td style={{ padding: '6px 8px', fontWeight: 'bold' }}>{Math.round(s.available_qty / 10)} cây</td>
                             </tr>
                           ))}
                           {destItems.length === 0 && (
