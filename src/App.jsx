@@ -4,7 +4,7 @@ import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
-  UploadCloud, ChevronDown, ChevronUp, AlertTriangle
+  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move
 } from 'lucide-react';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
@@ -22,6 +22,70 @@ Date.prototype.toLocaleString = function() {
   const month = String(this.getMonth() + 1).padStart(2, '0');
   const year = this.getFullYear();
   return `${hours}:${minutes} ngày ${day}/${month}/${year}`;
+};
+
+// ── Hỗ trợ lấy tên thiết bị từ UserAgent ──
+const getDeviceDescription = () => {
+  const ua = navigator.userAgent;
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) {
+    const match = ua.match(/Android\s+[^;]+;\s+([^;\)]+)/);
+    if (match && match[1]) {
+      const model = match[1].replace(/Build\/.+/i, '').trim();
+      return model || 'Android';
+    }
+    return 'Android';
+  }
+  let os = 'PC';
+  if (/Windows/i.test(ua)) os = 'Windows';
+  else if (/Macintosh|Mac OS X/i.test(ua)) os = 'Mac';
+  else if (/Linux/i.test(ua)) os = 'Linux';
+  
+  let browser = 'Browser';
+  if (/Edg/i.test(ua)) browser = 'Edge';
+  else if (/Chrome/i.test(ua)) browser = 'Chrome';
+  else if (/Firefox/i.test(ua)) browser = 'Firefox';
+  else if (/Safari/i.test(ua)) browser = 'Safari';
+  
+  return `${os} (${browser})`;
+};
+
+// ── Lấy phần mô tả thiết bị thân thiện để hiển thị ──
+const getDisplayDeviceName = (did) => {
+  if (!did) return 'Không rõ';
+  const match = did.match(/\(([^)]+)\)/);
+  return match ? match[1] : did.slice(0, 12) + '...';
+};
+
+// ── Device Fingerprint (thuần JS, không cần thư viện ngoài) ──
+const generateDeviceId = async () => {
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillText('device-fingerprint', 2, 2);
+    const canvasStr = canvas.toDataURL();
+    const navStr = [
+      navigator.userAgent,
+      navigator.language,
+      screen.width, screen.height, screen.colorDepth,
+      new Date().getTimezoneOffset()
+    ].join('|');
+    const raw = canvasStr + navStr;
+    // Simple hash
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+      hash = ((hash << 5) - hash) + raw.charCodeAt(i);
+      hash |= 0;
+    }
+    const deviceName = getDeviceDescription();
+    return `dev-${Math.abs(hash).toString(36)} (${deviceName})`;
+  } catch {
+    const deviceName = getDeviceDescription();
+    return `dev-${Math.random().toString(36).slice(2, 10)} (${deviceName})`;
+  }
 };
 
 // Format capacity mapping
@@ -153,7 +217,8 @@ export default function App() {
   const [profilesList, setProfilesList] = useState([]);
 
   // Application UI States
-  const [activeTab, setActiveTab] = useState('search'); // 'search', 'shelves', 'import', 'bulk_import', 'catalog', 'requests', 'archives'
+  const [activeTab, setActiveTab] = useState('shelves');
+  const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
 
   // Bulk Import State
   const createEmptyBulkRow = (id) => ({
@@ -270,6 +335,24 @@ export default function App() {
   // Modal / Detail States
   const [selectedSlot, setSelectedSlot] = useState(null); // { shelf, slot }
   const [qrCodeModal, setQrCodeModal] = useState(null); // sample object
+  const [movingSample, setMovingSample] = useState(null); // sample object to move
+  const [moveType, setMoveType] = useState('shelves');
+  const [moveShelf, setMoveShelf] = useState(1);
+  const [moveSlot, setMoveSlot] = useState(1);
+  const [moveColumn, setMoveColumn] = useState(1);
+  const [moveBoxId, setMoveBoxId] = useState('');
+  const [moveTrayNumber, setMoveTrayNumber] = useState('');
+
+  useEffect(() => {
+    if (movingSample) {
+      setMoveType(movingSample.shelf ? 'shelves' : movingSample.box_id ? 'box' : 'pending');
+      setMoveShelf(movingSample.shelf || 1);
+      setMoveSlot(movingSample.slot || 1);
+      setMoveColumn(movingSample.column_number || 1);
+      setMoveBoxId(movingSample.box_id || (boxes[0]?.id || ''));
+      setMoveTrayNumber(movingSample.tray_number || '');
+    }
+  }, [movingSample, boxes]);
   const [manifestModal, setManifestModal] = useState(null); // box object
   const [takenLocationModal, setTakenLocationModal] = useState(null); // { product_name, qty, location }
 
@@ -796,6 +879,35 @@ export default function App() {
   const [takeQuantities, setTakeQuantities] = useState({});
   const [takeNotes, setTakeNotes] = useState({});
 
+  // Visitor Tracking (Device Fingerprint + Tên tự khai)
+  const [deviceId, setDeviceId] = useState('');
+  const [visitorName, setVisitorName] = useState('');
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [searchLogs, setSearchLogs] = useState([]);
+  const [searchLogsLoading, setSearchLogsLoading] = useState(false);
+  const [resetDevices, setResetDevices] = useState([]); // danh sách device_id đã reset/chặn
+
+  // Nhật ký tìm kiếm: bộ lọc khoảng ngày (mặc định 30 ngày gần nhất)
+  const getOffsetDateString = (offsetDays) => {
+    const d = new Date();
+    d.setDate(d.getDate() - offsetDays);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const [logFilterStartDate, setLogFilterStartDate] = useState(() => getOffsetDateString(30));
+  const [logFilterEndDate, setLogFilterEndDate] = useState(() => getOffsetDateString(0));
+
+  // Admin Notifications
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Bộ lọc tìm kiếm cho Danh mục gốc
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
+
   // Batch Print Label Queue (persisted in LocalStorage)
   const [printQueue, setPrintQueue] = useState(() => {
     const saved = localStorage.getItem('print_queue');
@@ -805,6 +917,206 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('print_queue', JSON.stringify(printQueue));
   }, [printQueue]);
+
+  // Init Device Fingerprint
+  useEffect(() => {
+    (async () => {
+      let did = localStorage.getItem('visitor_device_id');
+      // Nếu chưa có thiết bị hoặc thiết bị cũ chưa được định danh thân thiện (không chứa dấu ngoặc đơn)
+      if (!did || !did.includes('(')) {
+        did = await generateDeviceId();
+        localStorage.setItem('visitor_device_id', did);
+      }
+      setDeviceId(did);
+
+      // Kiểm tra xem thiết bị bị chặn hoặc bị reset
+      try {
+        // Kiểm tra xem người dùng hiện tại có phải admin không trước khi áp dụng chặn
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          if (prof && prof.role === 'admin') {
+            // Là admin → bỏ qua hoàn toàn kiểm tra chặn/reset để tránh tự khóa mình
+            const savedName = localStorage.getItem('visitor_name');
+            if (savedName) setVisitorName(savedName);
+            return;
+          }
+        }
+
+        const { data: resetRow } = await supabase
+          .from('visitor_resets')
+          .select('device_id, is_blocked')
+          .eq('device_id', did)
+          .maybeSingle();
+        if (resetRow) {
+          if (resetRow.is_blocked) {
+            // Ghi log cố gắng truy cập bị chặn vào search_logs để kích hoạt thông báo Realtime
+            try {
+              const currentName = localStorage.getItem('visitor_name') || 'Thiết bị bị chặn';
+              await supabase.from('search_logs').insert({
+                device_id: did,
+                user_name: currentName,
+                keyword: '[Truy cập bị chặn]',
+                results_count: 0
+              });
+            } catch (e) { /* bỏ qua nếu lỗi insert */ }
+
+            // Bị chặn vĩnh viễn → bay sang Google
+            window.location.href = 'https://www.google.com.vn';
+            return;
+          }
+          // Admin đã reset → xóa tên khỏi localStorage và xóa khỏi bảng
+          localStorage.removeItem('visitor_name');
+          await supabase.from('visitor_resets').delete().eq('device_id', did);
+        }
+      } catch (e) { /* bỏ qua nếu không kết nối được */ }
+
+      const savedName = localStorage.getItem('visitor_name');
+      if (savedName) setVisitorName(savedName);
+    })();
+  }, []);
+
+  // Chỉ hiện popup hỏi tên khi là Guest hoặc Staff (không phải Admin)
+  useEffect(() => {
+    const isAdmin = profile?.role === 'admin';
+    if (isAdmin) return; // Admin đã có tên trong profile, không cần hỏi
+    const isLoggedInAsUser = user && profile; // Staff đã đăng nhập
+    const isGuest = authMode === 'guest';
+    if (!isLoggedInAsUser && !isGuest) return; // Chưa vào app, chưa cần hỏi
+
+    const savedName = localStorage.getItem('visitor_name');
+    if (!savedName) {
+      setTimeout(() => setShowNamePrompt(true), 1000);
+    }
+  }, [authMode, profile, user]);
+
+  const saveVisitorName = () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed) {
+      window.location.href = 'https://www.google.com.vn';
+      return;
+    }
+    localStorage.setItem('visitor_name', trimmed);
+    setVisitorName(trimmed);
+    setShowNamePrompt(false);
+    showToast(`Xin chào ${trimmed}! Hệ thống đã ghi nhận.`, 'success');
+  };
+
+  // Supabase Realtime — lắng nghe thông báo cho Admin
+  useEffect(() => {
+    if (isDemoMode || !profile || profile.role !== 'admin') return;
+
+    const addNotif = (notif) => {
+      setNotifications(prev => [notif, ...prev].slice(0, 50));
+      setUnreadCount(prev => prev + 1);
+    };
+
+    const channel = supabase
+      .channel('admin-notifications')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' }, (payload) => {
+        const row = payload.new;
+        if (row.type === 'take_request') {
+          addNotif({
+            id: row.id,
+            icon: '📦',
+            title: 'Yêu cầu lấy mẫu mới',
+            body: `Số lượng: ${row.quantity} bao`,
+            time: new Date().toLocaleString(),
+            type: 'take_request'
+          });
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'search_logs' }, (payload) => {
+        const row = payload.new;
+        if (row.keyword === '[Truy cập bị chặn]') {
+          addNotif({
+            id: row.id,
+            icon: '🚫',
+            title: `Phát hiện truy cập bị chặn!`,
+            body: `${row.user_name} (ID: ${row.device_id?.slice(0, 8)}...) vừa cố gắng vào hệ thống`,
+            time: new Date().toLocaleString(),
+            type: 'block_attempt'
+          });
+        } else {
+          addNotif({
+            id: row.id,
+            icon: '🔍',
+            title: `${row.user_name} vừa tìm kiếm`,
+            body: `Từ khóa: “${row.keyword}” — ${row.results_count} kết quả`,
+            time: new Date().toLocaleString(),
+            type: 'search'
+          });
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [profile, isDemoMode]);
+
+  // Admin reset tên visitor theo device_id
+  const handleResetVisitor = async (devId, userName) => {
+    if (!window.confirm(`Xác nhận reset tên "${userName}"?\nLần sau họ vào web sẽ phải khai báo tên lại.`)) return;
+    try {
+      await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: false, reset_by: 'admin' });
+      showToast(`Đã reset thiết bị của "${userName}". Họ sẽ phải nhập lại tên lần sau!`, 'success');
+      fetchSearchLogs();
+    } catch (e) {
+      showToast('Lỗi khi reset. Thử lại.', 'error');
+    }
+  };
+
+  // Admin chặn vĩnh viễn thiết bị
+  const handleBlockVisitor = async (devId, userName) => {
+    if (!window.confirm(`CHẶN VĨNH VIỄN thiết bị "${userName}"?\nHọ sẽ không vào được hệ thống nữa.`)) return;
+    try {
+      await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: true, reset_by: 'admin' });
+      showToast(`Đã chặn vĩnh viễn thiết bị của "${userName}"!`, 'success');
+      fetchSearchLogs();
+    } catch (e) {
+      showToast('Lỗi khi chặn. Thử lại.', 'error');
+    }
+  };
+
+  // Gỡ chặn thiết bị
+  const handleUnblockVisitor = async (devId, userName) => {
+    try {
+      await supabase.from('visitor_resets').delete().eq('device_id', devId);
+      showToast(`Đã gỡ chặn thiết bị của "${userName}".`, 'success');
+      fetchSearchLogs();
+    } catch (e) {
+      showToast('Lỗi khi gỡ chặn.', 'error');
+    }
+  };
+
+  const fetchSearchLogs = async () => {
+    if (isDemoMode) return;
+    setSearchLogsLoading(true);
+    try {
+      // Chuyển đổi sang định dạng ISO cho Supabase (từ 00:00:00 của ngày bắt đầu đến 23:59:59 của ngày kết thúc)
+      const startIso = new Date(`${logFilterStartDate}T00:00:00`).toISOString();
+      const endIso = new Date(`${logFilterEndDate}T23:59:59`).toISOString();
+
+      const [{ data: logs }, { data: resets }] = await Promise.all([
+        supabase
+          .from('search_logs')
+          .select('*')
+          .gte('searched_at', startIso)
+          .lte('searched_at', endIso)
+          .order('searched_at', { ascending: false }),
+        supabase.from('visitor_resets').select('device_id, is_blocked')
+      ]);
+      setSearchLogs(logs || []);
+      setResetDevices(resets || []);
+    } catch (e) {
+      console.error('Error fetching search logs:', e);
+    } finally {
+      setSearchLogsLoading(false);
+    }
+  };
 
   // Toast helper
   const showToast = (message, type = 'info') => {
@@ -833,7 +1145,18 @@ export default function App() {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
           setUser(session.user);
-          fetchProfile(session.user.id);
+          // Khôi phục session lần đầu: Lấy profile và đặt tab mặc định tương ứng
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single()
+            .then(({ data: prof }) => {
+              if (prof) {
+                setProfile(prof);
+                setActiveTab('shelves');
+              }
+            });
         }
       });
 
@@ -856,7 +1179,7 @@ export default function App() {
     }
   }, []);
 
-  // Fetch user profile from profiles table
+  // Fetch user profile from profiles table (Không can thiệp activeTab nữa)
   const fetchProfile = async (userId) => {
     try {
       const { data, error } = await supabase
@@ -867,9 +1190,6 @@ export default function App() {
       
       if (error) throw error;
       setProfile(data);
-      if (data.role === 'admin') {
-        setActiveTab('shelves');
-      }
     } catch (err) {
       console.error("Error fetching profile:", err);
       // Auto-create profile if missing
@@ -888,7 +1208,6 @@ export default function App() {
     try {
       await supabase.from('profiles').insert(fallback);
       setProfile(fallback);
-      if (fallback.role === 'admin') setActiveTab('shelves');
     } catch (e) {
       console.error("Error creating profile:", e);
     }
@@ -1034,7 +1353,7 @@ export default function App() {
       setUser(mockUser);
       setProfile(mockProfile);
       showToast(`Đăng nhập thành công với vai trò: ${authRole}`, 'success');
-      setActiveTab(authRole === 'admin' ? 'shelves' : 'search');
+      setActiveTab('shelves');
       return;
     }
 
@@ -1047,6 +1366,16 @@ export default function App() {
         });
         if (error) throw error;
         showToast("Đăng nhập thành công!", "success");
+
+        // Đặt activeTab dựa vào role của profile ngay sau khi đăng nhập thành công
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        if (prof) {
+          setActiveTab('shelves');
+        }
       } else {
         const { data, error } = await supabase.auth.signUp({
           email: authEmail,
@@ -1056,6 +1385,7 @@ export default function App() {
         showToast("Đăng ký thành công! Đang tạo thông tin...", "success");
         if (data.user) {
           await createFallbackProfile(data.user.id);
+          setActiveTab('shelves');
         }
       }
     } catch (error) {
@@ -1553,8 +1883,50 @@ export default function App() {
     setCatFormat('Kingsize');
   };
 
+  // Xóa sản phẩm gốc (Đảm bảo an toàn ràng buộc dữ liệu)
+  const handleDeleteProduct = async (productId, productName) => {
+    // 1. Kiểm tra mẫu trong kho
+    const hasSamples = samples.some(s => s.product_id === productId);
+    
+    // 2. Kiểm tra lịch sử giao dịch liên quan
+    const hasTransactions = transactions.some(t => 
+      t.samples?.product_id === productId || 
+      (t.sample_id && samples.find(s => s.id === t.sample_id)?.product_id === productId)
+    );
+
+    if (hasSamples || hasTransactions) {
+      window.alert(`Không thể xóa sản phẩm gốc "${productName}".\n\nSản phẩm này đang có mẫu thuốc lá lưu kho hoặc lịch sử giao dịch liên quan. Hãy đảm bảo bạn đã xóa hết các lô mẫu của sản phẩm này khỏi kho trước khi xóa sản phẩm gốc.`);
+      return;
+    }
+
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa sản phẩm gốc "${productName}"? Hành động này không thể khôi phục.`)) {
+      return;
+    }
+
+    if (isDemoMode) {
+      setProducts(prev => prev.filter(p => p.id !== productId));
+      showToast(`Đã xóa sản phẩm: ${productName}`, "success");
+    } else {
+      try {
+        setLoading(true);
+        const { error } = await supabase
+          .from('products')
+          .delete()
+          .eq('id', productId);
+        
+        if (error) throw error;
+        showToast(`Xóa sản phẩm "${productName}" thành công!`, "success");
+        fetchDatabaseData();
+      } catch (e) {
+        showToast(e.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   // Staff Search Execution
-  const executeSearch = (nameVal, monthVal) => {
+  const executeSearch = async (nameVal, monthVal) => {
     if (!nameVal) {
       showToast("Tên sản phẩm là bắt buộc!", "warning");
       return;
@@ -1579,12 +1951,70 @@ export default function App() {
     if (filtered.length === 0) {
       showToast("Không tìm thấy mẫu phù hợp", "info");
     }
+
+    // Ghi log tìm kiếm vào Supabase
+    if (!isDemoMode && deviceId) {
+      let currentName = 'Khách ẩn danh';
+      if (profile) {
+        currentName = profile.full_name || (profile.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên');
+      } else {
+        currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+      }
+      
+      try {
+        await supabase.from('search_logs').insert({
+          device_id: deviceId,
+          user_name: currentName,
+          keyword: nameVal.trim(),
+          month_filter: monthVal || null,
+          results_count: filtered.length
+        });
+      } catch (e) {
+        console.warn('Search log insert failed:', e);
+      }
+    }
   };
 
   const handleSearch = (e) => {
     if (e) e.preventDefault();
-    executeSearch(searchName, searchMonth);
+    const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
+    executeSearch(searchName, monthVal);
   };
+
+  // Phục vụ tính năng tìm kiếm động / thời gian thực khi gõ bất kỳ kí tự nào
+  useEffect(() => {
+    const trimmed = searchName.trim();
+    if (trimmed.length >= 1) {
+      // Lưu lại tab nghiệp vụ trước đó (nếu không phải search) và chuyển ngay sang tab search
+      if (activeTab !== 'search') {
+        setPreviousTabBeforeSearch(activeTab);
+        setActiveTab('search');
+      }
+
+      const searchLower = trimmed.toLowerCase();
+      const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
+      
+      let filtered = samples.filter(s => {
+        const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
+        return prodName.includes(searchLower) && s.status !== 'destroyed';
+      });
+
+      if (monthVal) {
+        filtered = filtered.filter(s => {
+          const pDate = new Date(s.packaging_date);
+          const sYear = parseInt(monthVal.split('-')[0]);
+          const sMonth = parseInt(monthVal.split('-')[1]);
+          return pDate.getFullYear() === sYear && (pDate.getMonth() + 1) === sMonth;
+        });
+      }
+      setSearchResults(filtered);
+    } else {
+      // Nếu xóa hết ô tìm kiếm và đang ở tab search, tự động trả về tab nghiệp vụ trước đó
+      if (activeTab === 'search') {
+        setActiveTab(previousTabBeforeSearch || 'shelves');
+      }
+    }
+  }, [searchName, searchSelMonth, searchSelYear]);
 
   const handleSearchInputChange = (val) => {
     setSearchName(val);
@@ -1950,6 +2380,111 @@ export default function App() {
         fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleMoveSample = async (sampleId, targetType, targetDetails) => {
+    if (targetType === 'shelves') {
+      const { shelf, slot, column_number } = targetDetails;
+      if (!shelf || !slot) {
+        showToast("Vui lòng chọn Kệ và Ô hợp lệ!", "warning");
+        return;
+      }
+      
+      if (slot !== 5) {
+        if (!column_number) {
+          showToast("Vui lòng chọn Cột!", "warning");
+          return;
+        }
+
+        const samplesInCol = samples.filter(s => s.shelf === shelf && s.slot === slot && s.column_number === column_number && s.status === 'stored' && s.id !== sampleId);
+        if (samplesInCol.length > 0) {
+          const existingProd = samplesInCol[0].products?.product_name || samplesInCol[0].product_name;
+          const movingProd = movingSample.products?.product_name || movingSample.product_name;
+          if (existingProd !== movingProd) {
+            showToast(`Cột ${column_number} đang chứa sản phẩm khác (${existingProd})! Không thể trộn lẫn sản phẩm.`, "error");
+            return;
+          }
+        }
+
+        const totalCartonsInCol = samples.filter(s => s.shelf === shelf && s.slot === slot && s.column_number === column_number && s.status === 'stored' && s.id !== sampleId)
+          .reduce((sum, s) => sum + Math.ceil(s.available_qty / 10), 0);
+        
+        const movingCartons = Math.ceil(movingSample.available_qty / 10);
+        const format = movingSample.products?.format || 'Kingsize';
+        let maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
+        if (format === 'Kingsize') maxHeight = 6;
+
+        if (totalCartonsInCol + movingCartons > maxHeight) {
+          showToast(`Cột ${column_number} vượt quá chiều cao tối đa (${maxHeight} cây). Vui lòng xếp sang cột khác!`, "error");
+          return;
+        }
+      }
+    }
+
+    let updates = {
+      status: targetType === 'shelves' ? 'stored' : targetType === 'box' ? 'archived' : 'pending',
+      shelf: targetType === 'shelves' ? targetDetails.shelf : null,
+      slot: targetType === 'shelves' ? targetDetails.slot : null,
+      column_number: (targetType === 'shelves' && targetDetails.slot !== 5) ? targetDetails.column_number : null,
+      box_id: targetType === 'box' ? targetDetails.box_id : null,
+      tray_number: targetType === 'pending' ? targetDetails.tray_number : null,
+    };
+
+    if (isDemoMode) {
+      setSamples(prev => prev.map(s => {
+        if (s.id === sampleId) {
+          return { ...s, ...updates };
+        }
+        return s;
+      }));
+
+      const oldLoc = movingSample.shelf ? formatLocation(movingSample.shelf, movingSample.slot, movingSample.column_number) : movingSample.box_id ? `Thùng ${boxes.find(b => b.id === movingSample.box_id)?.box_name || '—'}` : `Khay ${movingSample.tray_number || '—'}`;
+      const newLoc = targetType === 'shelves' ? formatLocation(targetDetails.shelf, targetDetails.slot, targetDetails.column_number) : targetType === 'box' ? `Thùng ${boxes.find(b => b.id === targetDetails.box_id)?.box_name || '—'}` : `Khay ${targetDetails.tray_number || '—'}`;
+      
+      const newTx = {
+        id: `t-${Date.now()}`,
+        sample_id: sampleId,
+        samples: movingSample,
+        user_id: profile?.id || 'admin',
+        profiles: profile || { full_name: 'Thủ kho (Admin)' },
+        type: 'move',
+        quantity: movingSample.available_qty,
+        status: 'completed',
+        note: `Di chuyển mẫu từ ${oldLoc} sang ${newLoc}`,
+        created_at: new Date().toISOString()
+      };
+      setTransactions(prev => [newTx, ...prev]);
+      showToast("Di chuyển mẫu thành công!", "success");
+      setMovingSample(null);
+      setSelectedSlot(null);
+    } else {
+      try {
+        setLoading(true);
+        const { error } = await supabase.from('samples').update(updates).eq('id', sampleId);
+        if (error) throw error;
+
+        const oldLoc = movingSample.shelf ? formatLocation(movingSample.shelf, movingSample.slot, movingSample.column_number) : movingSample.box_id ? `Thùng ${boxes.find(b => b.id === movingSample.box_id)?.box_name || '—'}` : `Khay ${movingSample.tray_number || '—'}`;
+        const newLoc = targetType === 'shelves' ? formatLocation(targetDetails.shelf, targetDetails.slot, targetDetails.column_number) : targetType === 'box' ? `Thùng ${boxes.find(b => b.id === targetDetails.box_id)?.box_name || '—'}` : `Khay ${targetDetails.tray_number || '—'}`;
+
+        await supabase.from('transactions').insert({
+          sample_id: sampleId,
+          user_id: user.id,
+          type: 'move',
+          quantity: movingSample.available_qty,
+          status: 'completed',
+          note: `Di chuyển mẫu từ ${oldLoc} sang ${newLoc}`
+        });
+
+        await fetchSamples();
+        showToast("Di chuyển mẫu thành công!", "success");
+        setMovingSample(null);
+        setSelectedSlot(null);
+      } catch (err) {
+        showToast(err.message, "error");
       } finally {
         setLoading(false);
       }
@@ -2721,6 +3256,73 @@ export default function App() {
 
           {user || profile ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Admin Notification Bell */}
+              {profile?.role === 'admin' && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    className="theme-toggle"
+                    style={{ position: 'relative', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => { setShowNotifDropdown(v => !v); setUnreadCount(0); }}
+                    title="Thông báo"
+                  >
+                    <Bell size={20} />
+                    {unreadCount > 0 && (
+                      <span style={{
+                        position: 'absolute', top: '-2px', right: '-2px',
+                        background: 'var(--status-error)', color: '#fff',
+                        fontSize: '9px', fontWeight: 'bold',
+                        padding: '1px 4px', borderRadius: '10px',
+                        minWidth: '16px', textAlign: 'center',
+                        lineHeight: '12px'
+                      }}>{unreadCount}</span>
+                    )}
+                  </button>
+
+                  {/* Notification Dropdown */}
+                  {showNotifDropdown && (
+                    <div style={{
+                      position: 'absolute', top: '48px', right: 0,
+                      width: '320px', maxHeight: '420px', overflowY: 'auto',
+                      background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)',
+                      borderRadius: '12px', boxShadow: '0 8px 32px var(--glass-shadow)',
+                      backdropFilter: 'blur(16px)', zIndex: 1000
+                    }}>
+                      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700, fontSize: '14px' }}>🔔 Thông báo</span>
+                        {notifications.length > 0 && (
+                          <button style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                            onClick={() => setNotifications([])}>
+                            Xóa tất cả
+                          </button>
+                        )}
+                      </div>
+                      {notifications.length === 0 ? (
+                        <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                          <Bell size={28} style={{ opacity: 0.3, marginBottom: '8px', display: 'block', margin: '0 auto 8px' }} />
+                          Không có thông báo mới
+                        </div>
+                      ) : (
+                        notifications.map((n, i) => (
+                          <div key={n.id + i} style={{
+                            padding: '12px 16px',
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            display: 'flex', gap: '10px', alignItems: 'flex-start',
+                            textAlign: 'left'
+                          }}>
+                            <span style={{ fontSize: '20px', flexShrink: 0 }}>{n.icon}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '2px', color: 'var(--text-primary)' }}>{n.title}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{n.time}</div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{profile?.full_name || 'Người dùng'}</div>
                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{profile?.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên'}</div>
@@ -2839,14 +3441,9 @@ export default function App() {
         /* APPLICATION WORKSPACE */
         <div style={{ display: 'flex', flex: 1, gap: '24px', flexDirection: 'column' }}>
           
-          {/* TAB NAVIGATION BAR */}
+          {/* TAB NAVIGATION BAR (Chỉ chứa các nút quản lý, tìm kiếm đã được trích xuất lên trên) */}
           <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {/* Common Tab */}
-              <button className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('search')}>
-                <Search size={16} /> Tìm Kiếm Mẫu
-              </button>
-
               <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
                 <Database size={16} /> Sơ Đồ Kệ Kho
               </button>
@@ -2888,11 +3485,14 @@ export default function App() {
                       </span>
                     )}
                   </button>
+                  <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }} style={{ background: activeTab === 'search_logs' ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : undefined, borderColor: activeTab === 'search_logs' ? '#0ea5e9' : undefined }}>
+                    <FileText size={16} /> Nhật Ký Tìm Kiếm
+                  </button>
                 </>
               )}
             </div>
 
-            {/* Back button from Guest Guest Mode */}
+            {/* Back button from Guest Mode */}
             {authMode === 'guest' && (
               <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
                 Thoát Khách (Đăng Nhập Admin)
@@ -2900,104 +3500,109 @@ export default function App() {
             )}
           </div>
 
+                    {/* GLOBAL SEARCH PANEL (Luôn hiện ở trên cùng của không gian làm việc) */}
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <h2 style={{ fontSize: '18px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Search size={20} color="var(--accent-blue)" /> Tra Cứu Và Tìm Kiếm Thuốc Lá Mẫu
+            </h2>
+            
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end', position: 'relative' }}>
+              <div className="form-group" style={{ flex: 2, minWidth: '240px', marginBottom: 0, position: 'relative' }}>
+                <label className="form-label">Tên sản phẩm thuốc lá <span style={{ color: 'red' }}>*</span></label>
+                <input 
+                  className="form-input" 
+                  type="text" 
+                  required 
+                  placeholder="Nhập tên sản phẩm (ví dụ: 555, Canyon...)" 
+                  value={searchName} 
+                  onChange={e => handleSearchInputChange(e.target.value)} 
+                  onBlur={() => setTimeout(() => setSearchSuggestions([]), 200)}
+                  autoComplete="off"
+                />
+                
+                {/* Real-time Search Suggestions Autocomplete */}
+                {searchSuggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '75px',
+                    left: 0,
+                    right: 0,
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: 'var(--border-radius-sm)',
+                    boxShadow: '0 8px 32px var(--glass-shadow)',
+                    zIndex: 100,
+                    maxHeight: '220px',
+                    overflowY: 'auto',
+                    backdropFilter: 'blur(12px)',
+                    WebkitBackdropFilter: 'blur(12px)'
+                  }}>
+                    {searchSuggestions.map(p => (
+                      <div 
+                        key={p.id} 
+                        style={{
+                          padding: '10px 16px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid rgba(255,255,255,0.03)',
+                          transition: 'background 0.2s',
+                          fontSize: '14px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          color: 'var(--text-primary)'
+                        }}
+                        onMouseDown={() => {
+                          setSearchName(p.product_name);
+                          setSearchSuggestions([]);
+                          const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
+                          executeSearch(p.product_name, monthVal);
+                        }}
+                        className="suggestion-item"
+                      >
+                        <span style={{ fontWeight: 600 }}>{p.product_name}</span>
+                        {p.warning_code && <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.warning_code}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '220px', marginBottom: 0 }}>
+                <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                  <label className="form-label">Tháng sản xuất (Tháng)</label>
+                  <select className="form-select" value={searchSelMonth} onChange={e => setSearchSelMonth(e.target.value)}>
+                    <option value="">Tất cả</option>
+                    {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                      <option key={m} value={String(m).padStart(2, '0')}>Tháng {m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                  <label className="form-label">Tháng sản xuất (Năm)</label>
+                  <select className="form-select" value={searchSelYear} onChange={e => setSearchSelYear(e.target.value)}>
+                    <option value="">Tất cả</option>
+                    {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
+                      <option key={y} value={String(y)}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <button className="btn btn-primary" type="submit" style={{ height: '45px', padding: '0 24px' }}>
+                <Search size={16} /> Tìm kiếm
+              </button>
+            </form>
+          </div>
+
           {/* TAB CONTENTS */}
           <div style={{ flex: 1 }}>
             {activeTab === 'search' && (
               <div className="glass-panel">
-                <h2 style={{ fontSize: '20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Search size={22} color="var(--accent-blue)" /> Tra Cứu Và Tìm Kiếm Thuốc Lá Mẫu
-                </h2>
-                
-                <form onSubmit={handleSearch} style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '24px', position: 'relative' }}>
-                  <div className="form-group" style={{ flex: 2, minWidth: '240px', marginBottom: 0, position: 'relative' }}>
-                    <label className="form-label">Tên sản phẩm thuốc lá <span style={{ color: 'red' }}>*</span></label>
-                    <input 
-                      className="form-input" 
-                      type="text" 
-                      required 
-                      placeholder="Nhập tên sản phẩm (ví dụ: 555, Canyon...)" 
-                      value={searchName} 
-                      onChange={e => handleSearchInputChange(e.target.value)} 
-                      onBlur={() => setTimeout(() => setSearchSuggestions([]), 200)}
-                      autoComplete="off"
-                    />
-                    
-                    {/* Real-time Search Suggestions Autocomplete */}
-                    {searchSuggestions.length > 0 && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '75px',
-                        left: 0,
-                        right: 0,
-                        background: 'var(--bg-secondary)',
-                        border: '1px solid var(--glass-border)',
-                        borderRadius: 'var(--border-radius-sm)',
-                        boxShadow: '0 8px 32px var(--glass-shadow)',
-                        zIndex: 100,
-                        maxHeight: '220px',
-                        overflowY: 'auto',
-                        backdropFilter: 'blur(12px)',
-                        WebkitBackdropFilter: 'blur(12px)'
-                      }}>
-                        {searchSuggestions.map(p => (
-                          <div 
-                            key={p.id} 
-                            style={{
-                              padding: '10px 16px',
-                              cursor: 'pointer',
-                              borderBottom: '1px solid rgba(255,255,255,0.03)',
-                              transition: 'background 0.2s',
-                              fontSize: '14px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              color: 'var(--text-primary)'
-                            }}
-                            onMouseDown={() => {
-                              setSearchName(p.product_name);
-                              setSearchSuggestions([]);
-                              const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
-                              executeSearch(p.product_name, monthVal);
-                            }}
-                            className="suggestion-item"
-                          >
-                            <span style={{ fontWeight: 600 }}>{p.product_name}</span>
-                            {p.warning_code && <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.warning_code}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '220px', marginBottom: 0 }}>
-                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <label className="form-label">Tháng sản xuất (Tháng)</label>
-                      <select className="form-select" value={searchSelMonth} onChange={e => setSearchSelMonth(e.target.value)}>
-                        <option value="">Tất cả</option>
-                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <option key={m} value={String(m).padStart(2, '0')}>Tháng {m}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                      <label className="form-label">Tháng sản xuất (Năm)</label>
-                      <select className="form-select" value={searchSelYear} onChange={e => setSearchSelYear(e.target.value)}>
-                        <option value="">Tất cả</option>
-                        {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
-                          <option key={y} value={String(y)}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <button className="btn btn-primary" type="submit" style={{ height: '45px', padding: '0 24px' }}>
-                    <Search size={16} /> Tìm kiếm
-                  </button>
-                </form>
-
                 {/* SEARCH RESULTS */}
-                <div style={{ marginTop: '24px' }}>
-                  <h3 style={{ fontSize: '16px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Kết quả tìm kiếm ({searchResults.length})</h3>
+                <div>
+                  <h3 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Search size={20} color="var(--accent-blue)" /> Kết quả tìm kiếm thuốc lá mẫu (${searchResults.length})
+                  </h3>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {searchResults.map(s => {
@@ -3061,21 +3666,32 @@ export default function App() {
 
                                 {/* Vị trí sẽ hiển thị sau khi nhấn xác nhận */}
 
-                                <button 
-                                  className="btn btn-primary" 
-                                  style={{ height: '36px', padding: '0 16px', fontSize: '13px', alignSelf: 'flex-end' }}
-                                  disabled={!isValidQty}
-                                  onClick={() => {
-                                    handleTakeRequest(s, qtyInt, 'Nhân viên lấy mẫu');
-                                    setTakeQuantities(prev => {
-                                      const copy = { ...prev };
-                                      delete copy[s.id];
-                                      return copy;
-                                    });
-                                  }}
-                                >
-                                  Xác nhận lấy mẫu
-                                </button>
+                                <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end' }}>
+                                  <button 
+                                    className="btn btn-primary" 
+                                    style={{ height: '36px', padding: '0 16px', fontSize: '13px', flex: (profile?.role === 'admin') ? 1 : undefined }}
+                                    disabled={!isValidQty}
+                                    onClick={() => {
+                                      handleTakeRequest(s, qtyInt, 'Nhân viên lấy mẫu');
+                                      setTakeQuantities(prev => {
+                                        const copy = { ...prev };
+                                        delete copy[s.id];
+                                        return copy;
+                                      });
+                                    }}
+                                  >
+                                    Xác nhận lấy mẫu
+                                  </button>
+                                  {profile?.role === 'admin' && (
+                                    <button 
+                                      className="btn btn-secondary" 
+                                      style={{ height: '36px', padding: '0 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
+                                      onClick={() => setMovingSample(s)}
+                                    >
+                                      <Move size={14} /> Di chuyển
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             ) : (
                               <span style={{ color: 'var(--text-muted)', fontWeight: 'bold', fontSize: '14px' }}>Hết mẫu</span>
@@ -3687,25 +4303,52 @@ export default function App() {
                   </form>
 
                   {/* PRODUCTS LIST */}
-                  <div className="glass-panel" style={{ maxHeight: '550px', overflowY: 'auto' }}>
-                    <h3 style={{ fontSize: '16px', marginBottom: '16px' }}>Danh sách sản phẩm gốc ({products.length})</h3>
+                  <div className="glass-panel" style={{ maxHeight: '550px', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                      <h3 style={{ fontSize: '16px', margin: 0 }}>
+                        Danh sách sản phẩm gốc ({products.filter(p => p.product_name.toLowerCase().includes(catalogSearchQuery.toLowerCase().trim())).length} / {products.length})
+                      </h3>
+                      <input 
+                        type="text" 
+                        placeholder="Tìm sản phẩm gốc..." 
+                        value={catalogSearchQuery}
+                        onChange={e => setCatalogSearchQuery(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          background: 'var(--glass-bg)',
+                          border: '1px solid var(--glass-border)',
+                          borderRadius: '8px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          outline: 'none',
+                          width: '200px'
+                        }}
+                      />
+                    </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {products.map((p, idx) => (
-                        <div key={p.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid var(--glass-border)', fontSize: '13px' }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <strong>{p.product_name}</strong>
-                              {p.is_export && <span style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '1px 6px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold' }}>Xuất Khẩu</span>}
+                      {products
+                        .filter(p => p.product_name.toLowerCase().includes(catalogSearchQuery.toLowerCase().trim()))
+                        .map((p, idx) => (
+                          <div key={p.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid var(--glass-border)', fontSize: '13px' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <strong>{p.product_name}</strong>
+                                {p.is_export && <span style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '1px 6px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold' }}>Xuất Khẩu</span>}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                Định dạng: {p.format} | Cảnh báo: {p.warning_code || 'Không'}
+                              </div>
                             </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                              Định dạng: {p.format} | Cảnh báo: {p.warning_code || 'Không'}
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => startEditingProduct(p)}>
+                                Sửa
+                              </button>
+                              <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11px', background: 'rgba(239,68,68,0.15)', borderColor: 'rgba(239,68,68,0.3)', color: 'var(--status-error)' }} onClick={() => handleDeleteProduct(p.id, p.product_name)}>
+                                Xóa
+                              </button>
                             </div>
                           </div>
-                          <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => startEditingProduct(p)}>
-                            Sửa
-                          </button>
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   </div>
                 </div>
@@ -4206,7 +4849,10 @@ export default function App() {
                               <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
                               <td style={{ padding:'7px 12px' }}>{s.available_qty > 0 ? `${Math.round(s.available_qty / 10)} cây` : '—'}</td>
                               <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
-                              <td style={{ padding:'7px 12px', textAlign:'right' }}>
+                              <td style={{ padding:'7px 12px', textAlign:'right', display:'flex', gap:'6px', justifyContent:'flex-end', alignItems:'center' }}>
+                                <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'var(--accent-blue)', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(s)}>
+                                  <Move size={14} /> Bố trí
+                                </button>
                                 <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
                                   <Trash2 size={16} />
                                 </button>
@@ -4319,6 +4965,175 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* SEARCH LOGS PAGE (Admin only) */}
+            {activeTab === 'search_logs' && (
+              <div className="glass-panel">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+                  <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <FileText size={22} color="var(--accent-blue)" /> Nhật Ký Tìm Kiếm Mẫu
+                  </h2>
+                  
+                  {/* Bộ lọc khoảng ngày */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Từ ngày:</span>
+                      <input 
+                        type="date" 
+                        value={logFilterStartDate} 
+                        onChange={e => setLogFilterStartDate(e.target.value)}
+                        style={{ padding: '6px 12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Đến ngày:</span>
+                      <input 
+                        type="date" 
+                        value={logFilterEndDate} 
+                        onChange={e => setLogFilterEndDate(e.target.value)}
+                        style={{ padding: '6px 12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }}
+                      />
+                    </div>
+                    <button className="btn btn-primary" onClick={fetchSearchLogs} disabled={searchLogsLoading} style={{ padding: '6px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {searchLogsLoading ? <Loader size={14} className="spin" /> : <Search size={14} />} Lọc dữ liệu
+                    </button>
+                  </div>
+                </div>
+
+                {searchLogsLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    <Loader size={32} className="spin" style={{ marginBottom: '12px' }} />
+                    <p>Đang tải nhật ký...</p>
+                  </div>
+                ) : searchLogs.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    <FileText size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
+                    <p>Chưa có nhật ký tìm kiếm nào.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ marginBottom: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      Tổng cộng <strong style={{ color: 'var(--accent-blue)' }}>{searchLogs.length}</strong> lượt tìm kiếm được ghi nhận.
+                    </div>
+                    <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                          <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                            {['Thời gian', 'Tên người dùng', 'Thiết bị', 'Từ khóa', 'Lọc tháng', 'Kết quả', ''].map(h => (
+                              <th key={h} style={{ padding: '10px 14px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {searchLogs.map((log, i) => (
+                            <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                              <td style={{ padding: '9px 14px', color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: '12px' }}>
+                                {new Date(log.searched_at).toLocaleString()}
+                              </td>
+                              <td style={{ padding: '9px 14px' }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, flexWrap: 'wrap' }}>
+                                  <User size={12} color="var(--accent-blue)" />
+                                  {log.user_name}
+                                  {(() => {
+                                    const status = resetDevices.find(d => d.device_id === log.device_id);
+                                    if (status) {
+                                      if (status.is_blocked) {
+                                        return <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(239,68,68,0.3)' }}>🚫 Bị chặn</span>;
+                                      } else {
+                                        return <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)' }}>⏳ Chờ nhập lại</span>;
+                                      }
+                                    }
+                                    return null;
+                                  })()}
+                                </span>
+                              </td>
+                              <td style={{ padding: '9px 14px', color: 'var(--text-muted)' }} title={log.device_id}>
+                                <code style={{ background: 'rgba(255,255,255,0.06)', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                                  {getDisplayDeviceName(log.device_id)}
+                                </code>
+                              </td>
+                              <td style={{ padding: '9px 14px' }}>
+                                <span style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent-blue)', padding: '3px 10px', borderRadius: '12px', fontWeight: 600, fontSize: '12px' }}>
+                                  🔍 {log.keyword}
+                                </span>
+                              </td>
+                              <td style={{ padding: '9px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                {log.month_filter || <span style={{ opacity: 0.4 }}>Tất cả</span>}
+                              </td>
+                              <td style={{ padding: '9px 14px', textAlign: 'center' }}>
+                                <span style={{ 
+                                  fontWeight: 'bold', 
+                                  color: log.results_count === 0 ? 'var(--status-error)' : 'var(--status-success)',
+                                  background: log.results_count === 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
+                                  padding: '3px 10px', borderRadius: '12px', fontSize: '12px'
+                                }}>
+                                  {log.results_count} mẫu
+                                </span>
+                              </td>
+                              <td style={{ padding: '9px 14px', textAlign: 'right' }}>
+                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                  {(() => {
+                                    const status = resetDevices.find(d => d.device_id === log.device_id);
+                                    if (status && status.is_blocked) {
+                                      return (
+                                        <button
+                                          onClick={() => handleUnblockVisitor(log.device_id, log.user_name)}
+                                          title="Bỏ chặn thiết bị này"
+                                          style={{
+                                            background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)',
+                                            color: 'var(--status-success)', borderRadius: '8px',
+                                            padding: '4px 10px', fontSize: '11px', cursor: 'pointer',
+                                            fontWeight: 600, whiteSpace: 'nowrap'
+                                          }}
+                                        >
+                                          🟢 Gỡ chặn
+                                        </button>
+                                      );
+                                    } else {
+                                      return (
+                                        <>
+                                          <button
+                                            onClick={() => handleResetVisitor(log.device_id, log.user_name)}
+                                            title="Yêu cầu thiết bị này nhập lại tên vào lần truy cập sau"
+                                            disabled={!!status}
+                                            style={{
+                                              background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', 
+                                              border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
+                                              color: status ? 'var(--text-muted)' : 'var(--status-warning)', 
+                                              borderRadius: '8px',
+                                              padding: '4px 10px', fontSize: '11px', cursor: status ? 'not-allowed' : 'pointer',
+                                              fontWeight: 600, whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            🔄 {status ? 'Đang chờ nhập' : 'Yêu cầu khai lại'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleBlockVisitor(log.device_id, log.user_name)}
+                                            title="Chặn thiết bị này truy cập hệ thống"
+                                            style={{
+                                              background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+                                              color: 'var(--status-error)', borderRadius: '8px',
+                                              padding: '4px 10px', fontSize: '11px', cursor: 'pointer',
+                                              fontWeight: 600, whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            🚫 Chặn
+                                          </button>
+                                        </>
+                                      );
+                                    }
+                                  })()}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -4652,13 +5467,18 @@ export default function App() {
                                           <QrCode size={14} /> QR
                                         </button>
                                         {profile?.role === 'admin' && (
-                                          <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--status-error)' }} onClick={() => {
-                                            if (confirm("Bạn có chắc chắn muốn xuất hủy thủ công lô mẫu này không?")) {
-                                              handleDestroySample(sample.id);
-                                            }
-                                          }}>
-                                            <Trash2 size={14} /> Hủy
-                                          </button>
+                                          <div style={{ display: 'flex', gap: '6px' }}>
+                                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(sample)}>
+                                              <Move size={14} /> Di chuyển
+                                            </button>
+                                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--status-error)' }} onClick={() => {
+                                              if (confirm("Bạn có chắc chắn muốn xuất hủy thủ công lô mẫu này không?")) {
+                                                handleDestroySample(sample.id);
+                                              }
+                                            }}>
+                                              <Trash2 size={14} /> Hủy
+                                            </button>
+                                          </div>
                                         )}
                                       </div>
                                     </div>
@@ -4879,6 +5699,137 @@ export default function App() {
         );
       })()}
 
+      {/* MOVE SAMPLE POSITION MODAL */}
+      {movingSample && (
+        <div className="modal-overlay" onClick={() => setMovingSample(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ArrowRightLeft size={20} color="var(--accent-blue)" /> Di Chuyển Vị Trí Mẫu
+              </h3>
+              <button className="close-btn" onClick={() => setMovingSample(null)}><X size={18} /></button>
+            </div>
+            
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <strong style={{ fontSize: '15px' }}>{movingSample.products?.product_name || movingSample.product_name}</strong>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Mẻ sợi: {formatBlendBatch(movingSample.blend_batch)} | SKU: {movingSample.sku}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  Vị trí hiện tại: <span style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>
+                    {movingSample.shelf 
+                      ? formatLocation(movingSample.shelf, movingSample.slot, movingSample.column_number)
+                      : movingSample.box_id
+                        ? `Thùng ${boxes.find(b => b.id === movingSample.box_id)?.box_name || '—'}`
+                        : `Khay số ${movingSample.tray_number || '—'} (Chờ bố trí)`}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label">Hình thức lưu trữ mới</label>
+                <div style={{ display: 'flex', gap: '12px', marginTop: '6px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                    <input type="radio" name="moveType" value="shelves" checked={moveType === 'shelves'} onChange={() => setMoveType('shelves')} />
+                    Lên kệ kho
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                    <input type="radio" name="moveType" value="box" checked={moveType === 'box'} onChange={() => setMoveType('box')} />
+                    Vào thùng lưu trữ
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                    <input type="radio" name="moveType" value="pending" checked={moveType === 'pending'} onChange={() => setMoveType('pending')} />
+                    Khay chờ bố trí
+                  </label>
+                </div>
+              </div>
+              
+              {moveType === 'shelves' && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">Chọn Kệ</label>
+                    <select className="form-select" value={moveShelf} onChange={e => setMoveShelf(parseInt(e.target.value))}>
+                      {[1, 2, 3, 4, 5, 6].map(shelf => (
+                        <option key={shelf} value={shelf}>Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][shelf]}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">Chọn Ô</label>
+                    <select className="form-select" value={moveSlot} onChange={e => setMoveSlot(parseInt(e.target.value))}>
+                      {[1, 2, 3, 4, 5].map(slot => (
+                        <option key={slot} value={slot}>{slot === 5 ? 'Ô 5 (Lẻ)' : `Ô ${slot}`}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {moveSlot !== 5 && (
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Chọn Cột</label>
+                      <select className="form-select" value={moveColumn} onChange={e => setMoveColumn(parseInt(e.target.value))}>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(col => (
+                          <option key={col} value={col}>Cột {col}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {moveType === 'box' && (
+                <div className="form-group">
+                  <label className="form-label">Chọn Thùng</label>
+                  {boxes.length > 0 ? (
+                    <select className="form-select" value={moveBoxId} onChange={e => setMoveBoxId(e.target.value)}>
+                      {boxes.map(b => (
+                        <option key={b.id} value={b.id}>Thùng {b.box_name} ({b.description || 'Không mô tả'})</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ color: 'var(--status-error)', fontSize: '13px', marginTop: '6px' }}>
+                      Chưa có thùng lưu trữ nào được tạo! Hãy tạo thùng trong tab Đóng Thùng trước.
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {moveType === 'pending' && (
+                <div className="form-group">
+                  <label className="form-label">Số Khay Chờ Bố Trí</label>
+                  <input 
+                    type="number" 
+                    className="form-input" 
+                    placeholder="Nhập số khay..." 
+                    value={moveTrayNumber} 
+                    onChange={e => setMoveTrayNumber(e.target.value)} 
+                    min="1"
+                  />
+                </div>
+              )}
+            </div>
+            
+            <div className="modal-footer" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button className="btn btn-secondary" onClick={() => setMovingSample(null)}>Hủy</button>
+              <button 
+                className="btn btn-primary" 
+                disabled={moveType === 'box' && boxes.length === 0}
+                onClick={() => handleMoveSample(movingSample.id, moveType, {
+                  shelf: moveShelf,
+                  slot: moveSlot,
+                  column_number: moveColumn,
+                  box_id: moveBoxId,
+                  tray_number: moveTrayNumber ? parseInt(moveTrayNumber) : null
+                })}
+              >
+                Xác nhận di chuyển
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* QR CODE MODAL FOR PRINTING */}
       {qrCodeModal && (
         <div className="modal-overlay" onClick={() => setQrCodeModal(null)}>
@@ -4996,6 +5947,39 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* NAME PROMPT MODAL */}
+      {showNamePrompt && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal-content" style={{ maxWidth: '400px', border: '1px solid var(--accent-blue)' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1px solid rgba(99,102,241,0.25)' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <User size={20} /> Xin chào! Bạn tên gì?
+              </h3>
+            </div>
+            <div className="modal-body" style={{ padding: '20px 20px' }}>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Nhập tên của bạn..."
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveVisitorName()}
+                autoFocus
+              />
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', gap: '12px' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { window.location.href = 'https://www.google.com.vn'; }}>
+                Bỏ qua
+              </button>
+              <button className="btn btn-primary" style={{ flex: 2 }} onClick={saveVisitorName}>
+                <Check size={16} /> Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
