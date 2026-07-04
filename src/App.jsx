@@ -215,6 +215,12 @@ export default function App() {
   const [boxes, setBoxes] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [profilesList, setProfilesList] = useState([]);
+  const [slotConfigs, setSlotConfigs] = useState([]);
+
+  // Slot modal settings states
+  const [modalIsFull, setModalIsFull] = useState(false);
+  const [modalNote, setModalNote] = useState('');
+  const [savingConfig, setSavingConfig] = useState(false);
 
   // Application UI States
   const [activeTab, setActiveTab] = useState('shelves');
@@ -336,6 +342,18 @@ export default function App() {
   const [selectedSlot, setSelectedSlot] = useState(null); // { shelf, slot }
   const [qrCodeModal, setQrCodeModal] = useState(null); // sample object
   const [movingSample, setMovingSample] = useState(null); // sample object to move
+
+  useEffect(() => {
+    if (selectedSlot) {
+      const config = slotConfigs.find(c => c.shelf === selectedSlot.shelf && c.slot === selectedSlot.slot);
+      setModalIsFull(config?.is_full || false);
+      setModalNote(config?.note || '');
+    } else {
+      setModalIsFull(false);
+      setModalNote('');
+    }
+  }, [selectedSlot, slotConfigs]);
+
   const [moveType, setMoveType] = useState('shelves');
   const [moveShelf, setMoveShelf] = useState(1);
   const [moveSlot, setMoveSlot] = useState(1);
@@ -1233,6 +1251,18 @@ export default function App() {
       setSamples(s || []);
       setBoxes(b || []);
       setTransactions(t || []);
+
+      // Load slotconfigs defensively
+      try {
+        const { data: sc, error: scErr } = await supabase.from('slot_configs').select('*');
+        if (!scErr && sc) {
+          setSlotConfigs(sc);
+        } else if (scErr) {
+          console.warn("Table slot_configs does not exist or fetch failed:", scErr.message);
+        }
+      } catch (scEx) {
+        console.warn("Ex fetching slot_configs:", scEx);
+      }
     } catch (e) {
       console.error("Error loading database:", e);
     } finally {
@@ -1526,6 +1556,43 @@ export default function App() {
       error: true,
       reason: "Kho đã đầy hoàn toàn! Vui lòng thực hiện đóng thùng mẫu quá cũ để lấy chỗ."
     });
+  };
+
+  // Save Slot Config (full status and notes)
+  const handleSaveSlotConfig = async () => {
+    if (!selectedSlot) return;
+    setSavingConfig(true);
+    const { shelf, slot } = selectedSlot;
+    
+    if (isDemoMode) {
+      setSlotConfigs(prev => {
+        const filtered = prev.filter(c => !(c.shelf === shelf && c.slot === slot));
+        return [...filtered, { shelf, slot, is_full: modalIsFull, note: modalNote }];
+      });
+      showToast("Cập nhật cấu hình ô thành công (Chế độ Demo)!", "success");
+      setSavingConfig(false);
+    } else {
+      try {
+        const { error } = await supabase
+          .from('slot_configs')
+          .upsert({ 
+            shelf, 
+            slot, 
+            is_full: modalIsFull, 
+            note: modalNote,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'shelf,slot' });
+          
+        if (error) throw error;
+        
+        showToast("Cập nhật cấu hình ô thành công!", "success");
+        fetchDatabaseData();
+      } catch (e) {
+        showToast(e.message, "error");
+      } finally {
+        setSavingConfig(false);
+      }
+    }
   };
 
   // Import operation
@@ -3754,6 +3821,10 @@ export default function App() {
                             const isFull = uPct >= 100;
                             const hasItems = slotSamples.length > 0;
 
+                            const config = slotConfigs.find(c => c.shelf === shelf && c.slot === slot);
+                            const slotIsMarkedFull = config?.is_full || false;
+                            const slotNote = config?.note || '';
+
                             return (
                               <div 
                                 key={slot} 
@@ -3761,8 +3832,9 @@ export default function App() {
                                 style={{ 
                                   padding: '14px 12px', 
                                   cursor: 'pointer', 
-                                  background: isLooseSlot ? 'rgba(139, 92, 246, 0.05)' : hasItems ? 'rgba(59, 130, 246, 0.05)' : 'var(--glass-bg)', 
-                                  borderColor: isLooseSlot ? 'rgba(139, 92, 246, 0.3)' : isFull ? 'var(--status-error)' : hasItems ? 'var(--accent-blue)' : 'var(--glass-border)', 
+                                  background: slotIsMarkedFull ? 'rgba(239, 68, 68, 0.08)' : isLooseSlot ? 'rgba(139, 92, 246, 0.05)' : hasItems ? 'rgba(59, 130, 246, 0.05)' : 'var(--glass-bg)', 
+                                  borderColor: slotIsMarkedFull ? 'var(--status-error)' : isLooseSlot ? 'rgba(139, 92, 246, 0.3)' : isFull ? 'var(--status-error)' : hasItems ? 'var(--accent-blue)' : 'var(--glass-border)', 
+                                  borderWidth: slotIsMarkedFull ? '2px' : '1px',
                                   display: 'flex', 
                                   flexDirection: 'column', 
                                   gap: '8px', 
@@ -3774,7 +3846,11 @@ export default function App() {
                               >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px' }}>
                                   <span>{shelfLetter}{slot} {isLooseSlot && '(Lẻ)'}</span>
-                                  {hasItems && !isLooseSlot && <span style={{ color: isFull ? 'var(--status-error)' : 'var(--accent-blue)' }}>{uPct}%</span>}
+                                  {slotIsMarkedFull ? (
+                                    <span style={{ color: 'var(--status-error)', fontSize: '10px', background: 'rgba(239,68,68,0.15)', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>ĐẦY</span>
+                                  ) : (
+                                    hasItems && !isLooseSlot && <span style={{ color: isFull ? 'var(--status-error)' : 'var(--accent-blue)' }}>{uPct}%</span>
+                                  )}
                                 </div>
 
                               <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
@@ -3785,12 +3861,18 @@ export default function App() {
                                     <span>Đang xếp: <strong>{Math.ceil(totalItems)} cây</strong></span>
                                   )
                                 ) : (
-                                  <span style={{ color: 'var(--text-muted)' }}>Trống</span>
+                                  <span style={{ color: 'var(--text-muted)' }}>{slotIsMarkedFull ? 'Báo đầy (Trống)' : 'Trống'}</span>
                                 )}
                               </div>
 
+                              {slotNote && (
+                                <div style={{ fontSize: '10.5px', color: '#f59e0b', fontStyle: 'italic', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={slotNote}>
+                                  📝 {slotNote}
+                                </div>
+                              )}
+
                               {/* Visual filling gauge */}
-                              {hasItems && !isLooseSlot && (
+                              {hasItems && !isLooseSlot && !slotIsMarkedFull && (
                                 <div style={{ height: '4px', width: '100%', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
                                   <div style={{ height: '100%', width: `${uPct}%`, background: isFull ? 'var(--status-error)' : 'var(--accent-gradient)' }}></div>
                                 </div>
@@ -5260,6 +5342,59 @@ export default function App() {
             </div>
             
             <div className="modal-body">
+              {/* Slot Settings & Status Display */}
+              {profile?.role === 'admin' ? (
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', padding: '14px 16px', borderRadius: '10px', marginBottom: '20px' }}>
+                  <h5 style={{ fontSize: '13.5px', fontWeight: 'bold', color: 'var(--text-primary)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    ⚙️ Cài đặt trạng thái Ô
+                  </h5>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', color: 'var(--text-primary)' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={modalIsFull} 
+                        onChange={e => setModalIsFull(e.target.checked)} 
+                        style={{ width: '15px', height: '15px', cursor: 'pointer' }}
+                      />
+                      Đánh dấu ô đã đầy
+                    </label>
+                    
+                    <div style={{ flex: 1, display: 'flex', gap: '8px', minWidth: '220px' }}>
+                      <input 
+                        type="text" 
+                        placeholder="Ghi chú cho ô này (ví dụ: Đầy mẫu QC, không xếp thêm...)" 
+                        value={modalNote}
+                        onChange={e => setModalNote(e.target.value)}
+                        style={{ flex: 1, padding: '6px 10px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '12px', outline: 'none' }}
+                      />
+                      <button 
+                        className="btn btn-primary" 
+                        style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                        onClick={handleSaveSlotConfig}
+                        disabled={savingConfig}
+                      >
+                        {savingConfig ? 'Đang lưu...' : 'Lưu cài đặt'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                (modalIsFull || modalNote) && (
+                  <div style={{ background: modalIsFull ? 'rgba(239,68,68,0.06)' : 'rgba(245,158,11,0.06)', border: `1px solid ${modalIsFull ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)'}`, padding: '12px 14px', borderRadius: '10px', marginBottom: '20px', fontSize: '13px' }}>
+                    {modalIsFull && (
+                      <div style={{ color: 'var(--status-error)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: modalNote ? '6px' : '0' }}>
+                        ⚠️ THỦ KHO BÁO Ô NÀY ĐÃ ĐẦY!
+                      </div>
+                    )}
+                    {modalNote && (
+                      <div style={{ color: '#f59e0b', fontStyle: 'italic' }}>
+                        <strong>Ghi chú:</strong> {modalNote}
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+
               {selectedSlot.slot === 5 ? (
                 // Loose packs slot 5 layout
                 <div>
