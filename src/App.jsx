@@ -222,6 +222,12 @@ export default function App() {
   const [modalNote, setModalNote] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
 
+  // Column configuration states
+  const [editingCol, setEditingCol] = useState(null);
+  const [editingColIsFull, setEditingColIsFull] = useState(false);
+  const [editingColNote, setEditingColNote] = useState('');
+  const [searchResultSlots, setSearchResultSlots] = useState([]);
+
   // Application UI States
   const [activeTab, setActiveTab] = useState('shelves');
   const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
@@ -345,12 +351,13 @@ export default function App() {
 
   useEffect(() => {
     if (selectedSlot) {
-      const config = slotConfigs.find(c => c.shelf === selectedSlot.shelf && c.slot === selectedSlot.slot);
+      const config = slotConfigs.find(c => c.shelf === selectedSlot.shelf && c.slot === selectedSlot.slot && (c.column_number === 0 || !c.column_number));
       setModalIsFull(config?.is_full || false);
       setModalNote(config?.note || '');
     } else {
       setModalIsFull(false);
       setModalNote('');
+      setEditingCol(null);
     }
   }, [selectedSlot, slotConfigs]);
 
@@ -1530,8 +1537,8 @@ export default function App() {
     
     if (isDemoMode) {
       setSlotConfigs(prev => {
-        const filtered = prev.filter(c => !(c.shelf === shelf && c.slot === slot));
-        return [...filtered, { shelf, slot, is_full: modalIsFull, note: modalNote }];
+        const filtered = prev.filter(c => !(c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number)));
+        return [...filtered, { shelf, slot, column_number: 0, is_full: modalIsFull, note: modalNote }];
       });
       showToast("Cập nhật cấu hình ô thành công (Chế độ Demo)!", "success");
       setSavingConfig(false);
@@ -1542,14 +1549,62 @@ export default function App() {
           .upsert({ 
             shelf, 
             slot, 
+            column_number: 0,
             is_full: modalIsFull, 
             note: modalNote,
             updated_at: new Date().toISOString()
-          }, { onConflict: 'shelf,slot' });
+          }, { onConflict: 'shelf,slot,column_number' });
           
         if (error) throw error;
         
         showToast("Cập nhật cấu hình ô thành công!", "success");
+        fetchDatabaseData();
+      } catch (e) {
+        showToast(e.message, "error");
+      } finally {
+        setSavingConfig(false);
+      }
+    }
+  };
+
+  // Open Column Config helper
+  const handleOpenColConfig = (col, isFull, note) => {
+    setEditingCol(col);
+    setEditingColIsFull(isFull);
+    setEditingColNote(note || '');
+  };
+
+  // Save Column Config (full status and notes)
+  const handleSaveColConfig = async () => {
+    if (!selectedSlot || !editingCol) return;
+    setSavingConfig(true);
+    const { shelf, slot } = selectedSlot;
+    
+    if (isDemoMode) {
+      setSlotConfigs(prev => {
+        const filtered = prev.filter(c => !(c.shelf === shelf && c.slot === slot && c.column_number === editingCol));
+        return [...filtered, { shelf, slot, column_number: editingCol, is_full: editingColIsFull, note: editingColNote }];
+      });
+      showToast(`Cập nhật cấu hình Cột ${editingCol} thành công (Chế độ Demo)!`, "success");
+      setEditingCol(null);
+      setSavingConfig(false);
+    } else {
+      try {
+        const { error } = await supabase
+          .from('slot_configs')
+          .upsert({ 
+            shelf, 
+            slot, 
+            column_number: editingCol,
+            is_full: editingColIsFull, 
+            note: editingColNote,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'shelf,slot,column_number' });
+          
+        if (error) throw error;
+        
+        showToast(`Cập nhật cấu hình Cột ${editingCol} thành công!`, "success");
+        setEditingCol(null);
         fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
@@ -1978,6 +2033,9 @@ export default function App() {
       });
     }
 
+    const matchedConfigs = slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower));
+    setSearchResultSlots(matchedConfigs);
+
     setSearchResults(filtered);
     if (filtered.length === 0) {
       showToast("Không tìm thấy mẫu phù hợp", "info");
@@ -2038,8 +2096,12 @@ export default function App() {
           return pDate.getFullYear() === sYear && (pDate.getMonth() + 1) === sMonth;
         });
       }
+      
+      const matchedConfigs = slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower));
+      setSearchResultSlots(matchedConfigs);
       setSearchResults(filtered);
     } else {
+      setSearchResultSlots([]);
       // Nếu xóa hết ô tìm kiếm và đang ở tab search, tự động trả về tab nghiệp vụ trước đó
       if (activeTab === 'search') {
         setActiveTab(previousTabBeforeSearch || 'shelves');
@@ -3629,6 +3691,50 @@ export default function App() {
           <div style={{ flex: 1 }}>
             {activeTab === 'search' && (
               <div className="glass-panel">
+                {/* MATCHED SHELVES/SLOTS NOTES RESULTS */}
+                {searchResultSlots.length > 0 && (
+                  <div style={{ marginBottom: '32px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '24px' }}>
+                    <h3 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Database size={20} color="#f59e0b" /> Vị trí kệ/Cột phù hợp với ghi chú ({searchResultSlots.length})
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                      {searchResultSlots.map(c => {
+                        const shelfLetter = ['', 'A', 'B', 'C', 'D', 'E', 'F'][c.shelf];
+                        const isCol = c.column_number > 0;
+                        const title = isCol 
+                          ? `Kệ ${shelfLetter} — Ô ${c.slot} — Cột ${c.column_number}` 
+                          : `Kệ ${shelfLetter} — Ô ${c.slot}`;
+                        
+                        return (
+                          <div key={c.id} className="glass-panel" style={{ padding: '16px', borderLeft: '4px solid #f59e0b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '12px' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                                <h4 style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--text-primary)' }}>{title}</h4>
+                                {c.is_full && (
+                                  <span style={{ fontSize: '11px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                                    ĐẦY
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ marginTop: '8px', fontSize: '13.5px', color: '#f59e0b', fontStyle: 'italic', background: 'rgba(245,158,11,0.04)', padding: '6px 10px', borderRadius: '6px', border: '1px dashed rgba(245,158,11,0.2)' }}>
+                                📝 {c.note}
+                              </div>
+                            </div>
+                            
+                            <button 
+                              className="btn btn-secondary" 
+                              style={{ width: '100%', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
+                              onClick={() => setSelectedSlot({ shelf: c.shelf, slot: c.slot })}
+                            >
+                              <Database size={13} /> Xem sơ đồ ô kệ
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* SEARCH RESULTS */}
                 <div>
                   <h3 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -5301,6 +5407,51 @@ export default function App() {
                 <div>
                   <h4 style={{ fontSize: '15px', color: 'var(--accent-blue)', marginBottom: '12px', fontWeight: 'bold' }}>Sơ đồ các Cột xếp chồng đứng</h4>
                   
+                  {/* Column Settings Editor Panel */}
+                  {editingCol && (
+                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', padding: '14px 16px', borderRadius: '10px', marginBottom: '20px' }}>
+                      <h5 style={{ fontSize: '13.5px', fontWeight: 'bold', color: 'var(--accent-blue)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        ⚙️ Cài đặt trạng thái Cột {editingCol}
+                      </h5>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', color: 'var(--text-primary)' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={editingColIsFull} 
+                            onChange={e => setEditingColIsFull(e.target.checked)} 
+                            style={{ width: '15px', height: '15px', cursor: 'pointer' }}
+                          />
+                          Đánh dấu cột đã đầy
+                        </label>
+                        
+                        <div style={{ flex: 1, display: 'flex', gap: '8px', minWidth: '220px' }}>
+                          <input 
+                            type="text" 
+                            placeholder="Ghi chú cho cột này (ví dụ: Chặn xếp thêm...)" 
+                            value={editingColNote}
+                            onChange={e => setEditingColNote(e.target.value)}
+                            style={{ flex: 1, padding: '6px 10px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '12px', outline: 'none' }}
+                          />
+                          <button 
+                            className="btn btn-primary" 
+                            style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                            onClick={handleSaveColConfig}
+                            disabled={savingConfig}
+                          >
+                            {savingConfig ? 'Đang lưu...' : 'Lưu cột'}
+                          </button>
+                          <button 
+                            className="btn btn-secondary" 
+                            style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                            onClick={() => setEditingCol(null)}
+                          >
+                            Hủy
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Visual columns stacks */}
                   <div style={{ display: 'flex', gap: '16px', justifyContent: 'flex-start', margin: '24px 0', overflowX: 'auto', padding: '10px 0' }}>
                     {(() => {
@@ -5319,6 +5470,10 @@ export default function App() {
                         let maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
                         if (format === 'Kingsize') maxHeight = 6; // User explicit visual preference
 
+                        const colConfig = slotConfigs.find(c => c.shelf === selectedSlot.shelf && c.slot === selectedSlot.slot && c.column_number === col);
+                        const colIsFull = colConfig?.is_full || false;
+                        const colNote = colConfig?.note || '';
+
                         return (
                           <div key={col} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', minWidth: '110px' }}>
                             <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 'bold' }}>Cột {col}</span>
@@ -5327,14 +5482,42 @@ export default function App() {
                             <div style={{ 
                               width: '100%', 
                               height: '240px', 
-                              border: '2px solid var(--glass-border)', 
-                              background: 'rgba(255,255,255,0.02)', 
+                              border: colIsFull ? '2px solid var(--status-error)' : '2px solid var(--glass-border)', 
+                              background: colIsFull ? 'rgba(239, 68, 68, 0.04)' : 'rgba(255,255,255,0.02)', 
                               borderRadius: '6px', 
                               position: 'relative', 
                               display: 'flex', 
                               flexDirection: 'column-reverse', 
                               overflow: 'hidden' 
                             }}>
+                              {colIsFull && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  background: 'rgba(239, 68, 68, 0.25)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  zIndex: 10,
+                                  color: '#ffffff',
+                                  fontWeight: 'bold',
+                                  fontSize: '13px',
+                                  textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+                                  pointerEvents: 'none'
+                                }}>
+                                  <span>ĐẦY 🔒</span>
+                                  {colNote && (
+                                    <span style={{ fontSize: '8px', fontWeight: 'normal', fontStyle: 'italic', marginTop: '4px', textAlign: 'center', padding: '0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }} title={colNote}>
+                                      {colNote}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
                               {(() => {
                                 const colSamples = slotSamples.filter(s => s.column_number === col);
                                 // Sort ascending by created_at (oldest first, which renders at the bottom due to column-reverse)
@@ -5392,9 +5575,24 @@ export default function App() {
                               })()}
                             </div>
 
-                            <span style={{ fontSize: '12px', fontWeight: 'bold', color: height > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)' }}>
-                              {height > 0 ? `${height}/${maxHeight} cây` : 'Trống'}
-                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', width: '100%', marginTop: '4px' }}>
+                              <span style={{ fontSize: '12px', fontWeight: 'bold', color: colIsFull ? 'var(--status-error)' : height > 0 ? 'var(--accent-blue)' : 'var(--text-secondary)' }}>
+                                {colIsFull ? 'ĐẦY (Khóa)' : height > 0 ? `${height}/${maxHeight} cây` : 'Trống'}
+                              </span>
+                              {colNote && !colIsFull && (
+                                <span style={{ fontSize: '9.5px', color: '#f59e0b', fontStyle: 'italic', textAlign: 'center', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={colNote}>
+                                  📝 {colNote}
+                                </span>
+                              )}
+                              {profile?.role === 'admin' && (
+                                <button 
+                                  onClick={() => handleOpenColConfig(col, colIsFull, colNote)}
+                                  style={{ padding: '2px 6px', fontSize: '9.5px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--glass-border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-secondary)', marginTop: '2px', outline: 'none' }}
+                                >
+                                  ⚙️ Cấu hình
+                                </button>
+                              )}
+                            </div>
                           </div>
                         );
                       });
