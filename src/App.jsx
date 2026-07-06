@@ -5457,9 +5457,32 @@ export default function App() {
                     {(() => {
                       const slotSamples = samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === selectedSlot.slot && s.status === 'stored');
                       const occupiedCols = slotSamples.map(s => s.column_number);
-                      const maxOccupiedCol = occupiedCols.length > 0 ? Math.max(...occupiedCols) : 0;
-                      // Consecutively show 1 to maxOccupiedCol + 1 (caps at 8)
-                      const colsToRender = Array.from({ length: Math.min(maxOccupiedCol + 1, 8) }, (_, i) => i + 1);
+                      const configCols = slotConfigs
+                        .filter(c => c.shelf === selectedSlot.shelf && c.slot === selectedSlot.slot && c.column_number > 0 && c.is_full)
+                        .map(c => c.column_number);
+                      const allCols = [...occupiedCols, ...configCols];
+                      const maxActiveCol = allCols.length > 0 ? Math.max(...allCols) : 0;
+                      
+                      let maxColToShow = maxActiveCol + 1;
+                      
+                      let checkCol = 1;
+                      while (checkCol <= maxColToShow && maxColToShow < 8) {
+                        const colHeight = getColumnHeight(selectedSlot.shelf, selectedSlot.slot, checkCol);
+                        const colConfig = slotConfigs.find(c => c.shelf === selectedSlot.shelf && c.slot === selectedSlot.slot && c.column_number === checkCol);
+                        
+                        const colSample = slotSamples.find(s => s.column_number === checkCol);
+                        const colFormat = colSample?.products?.format || 'Kingsize';
+                        const colMaxHeight = colFormat === 'Kingsize' ? 6 : (FORMAT_CAPACITIES[colFormat]?.height || 7);
+                        
+                        const colIsFull = colConfig?.is_full || (colHeight >= colMaxHeight);
+                        
+                        if (colIsFull && checkCol === maxColToShow) {
+                          maxColToShow++;
+                        }
+                        checkCol++;
+                      }
+                      
+                      const colsToRender = Array.from({ length: Math.min(maxColToShow, 8) }, (_, i) => i + 1);
 
                       return colsToRender.map(col => {
                         const sampleInCol = getColumnProduct(selectedSlot.shelf, selectedSlot.slot, col);
