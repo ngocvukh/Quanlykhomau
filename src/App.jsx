@@ -4643,7 +4643,7 @@ export default function App() {
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'1100px' }}>
                       <thead>
                         <tr style={{ background:'rgba(255,255,255,0.04)' }}>
-                          {['#','Sản phẩm','Mẻ sợi','Thùng','Ngày SX sợi','Ngày SX bao','Ngày lấy mẫu','Giờ lấy mẫu','Đơn hàng','Số cây','Ghi chú',''].map(h => (
+                          {['#','Sản phẩm','Mẻ sợi','Ngày SX sợi','Ngày SX bao','Ngày lấy mẫu','Giờ lấy mẫu','Thùng','Đơn hàng','Số cây','Ghi chú',''].map(h => (
                             <th key={h} style={{ padding:'10px 12px', textAlign:'left', borderBottom:'1px solid var(--glass-border)', color:'var(--text-secondary)', fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -4706,11 +4706,6 @@ export default function App() {
                                 onChange={e => updateBulkRow(idx,'blendBatch',e.target.value)}
                                 style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'70px' }}>
-                              <input type="number" min="1" placeholder="1" value={row.boxSeq}
-                                onChange={e => updateBulkRow(idx,'boxSeq',e.target.value)}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
-                            </td>
                             <td style={{ padding:'8px 12px', width:'120px' }}>
                               <input type="text" placeholder="dd/mm/yyyy" value={row.blendDate}
                                 onChange={e => updateBulkRow(idx,'blendDate', liveFormatDate(e.target.value, row.blendDate))}
@@ -4761,6 +4756,11 @@ export default function App() {
                                   ))}
                                 </select>
                               </div>
+                            </td>
+                            <td style={{ padding:'8px 12px', width:'70px' }}>
+                              <input type="number" min="1" placeholder="1" value={row.boxSeq}
+                                onChange={e => updateBulkRow(idx,'boxSeq',e.target.value)}
+                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
                             </td>
                             <td style={{ padding:'8px 12px', width:'110px' }}>
                               <input 
