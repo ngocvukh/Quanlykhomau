@@ -4937,21 +4937,37 @@ export default function App() {
                             </td>
                             <td style={{ padding:'8px 12px', width:'120px' }}>
                               <div style={{ display:'flex', gap:'4px', alignItems:'center' }}>
-                                <select value={row.samplingHour}
-                                  onChange={e => updateBulkRow(idx, 'samplingHour', e.target.value)}
-                                  style={{ width:'48px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none', cursor:'pointer' }}>
-                                  {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
-                                    <option key={h} value={h} style={{ background:'var(--bg-secondary)', color:'var(--text-primary)' }}>{h}</option>
-                                  ))}
-                                </select>
+                                <input 
+                                  type="text" 
+                                  maxLength="2" 
+                                  value={row.samplingHour}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/[^0-9]/g, '');
+                                    updateBulkRow(idx, 'samplingHour', val);
+                                  }}
+                                  onBlur={e => {
+                                    let h = parseInt(e.target.value);
+                                    if (isNaN(h) || h < 0 || h > 23) h = 8;
+                                    updateBulkRow(idx, 'samplingHour', String(h).padStart(2, '0'));
+                                  }}
+                                  style={{ width:'42px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none' }}
+                                />
                                 <span style={{ color:'var(--text-muted)' }}>:</span>
-                                <select value={row.samplingMinute}
-                                  onChange={e => updateBulkRow(idx, 'samplingMinute', e.target.value)}
-                                  style={{ width:'48px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none', cursor:'pointer' }}>
-                                  {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map(m => (
-                                    <option key={m} value={m} style={{ background:'var(--bg-secondary)', color:'var(--text-primary)' }}>{m}</option>
-                                  ))}
-                                </select>
+                                <input 
+                                  type="text" 
+                                  maxLength="2" 
+                                  value={row.samplingMinute}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/[^0-9]/g, '');
+                                    updateBulkRow(idx, 'samplingMinute', val);
+                                  }}
+                                  onBlur={e => {
+                                    let m = parseInt(e.target.value);
+                                    if (isNaN(m) || m < 0 || m > 59) m = 0;
+                                    updateBulkRow(idx, 'samplingMinute', String(m).padStart(2, '0'));
+                                  }}
+                                  style={{ width:'42px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none' }}
+                                />
                               </div>
                             </td>
                             <td style={{ padding:'8px 12px', width:'70px' }}>
