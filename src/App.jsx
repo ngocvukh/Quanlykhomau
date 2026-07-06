@@ -607,7 +607,7 @@ export default function App() {
     bulkRows.forEach((r, i) => {
       if (!r.productObj) errors.push(`Hàng ${i+1}: Chưa chọn sản phẩm`);
       if (!r.blendBatch || isNaN(parseInt(r.blendBatch))) errors.push(`Hàng ${i+1}: Mẻ sợi không hợp lệ`);
-      if (!r.boxSeq || isNaN(parseInt(r.boxSeq))) errors.push(`Hàng ${i+1}: Số thùng không hợp lệ`);
+      if (!r.boxSeq || !r.boxSeq.trim()) errors.push(`Hàng ${i+1}: Số thùng không được để trống`);
       if (!parseDMY(r.packagingDate)) errors.push(`Hàng ${i+1}: Ngày đóng gói không hợp lệ`);
       if (!parseDMY(r.blendDate)) errors.push(`Hàng ${i+1}: Ngày phối sợi không hợp lệ`);
       if (!r.qty || parseInt(r.qty) < 1) errors.push(`Hàng ${i+1}: Số cây không hợp lệ`);
@@ -627,7 +627,7 @@ export default function App() {
     bulkRows.forEach((r, i) => {
       if (!r.productObj) errors.push(`Hàng ${i+1}: Chưa chọn sản phẩm`);
       if (!r.blendBatch || isNaN(parseInt(r.blendBatch))) errors.push(`Hàng ${i+1}: Mẻ sợi không hợp lệ`);
-      if (!r.boxSeq || isNaN(parseInt(r.boxSeq))) errors.push(`Hàng ${i+1}: Số thùng không hợp lệ`);
+      if (!r.boxSeq || !r.boxSeq.trim()) errors.push(`Hàng ${i+1}: Số thùng không được để trống`);
       if (!parseDMY(r.packagingDate)) errors.push(`Hàng ${i+1}: Ngày SX bao không hợp lệ`);
       if (!parseDMY(r.blendDate)) errors.push(`Hàng ${i+1}: Ngày SX sợi không hợp lệ`);
       if (!parseDMY(r.samplingDate)) errors.push(`Hàng ${i+1}: Ngày lấy mẫu không hợp lệ`);
@@ -657,7 +657,7 @@ export default function App() {
         samplesToInsert.push({
           sku, product_id: prod.id,
           order_number: r.orderNumber || null,
-          blend_batch: `${parseInt(r.blendBatch)}|${parseInt(r.boxSeq)}`,
+          blend_batch: `${parseInt(r.blendBatch)}|${r.boxSeq.trim()}`,
           blend_date: formatLocalYYYYMMDD(blendD),
           packaging_date: formatLocalYYYYMMDD(packD),
           sampling_time: sampD.toISOString(),
@@ -1690,9 +1690,8 @@ export default function App() {
     }
 
     // Validate box sequence number
-    const boxSeqInt = parseInt(importBoxSeq, 10);
-    if (isNaN(boxSeqInt) || boxSeqInt < 1) {
-      showToast("Số thứ tự thùng được lấy mẫu phải là một số nguyên lớn hơn 0!", "error");
+    if (!importBoxSeq || !importBoxSeq.trim()) {
+      showToast("Số thứ tự thùng được lấy mẫu không được để trống!", "error");
       return;
     }
 
@@ -1766,7 +1765,7 @@ export default function App() {
       sku: newSKU,
       product_id: importProductId,
       order_number: importOrderNumber || null,
-      blend_batch: `${blendBatchInt}|${boxSeqInt}`,
+      blend_batch: `${blendBatchInt}|${importBoxSeq.trim()}`,
       blend_date: importBlendDate,
       packaging_date: importPackagingDate,
       sampling_time: importSamplingTime,
@@ -4268,12 +4267,11 @@ export default function App() {
                       <label className="form-label">Số thứ tự thùng được lấy mẫu <span style={{ color: 'red' }}>*</span></label>
                       <input 
                         className="form-input" 
-                        type="number" 
+                        type="text" 
                         required 
-                        min="1" 
                         value={importBoxSeq} 
                         onChange={e => setImportBoxSeq(e.target.value)} 
-                        placeholder="Nhập số thứ tự thùng (Ví dụ: 15)" 
+                        placeholder="Nhập số thứ tự thùng (Ví dụ: 0025)" 
                       />
                     </div>
                   </div>
@@ -4970,8 +4968,8 @@ export default function App() {
                                 />
                               </div>
                             </td>
-                            <td style={{ padding:'8px 12px', width:'70px' }}>
-                              <input type="number" min="1" placeholder="1" value={row.boxSeq}
+                            <td style={{ padding:'8px 12px', width:'85px' }}>
+                              <input type="text" placeholder="0025" value={row.boxSeq}
                                 onChange={e => updateBulkRow(idx,'boxSeq',e.target.value)}
                                 style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
                             </td>
