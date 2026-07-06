@@ -4,7 +4,7 @@ import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
-  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move
+  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer
 } from 'lucide-react';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
