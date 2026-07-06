@@ -228,6 +228,11 @@ export default function App() {
   const [editingColNote, setEditingColNote] = useState('');
   const [searchResultSlots, setSearchResultSlots] = useState([]);
 
+  // Tommy 128 Blank QC Template printing states
+  const [print128BlankModalOpen, setPrint128BlankModalOpen] = useState(false);
+  const [print128BlankQty, setPrint128BlankQty] = useState(8);
+  const [print128BlankStartIndex, setPrint128BlankStartIndex] = useState(1);
+
   // Application UI States
   const [activeTab, setActiveTab] = useState('shelves');
   const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
@@ -2742,6 +2747,191 @@ export default function App() {
     printWindow.document.close();
   };
 
+  // Helper to print blank QC Tommy 128 stickers
+  const printTommy128BlankStickers = (qty = 8, startIndex = 1) => {
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      showToast("Không thể mở cửa sổ in. Vui lòng tắt trình chặn Pop-up!", "error");
+      return;
+    }
+
+    const allStickers = [];
+
+    // Add empty labels at the start for alignment
+    for (let b = 1; b < startIndex; b++) {
+      allStickers.push({ isBlank: true });
+    }
+
+    // Add requested number of blank labels
+    for (let i = 0; i < qty; i++) {
+      allStickers.push({ isBlank: false });
+    }
+
+    const pagesHtml = [];
+    const PAGE_SIZE = 8;
+    for (let i = 0; i < allStickers.length; i += PAGE_SIZE) {
+      const pageStickers = allStickers.slice(i, i + PAGE_SIZE);
+
+      // Pad last page with empty stickers to preserve grid layout
+      while (pageStickers.length < PAGE_SIZE) {
+        pageStickers.push({ isBlank: true });
+      }
+
+      const stickersHtml = pageStickers.map(st => {
+        if (st.isBlank) {
+          return `<div class="sticker blank"></div>`;
+        }
+
+        return `
+          <div class="sticker">
+            <div class="row">
+              <div class="field" style="flex: 1;">
+                <span class="label">Sản phẩm:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+              <div class="field" style="width: 140px;">
+                <span class="label">Cảnh báo:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field" style="width: 180px;">
+                <span class="label">Mẻ sợi:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+              <div class="field" style="flex: 1;">
+                <span class="label">Ngày SX sợi:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field" style="flex: 1;">
+                <span class="label">Ngày SX bao:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+              <div class="field" style="flex: 1;">
+                <span class="label">Ngày lấy mẫu:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field" style="width: 140px;">
+                <span class="label">Giờ lấy mẫu:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+              <div class="field" style="width: 80px;">
+                <span class="label">STT:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+              <div class="field" style="flex: 1;">
+                <span class="label">Đơn hàng:</span>
+                <span class="value">&nbsp;</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      pagesHtml.push(`
+        <div class="page">
+          ${stickersHtml}
+        </div>
+      `);
+    }
+
+    printWindow.document.write(`
+      <html>
+      <head>
+        <title>In Biểu Mẫu Nhãn Trống QC (Tommy 128)</title>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+          body {
+            margin: 0;
+            padding: 0;
+            background-color: #fff;
+            font-family: "Times New Roman", Times, serif;
+            color: #000;
+          }
+          .page {
+            width: 210mm;
+            height: 297mm;
+            box-sizing: border-box;
+            padding-top: 4.5mm;
+            padding-bottom: 4.5mm;
+            padding-left: 5mm;
+            padding-right: 5mm;
+            display: grid;
+            grid-template-columns: 100mm 100mm;
+            grid-template-rows: 72mm 72mm 72mm 72mm;
+            grid-gap: 0;
+            page-break-after: always;
+          }
+          .page:last-child {
+            page-break-after: avoid;
+          }
+          .sticker {
+            width: 100mm;
+            height: 72mm;
+            box-sizing: border-box;
+            padding: 8mm 5mm 6mm; /* Margins inside each sticker to align contents */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+            border: 1px dashed #ddd; /* Guideline borders in browser preview, hidden on print */
+          }
+          .sticker.blank {
+            border: 1px dashed transparent !important;
+            visibility: hidden;
+          }
+          @media print {
+            .sticker {
+              border: 1px dashed transparent; /* Hide guidelines when printing */
+            }
+          }
+          .row {
+            display: flex;
+            gap: 8px;
+            width: 100%;
+            height: 12.5mm; /* fixed height per row to fit 4 rows in 72mm label */
+            align-items: baseline;
+          }
+          .field {
+            display: flex;
+            align-items: baseline;
+            overflow: hidden;
+          }
+          .label {
+            font-size: 11.5pt;
+            white-space: nowrap;
+            color: #000;
+          }
+          .value {
+            flex: 1;
+            border-bottom: 1px dotted #000;
+            padding-left: 4px;
+            color: #000;
+            white-space: nowrap;
+          }
+        </style>
+      </head>
+      <body>
+        ${pagesHtml.join('')}
+        <script>
+          window.onload = function() {
+            window.print();
+            window.close();
+          };
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   // Batch print helper for multiple sticker labels
   // Batch print helper for multiple Tommy 135 sticker labels grouped by slot/box
   const printTommyStickersForGroup = (groupName, samplesInGroup) => {
@@ -4266,6 +4456,13 @@ export default function App() {
                         </div>
                       ) : null;
                     })()}
+                    <button className="btn btn-secondary" style={{ borderColor: '#f59e0b', color: '#f59e0b', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => {
+                      setPrint128BlankQty(8);
+                      setPrint128BlankStartIndex(1);
+                      setPrint128BlankModalOpen(true);
+                    }}>
+                      <Printer size={15} /> In biểu mẫu tem trống QC (Tommy 128)
+                    </button>
                     <button className="btn btn-secondary" style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '13px' }} onClick={() => {
                       const activeSamples = samples.filter(s => s.status === 'stored' || s.status === 'boxed');
                       if (activeSamples.length === 0) {
@@ -6167,6 +6364,99 @@ export default function App() {
             <div className="modal-footer">
               <button className="btn btn-primary" style={{ background: 'var(--status-success)', borderColor: 'var(--status-success)', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => setTakenLocationModal(null)}>
                 Đã hiểu và đi lấy mẫu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOMMY 128 BLANK QC PRINT SETTINGS MODAL */}
+      {print128BlankModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setPrint128BlankModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: '460px', width: '90%', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontWeight: 'bold' }}>
+                <Printer size={20} color="var(--accent-blue)" /> In biểu mẫu tem trống QC (Tommy 128)
+              </h3>
+              <button className="close-btn" onClick={() => setPrint128BlankModalOpen(false)}><X size={18} /></button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>
+                  Số lượng tem nhãn trống muốn in:
+                </label>
+                <input 
+                  type="number" 
+                  min="1" 
+                  max="160"
+                  className="form-input"
+                  style={{ width: '100%' }}
+                  value={print128BlankQty} 
+                  onChange={e => setPrint128BlankQty(Math.max(1, parseInt(e.target.value) || 1))}
+                />
+                <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  * Mỗi trang A4 Tommy 128 chứa 8 con tem. {Math.ceil((print128BlankQty + print128BlankStartIndex - 1) / 8)} trang A4 sẽ được sử dụng.
+                </span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)', display: 'block', marginBottom: '8px' }}>
+                  Chọn vị trí tem bắt đầu in trên tờ Tommy 128 (A4) đầu tiên:
+                </label>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(4, 1fr)', 
+                  gap: '8px', 
+                  background: 'rgba(255,255,255,0.02)', 
+                  border: '1px solid var(--glass-border)', 
+                  padding: '12px', 
+                  borderRadius: '10px' 
+                }}>
+                  {Array.from({ length: 8 }, (_, i) => i + 1).map(num => {
+                    const isSelected = print128BlankStartIndex === num;
+                    return (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setPrint128BlankStartIndex(num)}
+                        style={{
+                          height: '46px',
+                          borderRadius: '6px',
+                          border: isSelected ? '2px solid var(--accent-blue)' : '1px solid var(--glass-border)',
+                          background: isSelected ? 'rgba(37,99,235,0.15)' : 'rgba(255,255,255,0.03)',
+                          color: isSelected ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '2px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <span style={{ fontSize: '12px' }}>Ô {num}</span>
+                        {isSelected && <span style={{ fontSize: '9px', fontWeight: 'normal', textTransform: 'uppercase' }}>Bắt đầu</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '11.5px', margin: '6px 0 0', fontStyle: 'italic' }}>
+                  * Giúp tận dụng các tờ nhãn decal đã in dở từ trước.
+                </p>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', gap: '12px' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setPrint128BlankModalOpen(false)}>
+                Đóng
+              </button>
+              <button className="btn btn-primary" style={{ flex: 2 }} onClick={() => {
+                printTommy128BlankStickers(print128BlankQty, print128BlankStartIndex);
+                setPrint128BlankModalOpen(false);
+              }}>
+                <Printer size={16} /> Xác nhận và In
               </button>
             </div>
           </div>
