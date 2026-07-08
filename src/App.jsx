@@ -5275,6 +5275,9 @@ export default function App() {
                               <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
                               <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
                               <td style={{ padding:'7px 12px', textAlign:'right', display:'flex', gap:'6px', justifyContent:'flex-end', alignItems:'center' }}>
+                                <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'#f59e0b', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => handleOpenEditSample(s)}>
+                                  Sửa
+                                </button>
                                 <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'var(--accent-blue)', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(s)}>
                                   <Move size={14} /> Bố trí
                                 </button>
