@@ -233,6 +233,22 @@ export default function App() {
   const [print128BlankQty, setPrint128BlankQty] = useState(8);
   const [print128BlankStartIndex, setPrint128BlankStartIndex] = useState(1);
 
+  // Edit Sample States
+  const [editingSample, setEditingSample] = useState(null);
+  const [editSearchQuery, setEditSearchQuery] = useState('');
+  const [editSuggestions, setEditSuggestions] = useState([]);
+  const [editProductId, setEditProductId] = useState('');
+  const [editOrderNumber, setEditOrderNumber] = useState('');
+  const [editBlendBatch, setEditBlendBatch] = useState('');
+  const [editBoxSeq, setEditBoxSeq] = useState('');
+  const [editBlendDateStr, setEditBlendDateStr] = useState('');
+  const [editPackagingDateStr, setEditPackagingDateStr] = useState('');
+  const [editSamplingDateStr, setEditSamplingDateStr] = useState('');
+  const [editSamplingHour, setEditSamplingHour] = useState('08');
+  const [editSamplingMinute, setEditSamplingMinute] = useState('00');
+  const [editQty, setEditQty] = useState('');
+  const [editNote, setEditNote] = useState('');
+
   // Application UI States
   const [activeTab, setActiveTab] = useState('shelves');
   const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
@@ -1615,6 +1631,138 @@ export default function App() {
         showToast(e.message, "error");
       } finally {
         setSavingConfig(false);
+      }
+    }
+  };
+
+  // Open Edit Sample Modal
+  const handleOpenEditSample = (s) => {
+    setEditingSample(s);
+    const prod = s.products || products.find(p => p.id === s.product_id);
+    setEditSearchQuery(prod ? prod.product_name + (prod.warning_code ? ` (${prod.warning_code})` : '') : '');
+    setEditProductId(s.product_id || '');
+    setEditOrderNumber(s.order_number || '');
+    const parts = (s.blend_batch || '|').split('|');
+    setEditBlendBatch(parts[0] || '');
+    setEditBoxSeq(parts[1] || '');
+    setEditBlendDateStr(s.blend_date ? s.blend_date.split('-').reverse().join('/') : '');
+    setEditPackagingDateStr(s.packaging_date ? s.packaging_date.split('-').reverse().join('/') : '');
+    if (s.sampling_time) {
+      const d = new Date(s.sampling_time);
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      setEditSamplingDateStr(`${day}/${month}/${year}`);
+      setEditSamplingHour(String(d.getHours()).padStart(2, '0'));
+      setEditSamplingMinute(String(d.getMinutes()).padStart(2, '0'));
+    } else {
+      setEditSamplingDateStr('');
+      setEditSamplingHour('08');
+      setEditSamplingMinute('00');
+    }
+    setEditQty(s.available_qty ? String(Math.round(s.available_qty / 10)) : '10');
+    setEditNote(s.note || '');
+  };
+
+  // Product search inside Edit modal
+  const handleEditSearchChange = (val) => {
+    setEditSearchQuery(val);
+    if (!val.trim()) {
+      setEditSuggestions([]);
+      return;
+    }
+    const matches = products.filter(p => p.product_name.toLowerCase().includes(val.toLowerCase())).slice(0, 8);
+    setEditSuggestions(matches);
+  };
+
+  // Save edited sample details
+  const handleSaveEditSample = async (e) => {
+    if (e) e.preventDefault();
+    if (!editingSample) return;
+
+    const prod = products.find(p => p.id === editProductId);
+    if (!prod) {
+      showToast("Vui lòng chọn sản phẩm thuốc lá gốc!", "error");
+      return;
+    }
+
+    const blendD = parseDMY(editBlendDateStr);
+    const packD = parseDMY(editPackagingDateStr);
+    const sampD = parseDMY(editSamplingDateStr);
+
+    if (!blendD) {
+      showToast("Ngày sản xuất sợi không hợp lệ! Định dạng chuẩn: dd/mm/yyyy", "error");
+      return;
+    }
+    if (!packD) {
+      showToast("Ngày sản xuất bao không hợp lệ! Định dạng chuẩn: dd/mm/yyyy", "error");
+      return;
+    }
+    if (!sampD) {
+      showToast("Ngày lấy mẫu không hợp lệ! Định dạng chuẩn: dd/mm/yyyy", "error");
+      return;
+    }
+
+    if (!editBlendBatch || isNaN(parseInt(editBlendBatch))) {
+      showToast("Số mẻ sợi phải là một số nguyên!", "error");
+      return;
+    }
+
+    if (!editBoxSeq || !editBoxSeq.trim()) {
+      showToast("Số thứ tự thùng được lấy mẫu không được để trống!", "error");
+      return;
+    }
+
+    const qtyVal = parseInt(editQty, 10);
+    if (isNaN(qtyVal) || qtyVal < 1) {
+      showToast("Số lượng cây mẫu phải là số nguyên lớn hơn 0!", "error");
+      return;
+    }
+
+    if (prod.is_export && !editOrderNumber) {
+      showToast("Hàng xuất khẩu bắt buộc nhập số đơn hàng!", "error");
+      return;
+    }
+
+    sampD.setHours(parseInt(editSamplingHour, 10), parseInt(editSamplingMinute, 10), 0, 0);
+
+    const updatedData = {
+      product_id: editProductId,
+      order_number: prod.is_export ? editOrderNumber : null,
+      blend_batch: `${parseInt(editBlendBatch)}|${editBoxSeq.trim()}`,
+      blend_date: formatLocalYYYYMMDD(blendD),
+      packaging_date: formatLocalYYYYMMDD(packD),
+      sampling_time: sampD.toISOString(),
+      total_qty: qtyVal * 10,
+      available_qty: qtyVal * 10,
+      note: editNote || null,
+      updated_at: new Date().toISOString()
+    };
+
+    setLoading(true);
+    if (isDemoMode) {
+      setSamples(prev => prev.map(s => s.id === editingSample.id 
+        ? { ...s, ...updatedData, products: prod }
+        : s
+      ));
+      showToast("Cập nhật thông tin mẫu thành công (Chế độ Demo)!", "success");
+      setEditingSample(null);
+      setLoading(false);
+    } else {
+      try {
+        const { error } = await supabase
+          .from('samples')
+          .update(updatedData)
+          .eq('id', editingSample.id);
+
+        if (error) throw error;
+        showToast("Cập nhật thông tin mẫu thành công!", "success");
+        setEditingSample(null);
+        fetchDatabaseData();
+      } catch (err) {
+        showToast("Lỗi khi cập nhật mẫu: " + err.message, "error");
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -4009,13 +4157,22 @@ export default function App() {
                                     Xác nhận lấy mẫu
                                   </button>
                                   {profile?.role === 'admin' && (
-                                    <button 
-                                      className="btn btn-secondary" 
-                                      style={{ height: '36px', padding: '0 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
-                                      onClick={() => setMovingSample(s)}
-                                    >
-                                      <Move size={14} /> Di chuyển
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                      <button 
+                                        className="btn btn-secondary" 
+                                        style={{ height: '36px', padding: '0 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', borderColor: '#f59e0b', color: '#f59e0b' }}
+                                        onClick={() => handleOpenEditSample(s)}
+                                      >
+                                        Sửa
+                                      </button>
+                                      <button 
+                                        className="btn btn-secondary" 
+                                        style={{ height: '36px', padding: '0 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
+                                        onClick={() => setMovingSample(s)}
+                                      >
+                                        <Move size={14} /> Di chuyển
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -5837,7 +5994,7 @@ export default function App() {
 
                   {/* List of samples inside slot */}
                   <h4 style={{ fontSize: '14px', marginBottom: '10px', fontWeight: 'bold' }}>Danh sách mẫu trong ô:</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+<div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {(() => {
                       const slotSamples = samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === selectedSlot.slot && s.status === 'stored');
                       const occupiedCols = slotSamples.map(s => s.column_number);
@@ -5904,6 +6061,9 @@ export default function App() {
                                         </button>
                                         {profile?.role === 'admin' && (
                                           <div style={{ display: 'flex', gap: '6px' }}>
+                                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => handleOpenEditSample(sample)}>
+                                              Sửa
+                                            </button>
                                             <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(sample)}>
                                               <Move size={14} /> Di chuyển
                                             </button>
@@ -6473,6 +6633,229 @@ export default function App() {
                 <Printer size={16} /> Xác nhận và In
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT SAMPLE MODAL */}
+      {editingSample && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setEditingSample(null)}>
+          <div className="modal-content" style={{ maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontWeight: 'bold' }}>
+                ✏️ Sửa Thông Tin Mẫu Mẻ
+              </h3>
+              <button className="close-btn" onClick={() => setEditingSample(null)}><X size={18} /></button>
+            </div>
+
+            <form onSubmit={handleSaveEditSample} className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px 0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="form-group" style={{ position: 'relative', gridColumn: 'span 2' }}>
+                  <label className="form-label">Chọn sản phẩm thuốc lá gốc <span style={{ color: 'red' }}>*</span></label>
+                  <input 
+                    className="form-input" 
+                    type="text" 
+                    required 
+                    placeholder="Gõ tìm sản phẩm (ví dụ: 555, Canyon...)" 
+                    value={editSearchQuery} 
+                    onChange={e => handleEditSearchChange(e.target.value)}
+                    onBlur={() => setTimeout(() => setEditSuggestions([]), 200)}
+                    autoComplete="off"
+                  />
+                  
+                  {/* Floating Suggestions for Edit */}
+                  {editSuggestions.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '75px',
+                      left: 0,
+                      right: 0,
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--glass-border)',
+                      borderRadius: 'var(--border-radius-sm)',
+                      boxShadow: '0 8px 32px var(--glass-shadow)',
+                      zIndex: 100,
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      backdropFilter: 'blur(12px)',
+                      WebkitBackdropFilter: 'blur(12px)'
+                    }}>
+                      {editSuggestions.map(p => (
+                        <div 
+                          key={p.id} 
+                          style={{
+                            padding: '10px 16px',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid rgba(255,255,255,0.03)',
+                            transition: 'background 0.2s',
+                            fontSize: '14px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            background: editProductId === p.id ? 'rgba(37,99,235,0.1)' : 'transparent'
+                          }}
+                          onMouseDown={() => {
+                            setEditProductId(p.id);
+                            setEditSearchQuery(p.product_name + (p.warning_code ? ` (${p.warning_code})` : ''));
+                            setEditSuggestions([]);
+                            if (!p.is_export) setEditOrderNumber('');
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = editProductId === p.id ? 'rgba(37,99,235,0.1)' : 'transparent'; }}
+                        >
+                          <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{p.product_name}</span>
+                          <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: p.is_export ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: p.is_export ? '#10b981' : '#ef4444' }}>
+                            {p.is_export ? 'Hàng Xuất' : 'Hàng Nội Địa'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Mẻ phối sợi <span style={{ color: 'red' }}>*</span></label>
+                  <input 
+                    className="form-input" 
+                    type="number" 
+                    required 
+                    min="1" 
+                    max="999" 
+                    value={editBlendBatch} 
+                    onChange={e => setEditBlendBatch(e.target.value)} 
+                    placeholder="Ví dụ: 123" 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Số thứ tự thùng <span style={{ color: 'red' }}>*</span></label>
+                  <input 
+                    className="form-input" 
+                    type="text" 
+                    required 
+                    value={editBoxSeq} 
+                    onChange={e => setEditBoxSeq(e.target.value)} 
+                    placeholder="Ví dụ: 0025" 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Ngày sản xuất sợi <span style={{ color: 'red' }}>*</span></label>
+                  <input 
+                    className="form-input" 
+                    type="text" 
+                    required 
+                    placeholder="dd/mm/yyyy" 
+                    value={editBlendDateStr} 
+                    onChange={e => setEditBlendDateStr(liveFormatDate(e.target.value, editBlendDateStr))} 
+                    onBlur={e => setEditBlendDateStr(autoFormatDate(e.target.value))} 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Ngày sản xuất bao <span style={{ color: 'red' }}>*</span></label>
+                  <input 
+                    className="form-input" 
+                    type="text" 
+                    required 
+                    placeholder="dd/mm/yyyy" 
+                    value={editPackagingDateStr} 
+                    onChange={e => setEditPackagingDateStr(liveFormatDate(e.target.value, editPackagingDateStr))} 
+                    onBlur={e => setEditPackagingDateStr(autoFormatDate(e.target.value))} 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Ngày lấy mẫu <span style={{ color: 'red' }}>*</span></label>
+                  <input 
+                    className="form-input" 
+                    type="text" 
+                    required 
+                    placeholder="dd/mm/yyyy" 
+                    value={editSamplingDateStr} 
+                    onChange={e => setEditSamplingDateStr(liveFormatDate(e.target.value, editSamplingDateStr))} 
+                    onBlur={e => setEditSamplingDateStr(autoFormatDate(e.target.value))} 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Giờ lấy mẫu <span style={{ color: 'red' }}>*</span></label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input 
+                      type="text" 
+                      maxLength="2" 
+                      value={editSamplingHour}
+                      onChange={e => setEditSamplingHour(e.target.value.replace(/[^0-9]/g, ''))}
+                      onBlur={e => {
+                        let h = parseInt(e.target.value);
+                        if (isNaN(h) || h < 0 || h > 23) h = 8;
+                        setEditSamplingHour(String(h).padStart(2, '0'));
+                      }}
+                      style={{ flex: 1, padding: '8px 12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }}
+                    />
+                    <span style={{ color: 'var(--text-muted)' }}>:</span>
+                    <input 
+                      type="text" 
+                      maxLength="2" 
+                      value={editSamplingMinute}
+                      onChange={e => setEditSamplingMinute(e.target.value.replace(/[^0-9]/g, ''))}
+                      onBlur={e => {
+                        let m = parseInt(e.target.value);
+                        if (isNaN(m) || m < 0 || m > 59) m = 0;
+                        setEditSamplingMinute(String(m).padStart(2, '0'));
+                      }}
+                      style={{ flex: 1, padding: '8px 12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Số lượng (Số cây) <span style={{ color: 'red' }}>*</span></label>
+                  <input 
+                    className="form-input" 
+                    type="number" 
+                    required 
+                    min="1" 
+                    value={editQty} 
+                    onChange={e => setEditQty(e.target.value)} 
+                    placeholder="Ví dụ: 10" 
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Số đơn hàng XK {products.find(p => p.id === editProductId)?.is_export && <span style={{ color: 'red' }}>*</span>}</label>
+                  <input 
+                    className="form-input" 
+                    type="text" 
+                    placeholder={products.find(p => p.id === editProductId)?.is_export ? "Bắt buộc nhập số đơn hàng" : "Không áp dụng cho hàng nội địa"} 
+                    disabled={!products.find(p => p.id === editProductId)?.is_export}
+                    value={editOrderNumber} 
+                    onChange={e => setEditOrderNumber(e.target.value)} 
+                  />
+                </div>
+
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label">Ghi chú</label>
+                  <textarea 
+                    className="form-input" 
+                    rows="2"
+                    placeholder="Nhập ghi chú (nếu có)..."
+                    value={editNote} 
+                    onChange={e => setEditNote(e.target.value)}
+                    style={{ resize: 'vertical' }}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ display: 'flex', gap: '12px', borderTop: '1px solid var(--glass-border)', paddingTop: '16px', marginTop: '8px' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setEditingSample(null)}>
+                  Đóng
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={loading}>
+                  {loading ? 'Đang lưu...' : 'Lưu thay đổi'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
