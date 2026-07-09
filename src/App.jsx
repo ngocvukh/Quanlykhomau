@@ -306,7 +306,7 @@ export default function App() {
           console.error("Lỗi khi lưu bản nháp lên database: ", err);
         }
       }
-    }, 1500);
+    }, 5000);
 
     return () => clearTimeout(timeoutId);
   }, [bulkRows, bulkTrayNumber, deviceId]);
