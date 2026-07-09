@@ -270,6 +270,29 @@ export default function App() {
     }
   }, [bulkRows]);
 
+  // Warning before reload/unload if there is unsaved data in bulkRows
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      const hasData = bulkRows.length > 1 || 
+                      bulkRows[0]?.productId || 
+                      bulkRows[0]?.blendBatch || 
+                      bulkRows[0]?.boxSeq || 
+                      bulkRows[0]?.packagingDate || 
+                      bulkRows[0]?.qty;
+                      
+      if (hasData) {
+        e.preventDefault();
+        e.returnValue = 'Bạn có chắc chắn muốn làm mới trang không? Những thay đổi chưa lưu có thể bị mất.';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [bulkRows]);
+
   useEffect(() => {
     localStorage.setItem('bulk_tray_number_draft', bulkTrayNumber);
   }, [bulkTrayNumber]);
