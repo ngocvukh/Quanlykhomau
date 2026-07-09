@@ -261,8 +261,50 @@ export default function App() {
   });
   const [bulkRows, setBulkRows] = useState([createEmptyBulkRow(1)]);
   const [bulkTrayNumber, setBulkTrayNumber] = useState('1');
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+
+  // Auto-save bulkRows and bulkTrayNumber to localStorage
+  useEffect(() => {
+    if (bulkRows && bulkRows.length > 0) {
+      localStorage.setItem('bulk_rows_draft', JSON.stringify(bulkRows));
+    }
+  }, [bulkRows]);
 
   useEffect(() => {
+    localStorage.setItem('bulk_tray_number_draft', bulkTrayNumber);
+  }, [bulkTrayNumber]);
+
+  // Load draft on initial mount
+  useEffect(() => {
+    const savedRows = localStorage.getItem('bulk_rows_draft');
+    const savedTray = localStorage.getItem('bulk_tray_number_draft');
+    if (savedRows) {
+      try {
+        const parsed = JSON.parse(savedRows);
+        if (parsed.length > 0 && (parsed.length > 1 || parsed[0].productId || parsed[0].blendBatch || parsed[0].boxSeq || parsed[0].packagingDate || parsed[0].qty)) {
+          const sanitized = parsed.map(r => ({ ...r, suggestions: [] }));
+          setBulkRows(sanitized);
+          setHasRestoredDraft(true);
+          
+          const maxId = Math.max(...sanitized.map(r => r.id), 0);
+          setBulkNextId(maxId + 1);
+        }
+      } catch (e) {
+        console.error("Lỗi parse bản nháp nhập hàng loạt: ", e);
+      }
+    }
+    if (savedTray) {
+      setBulkTrayNumber(savedTray);
+    }
+  }, []);
+
+  // Update default tray number based on samples when draft is not present
+  useEffect(() => {
+    const savedTray = localStorage.getItem('bulk_tray_number_draft');
+    if (savedTray) {
+      setBulkTrayNumber(savedTray);
+      return;
+    }
     if (samples && samples.length > 0) {
       const trayNumbers = samples.map(s => s.tray_number).filter(t => t !== null && t !== undefined && !isNaN(t));
       if (trayNumbers.length > 0) {
@@ -704,6 +746,8 @@ export default function App() {
       showToast(`✅ Đã lưu ${samplesToInsert.length} mẫu vào database! Chuyển sang mục "Đề xuất bố trí" bên dưới để phân bổ kho.`, 'success');
       setBulkRows([createEmptyBulkRow(1)]);
       setBulkNextId(2);
+      localStorage.removeItem('bulk_rows_draft');
+      setHasRestoredDraft(false);
     } catch(err) {
       showToast('Lỗi khi lưu: ' + err.message, 'error');
     } finally {
@@ -4935,6 +4979,31 @@ export default function App() {
                     )}
                   </div>
 
+                  {hasRestoredDraft && (
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: 'rgba(245,158,11,0.06)',
+                      border: '1px solid rgba(245,158,11,0.25)',
+                      color: '#f59e0b',
+                      padding: '10px 16px',
+                      borderRadius: '8px',
+                      marginBottom: '16px',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                    }}>
+                      <span>🔄 Hệ thống đã khôi phục bản nháp nhập hàng loạt chưa lưu của bạn!</span>
+                      <button 
+                        onClick={() => setHasRestoredDraft(false)}
+                        style={{ background: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', padding: '0 4px' }}
+                      >
+                        Đóng
+                      </button>
+                    </div>
+                  )}
+
                   {/* Toolbar */}
                   <div style={{ display:'flex', gap:'8px', marginBottom:'16px', flexWrap:'wrap', alignItems:'center' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:'8px', background:'rgba(255,255,255,0.03)', padding:'5px 12px', borderRadius:'6px', border:'1px solid var(--glass-border)', marginRight:'8px' }}>
@@ -4982,7 +5051,13 @@ export default function App() {
                     <button className="btn btn-secondary" style={{ fontSize:'13px' }} onClick={() => addBulkRows(10)}>
                       <Plus size={14} /> Thêm 10 hàng
                     </button>
-                    <button className="btn btn-secondary" style={{ fontSize:'13px', color:'var(--status-error)' }} onClick={() => setBulkRows([createEmptyBulkRow(1)])}>
+                    <button className="btn btn-secondary" style={{ fontSize:'13px', color:'var(--status-error)' }} onClick={() => {
+                      if (confirm("Bạn có chắc chắn muốn xóa toàn bộ hàng đã nhập không?")) {
+                        setBulkRows([createEmptyBulkRow(1)]);
+                        localStorage.removeItem('bulk_rows_draft');
+                        setHasRestoredDraft(false);
+                      }
+                    }}>
                       <Trash2 size={14} /> Xóa tất cả
                     </button>
                     <span style={{ marginLeft:'auto', fontSize:'12px', color:'var(--text-muted)' }}>
