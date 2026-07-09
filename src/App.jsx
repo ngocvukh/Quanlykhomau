@@ -263,12 +263,53 @@ export default function App() {
   const [bulkTrayNumber, setBulkTrayNumber] = useState('1');
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
 
-  // Auto-save bulkRows and bulkTrayNumber to localStorage
+  // Auto-save bulkRows and bulkTrayNumber to LocalStorage (instant) and Supabase (debounced 1.5s)
   useEffect(() => {
+    if (!deviceId) return;
+
+    // 1) Instant LocalStorage backup
     if (bulkRows && bulkRows.length > 0) {
       localStorage.setItem('bulk_rows_draft', JSON.stringify(bulkRows));
     }
-  }, [bulkRows]);
+    localStorage.setItem('bulk_tray_number_draft', bulkTrayNumber);
+
+    // 2) Debounced Supabase sync
+    const timeoutId = setTimeout(async () => {
+      const hasData = bulkRows.length > 1 || 
+                      bulkRows[0]?.productId || 
+                      bulkRows[0]?.blendBatch || 
+                      bulkRows[0]?.boxSeq || 
+                      bulkRows[0]?.packagingDate || 
+                      bulkRows[0]?.qty;
+                      
+      if (!hasData) {
+        // Clear database draft row if the user emptied the draft
+        if (!isDemoMode) {
+          try {
+            await supabase.from('bulk_import_drafts').delete().eq('id', deviceId);
+          } catch (e) { /* ignore */ }
+        }
+        return;
+      }
+
+      if (!isDemoMode) {
+        try {
+          // Clean temporary UI properties (like suggestions dropdowns) to optimize JSON storage
+          const sanitizedRows = bulkRows.map(r => ({ ...r, suggestions: [] }));
+          await supabase.from('bulk_import_drafts').upsert({
+            id: deviceId,
+            rows_data: sanitizedRows,
+            tray_number: bulkTrayNumber,
+            updated_at: new Date().toISOString()
+          });
+        } catch (err) {
+          console.error("Lỗi khi lưu bản nháp lên database: ", err);
+        }
+      }
+    }, 1500);
+
+    return () => clearTimeout(timeoutId);
+  }, [bulkRows, bulkTrayNumber, deviceId]);
 
   // Warning before reload/unload if there is unsaved data in bulkRows
   useEffect(() => {
@@ -293,33 +334,63 @@ export default function App() {
     };
   }, [bulkRows]);
 
+  // Load draft on initial mount when deviceId is resolved
   useEffect(() => {
-    localStorage.setItem('bulk_tray_number_draft', bulkTrayNumber);
-  }, [bulkTrayNumber]);
+    if (!deviceId) return;
 
-  // Load draft on initial mount
-  useEffect(() => {
-    const savedRows = localStorage.getItem('bulk_rows_draft');
-    const savedTray = localStorage.getItem('bulk_tray_number_draft');
-    if (savedRows) {
-      try {
-        const parsed = JSON.parse(savedRows);
-        if (parsed.length > 0 && (parsed.length > 1 || parsed[0].productId || parsed[0].blendBatch || parsed[0].boxSeq || parsed[0].packagingDate || parsed[0].qty)) {
-          const sanitized = parsed.map(r => ({ ...r, suggestions: [] }));
-          setBulkRows(sanitized);
-          setHasRestoredDraft(true);
-          
-          const maxId = Math.max(...sanitized.map(r => r.id), 0);
-          setBulkNextId(maxId + 1);
+    (async () => {
+      let loadedFromDb = false;
+
+      // 1) Try loading from Supabase Database
+      if (!isDemoMode) {
+        try {
+          const { data, error } = await supabase
+            .from('bulk_import_drafts')
+            .select('rows_data, tray_number')
+            .eq('id', deviceId)
+            .maybeSingle();
+
+          if (data && data.rows_data && data.rows_data.length > 0) {
+            const parsed = data.rows_data;
+            if (parsed.length > 1 || parsed[0].productId || parsed[0].blendBatch || parsed[0].boxSeq || parsed[0].packagingDate || parsed[0].qty) {
+              const sanitized = parsed.map(r => ({ ...r, suggestions: [] }));
+              setBulkRows(sanitized);
+              setBulkTrayNumber(data.tray_number || '1');
+              setHasRestoredDraft(true);
+              loadedFromDb = true;
+
+              const maxId = Math.max(...sanitized.map(r => r.id), 0);
+              setBulkNextId(maxId + 1);
+            }
+          }
+        } catch (e) {
+          console.error("Không thể khôi phục bản nháp từ database, thử LocalStorage...", e);
         }
-      } catch (e) {
-        console.error("Lỗi parse bản nháp nhập hàng loạt: ", e);
       }
-    }
-    if (savedTray) {
-      setBulkTrayNumber(savedTray);
-    }
-  }, []);
+
+      // 2) Fallback to LocalStorage if Supabase failed or returned empty
+      if (!loadedFromDb) {
+        const savedRows = localStorage.getItem('bulk_rows_draft');
+        const savedTray = localStorage.getItem('bulk_tray_number_draft');
+        if (savedRows) {
+          try {
+            const parsed = JSON.parse(savedRows);
+            if (parsed.length > 0 && (parsed.length > 1 || parsed[0].productId || parsed[0].blendBatch || parsed[0].boxSeq || parsed[0].packagingDate || parsed[0].qty)) {
+              const sanitized = parsed.map(r => ({ ...r, suggestions: [] }));
+              setBulkRows(sanitized);
+              setBulkTrayNumber(savedTray || '1');
+              setHasRestoredDraft(true);
+
+              const maxId = Math.max(...sanitized.map(r => r.id), 0);
+              setBulkNextId(maxId + 1);
+            }
+          } catch (e) {
+            console.error("Lỗi parse bản nháp từ LocalStorage: ", e);
+          }
+        }
+      }
+    })();
+  }, [deviceId]);
 
   // Update default tray number based on samples when draft is not present
   useEffect(() => {
@@ -771,6 +842,9 @@ export default function App() {
       setBulkNextId(2);
       localStorage.removeItem('bulk_rows_draft');
       setHasRestoredDraft(false);
+      if (!isDemoMode && deviceId) {
+        supabase.from('bulk_import_drafts').delete().eq('id', deviceId).catch(() => {});
+      }
     } catch(err) {
       showToast('Lỗi khi lưu: ' + err.message, 'error');
     } finally {
@@ -5079,6 +5153,9 @@ export default function App() {
                         setBulkRows([createEmptyBulkRow(1)]);
                         localStorage.removeItem('bulk_rows_draft');
                         setHasRestoredDraft(false);
+                        if (!isDemoMode && deviceId) {
+                          supabase.from('bulk_import_drafts').delete().eq('id', deviceId).catch(() => {});
+                        }
                       }
                     }}>
                       <Trash2 size={14} /> Xóa tất cả
