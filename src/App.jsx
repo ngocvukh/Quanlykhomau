@@ -198,6 +198,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [authEmail, setAuthEmail] = useState('');
+  const [isDemoMode, setIsDemoMode] = useState(false);
   const [authPassword, setAuthPassword] = useState('');
   const [authFullName, setAuthFullName] = useState('');
   const [authEmployeeCode, setAuthEmployeeCode] = useState('');
@@ -499,7 +500,6 @@ export default function App() {
   };
   
   // Offline / Demo Mode fallback (for instant preview without Supabase keys)
-  const [isDemoMode, setIsDemoMode] = useState(false);
 
   // Modal / Detail States
   const [selectedSlot, setSelectedSlot] = useState(null); // { shelf, slot }
