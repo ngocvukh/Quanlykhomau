@@ -271,7 +271,9 @@ export default function App() {
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const [pendingPrintSamples, setPendingPrintSamples] = useState(null);
 
-  // Auto-save bulkRows and bulkTrayNumber to LocalStorage (instant) and Supabase (debounced 1.5s)
+  const bulkSyncTimeoutRef = useRef(null);
+
+  // Auto-save bulkRows and bulkTrayNumber to LocalStorage (instant) and Supabase (debounced 5.0s)
   useEffect(() => {
     if (!deviceId) return;
 
@@ -282,7 +284,11 @@ export default function App() {
     localStorage.setItem('bulk_tray_number_draft', bulkTrayNumber);
 
     // 2) Debounced Supabase sync
-    const timeoutId = setTimeout(async () => {
+    if (bulkSyncTimeoutRef.current) {
+      clearTimeout(bulkSyncTimeoutRef.current);
+    }
+
+    bulkSyncTimeoutRef.current = setTimeout(async () => {
       const hasData = bulkRows.length > 1 || 
                       bulkRows[0]?.productId || 
                       bulkRows[0]?.blendBatch || 
@@ -314,9 +320,14 @@ export default function App() {
           console.error("Lỗi khi lưu bản nháp lên database: ", err);
         }
       }
+      bulkSyncTimeoutRef.current = null;
     }, 5000);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      if (bulkSyncTimeoutRef.current) {
+        clearTimeout(bulkSyncTimeoutRef.current);
+      }
+    };
   }, [bulkRows, bulkTrayNumber, deviceId]);
 
   // Warning before reload/unload if there is unsaved data in bulkRows
@@ -803,6 +814,17 @@ export default function App() {
 
     setBulkSaving(true);
     try {
+      // Clear draft immediately to avoid race conditions during database save
+      if (bulkSyncTimeoutRef.current) {
+        clearTimeout(bulkSyncTimeoutRef.current);
+        bulkSyncTimeoutRef.current = null;
+      }
+      localStorage.removeItem('bulk_rows_draft');
+      setHasRestoredDraft(false);
+      if (!isDemoMode && deviceId) {
+        supabase.from('bulk_import_drafts').delete().eq('id', deviceId).catch(() => {});
+      }
+
       const samplesToInsert = [];
       for (const r of bulkRows) {
         const prod = r.productObj;
@@ -849,9 +871,6 @@ export default function App() {
       setBulkNextId(2);
       localStorage.removeItem('bulk_rows_draft');
       setHasRestoredDraft(false);
-      if (!isDemoMode && deviceId) {
-        try { await supabase.from('bulk_import_drafts').delete().eq('id', deviceId); } catch (e) { /* ignore */ }
-      }
     } catch(err) {
       showToast('Lỗi khi lưu: ' + err.message, 'error');
     } finally {
@@ -5161,6 +5180,10 @@ export default function App() {
                     </button>
                     <button className="btn btn-secondary" style={{ fontSize:'13px', color:'var(--status-error)' }} onClick={async () => {
                       if (confirm("Bạn có chắc chắn muốn xóa toàn bộ hàng đã nhập không?")) {
+                        if (bulkSyncTimeoutRef.current) {
+                          clearTimeout(bulkSyncTimeoutRef.current);
+                          bulkSyncTimeoutRef.current = null;
+                        }
                         setBulkRows([createEmptyBulkRow(1)]);
                         localStorage.removeItem('bulk_rows_draft');
                         setHasRestoredDraft(false);
