@@ -822,7 +822,7 @@ export default function App() {
       localStorage.removeItem('bulk_rows_draft');
       setHasRestoredDraft(false);
       if (!isDemoMode && deviceId) {
-        supabase.from('bulk_import_drafts').delete().eq('id', deviceId).catch(() => {});
+        try { await supabase.from('bulk_import_drafts').delete().eq('id', deviceId); } catch (e) { /* ignore */ }
       }
 
       const samplesToInsert = [];
