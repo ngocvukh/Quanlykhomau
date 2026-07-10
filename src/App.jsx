@@ -849,7 +849,7 @@ export default function App() {
       localStorage.removeItem('bulk_rows_draft');
       setHasRestoredDraft(false);
       if (!isDemoMode && deviceId) {
-        supabase.from('bulk_import_drafts').delete().eq('id', deviceId).catch(() => {});
+        try { await supabase.from('bulk_import_drafts').delete().eq('id', deviceId); } catch (e) { /* ignore */ }
       }
     } catch(err) {
       showToast('Lỗi khi lưu: ' + err.message, 'error');
@@ -5150,13 +5150,13 @@ export default function App() {
                     <button className="btn btn-secondary" style={{ fontSize:'13px' }} onClick={() => addBulkRows(10)}>
                       <Plus size={14} /> Thêm 10 hàng
                     </button>
-                    <button className="btn btn-secondary" style={{ fontSize:'13px', color:'var(--status-error)' }} onClick={() => {
+                    <button className="btn btn-secondary" style={{ fontSize:'13px', color:'var(--status-error)' }} onClick={async () => {
                       if (confirm("Bạn có chắc chắn muốn xóa toàn bộ hàng đã nhập không?")) {
                         setBulkRows([createEmptyBulkRow(1)]);
                         localStorage.removeItem('bulk_rows_draft');
                         setHasRestoredDraft(false);
                         if (!isDemoMode && deviceId) {
-                          supabase.from('bulk_import_drafts').delete().eq('id', deviceId).catch(() => {});
+                          try { await supabase.from('bulk_import_drafts').delete().eq('id', deviceId); } catch (e) { /* ignore */ }
                         }
                       }
                     }}>
