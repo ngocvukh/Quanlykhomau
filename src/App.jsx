@@ -199,6 +199,12 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [authEmail, setAuthEmail] = useState('');
   const [isDemoMode, setIsDemoMode] = useState(false);
+
+  // Visitor Tracking (Device Fingerprint + Tên tự khai) — must be declared early
+  const [deviceId, setDeviceId] = useState('');
+  const [visitorName, setVisitorName] = useState('');
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const [nameInput, setNameInput] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authFullName, setAuthFullName] = useState('');
   const [authEmployeeCode, setAuthEmployeeCode] = useState('');
@@ -1030,11 +1036,7 @@ export default function App() {
   const [takeQuantities, setTakeQuantities] = useState({});
   const [takeNotes, setTakeNotes] = useState({});
 
-  // Visitor Tracking (Device Fingerprint + Tên tự khai)
-  const [deviceId, setDeviceId] = useState('');
-  const [visitorName, setVisitorName] = useState('');
-  const [showNamePrompt, setShowNamePrompt] = useState(false);
-  const [nameInput, setNameInput] = useState('');
+  // Visitor Tracking (Device Fingerprint + Tên tự khai) — states declared at top of component
   const [searchLogs, setSearchLogs] = useState([]);
   const [searchLogsLoading, setSearchLogsLoading] = useState(false);
   const [resetDevices, setResetDevices] = useState([]); // danh sách device_id đã reset/chặn
