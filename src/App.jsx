@@ -269,6 +269,7 @@ export default function App() {
   const [bulkRows, setBulkRows] = useState([createEmptyBulkRow(1)]);
   const [bulkTrayNumber, setBulkTrayNumber] = useState('1');
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+  const [pendingPrintSamples, setPendingPrintSamples] = useState(null);
 
   // Auto-save bulkRows and bulkTrayNumber to LocalStorage (instant) and Supabase (debounced 1.5s)
   useEffect(() => {
@@ -967,9 +968,8 @@ export default function App() {
 
       setLastAssignedIds(assignedIds);
       showToast(`✅ Đã bố trí ${scanPreview.toShelf.length} mẫu lên kệ và ${scanPreview.toBox.length} mẫu vào thùng!`, 'success');
+      setPendingPrintSamples(samplesForPrint);
       setScanPreview(null);
-      // Auto redirect to print tab
-      setActiveTab('labels');
     } catch(err) {
       showToast('Lỗi: ' + err.message, 'error');
     } finally {
@@ -5373,210 +5373,366 @@ export default function App() {
                    SECTION B: QUÉT & ĐỀ XUẤT BỐ TRÍ
                 ──────────────────────────────── */}
                 <div className="glass-panel">
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px', gap:'12px', flexWrap:'wrap' }}>
+                  {pendingPrintSamples ? (
                     <div>
-                      <h2 style={{ fontSize:'18px', display:'flex', alignItems:'center', gap:'8px', margin:0 }}>
-                        <Search size={20} color="#10b981" /> Mục 2 — Quét & ĐỀ Xuất Bố Trí Kho
-                      </h2>
-                      <p style={{ fontSize:'12px', color:'var(--text-muted)', margin:'4px 0 0' }}>
-                        Tìm các mẫu chưa có vị trí kho và đề xuất phân bổ tự động
-                      </p>
-                    </div>
-                    <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
-                      {(() => {
-                        const cnt = samples.filter(s => s.status === 'pending').length;
-                        return cnt > 0
-                          ? <span style={{ padding:'6px 14px', background:'rgba(245,158,11,0.12)', border:'1px solid rgba(245,158,11,0.4)', borderRadius:'20px', fontSize:'13px', color:'#f59e0b', fontWeight:600 }}>
-                              {cnt} mẫu chờ bố trí
-                            </span>
-                          : <span style={{ padding:'6px 14px', background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:'20px', fontSize:'13px', color:'var(--status-success)' }}>
-                              ✓ Không có mẫu chờ
-                            </span>;
-                      })()}
-                      {samples.filter(s => s.status === 'pending').length > 0 && !scanPreview && (
-                        <button className="btn btn-secondary"
-                          style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '6px' }}
-                          onClick={() => {
-                            const pendingS = samples.filter(s => s.status === 'pending');
-                            const trays = [...new Set(pendingS.map(s => s.tray_number).filter(t => t !== null && t !== undefined))].sort((a,b)=>a-b);
-                            if (trays.length > 0) {
-                              setSourceTrayNum(String(trays[0]));
-                              setDestTrayNum(trays.length > 1 ? String(trays[1]) : '');
-                            } else {
-                              setSourceTrayNum('');
-                              setDestTrayNum('');
-                            }
-                            setIsNewDestTray(false);
-                            setNewDestTrayNum('');
-                            setSourceSelectedIds([]);
-                            setShowTrayAdjusterModal(true);
-                          }}>
-                          <ClipboardList size={15} /> Công cụ Dồn/Tách Khay
-                        </button>
-                      )}
-                      {!scanPreview && (
-                        <button className="btn btn-primary"
-                          style={{ background:'linear-gradient(135deg,#059669,#10b981)', borderColor:'#10b981' }}
-                          onClick={handleScanAndPropose}>
-                          <Search size={15} /> Quét & ĐỀ xuất
-                        </button>
-                      )}
-                      {scanPreview && (
-                        <button className="btn btn-secondary" onClick={() => setScanPreview(null)}>
-                          × Hủy đề xuất
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* No pending samples message */}
-                  {!scanPreview && samples.filter(s => s.status === 'pending').length === 0 && (
-                    <div style={{ textAlign:'center', padding:'32px', color:'var(--text-muted)', fontSize:'14px' }}>
-                      <div style={{ fontSize:'40px', marginBottom:'12px' }}>🏆</div>
-                      Tất cả mẫu đã được bố trí. Nhập mẫu mới ở Mục 1 để bắt đầu.
-                    </div>
-                  )}
-
-                  {/* Pending list (when no scanPreview yet) */}
-                  {!scanPreview && samples.filter(s => s.status === 'pending').length > 0 && (
-                    <div style={{ maxHeight:'280px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)', marginBottom:'0' }}>
-                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
-                        <thead>
-                          <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0, zIndex:10 }}>
-                            <th style={{ padding:'8px 12px', width:'80px', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>Khay</th>
-                            {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Số cây','Ngày nhập', 'Thao tác'].map((h, i) => (
-                              <th key={i} style={{ padding:'8px 12px', textAlign: h === 'Thao tác' ? 'right' : 'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {samples.filter(s => s.status === 'pending').sort((a,b) => new Date(b.packaging_date) - new Date(a.packaging_date)).map(s => (
-                            <tr key={s.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
-                              <td style={{ padding:'7px 12px', fontWeight:600, color:'var(--accent-blue)' }}>
-                                Khay {s.tray_number || '—'}
-                              </td>
-                              <td style={{ padding:'7px 12px', fontWeight:500 }}>{s.products?.product_name}</td>
-                              <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.blend_batch}</td>
-                              <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
-                              <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
-                              <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
-                              <td style={{ padding:'7px 12px', textAlign:'right', display:'flex', gap:'6px', justifyContent:'flex-end', alignItems:'center' }}>
-                                <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'#f59e0b', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => handleOpenEditSample(s)}>
-                                  Sửa
-                                </button>
-                                <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'var(--accent-blue)', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(s)}>
-                                  <Move size={14} /> Bố trí
-                                </button>
-                                <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
-                                  <Trash2 size={16} />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {/* Scan preview results */}
-                  {scanPreview && (
-                    <div>
-                      {/* Summary */}
-                      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))', gap:'12px', marginBottom:'20px' }}>
-                        {[
-                          { label:'Tổng mẫu quét', value: scanPreview.toShelf.length + scanPreview.toBox.length, color:'#a78bfa', icon:'📊' },
-                          { label:'Xếp lên kệ', value: scanPreview.toShelf.length, color:'var(--status-success)', icon:'🗄️' },
-                          { label:'Đóng thùng', value: scanPreview.toBox.length, color:'#f59e0b', icon:'📦' },
-                          { label:'Số thùng', value: Object.keys(scanPreview.boxGroups).length, color:'#60a5fa', icon:'🗃️' },
-                        ].map(c => (
-                          <div key={c.label} style={{ padding:'14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--glass-border)', borderRadius:'10px', textAlign:'center' }}>
-                            <div style={{ fontSize:'24px', marginBottom:'2px' }}>{c.icon}</div>
-                            <div style={{ fontSize:'24px', fontWeight:'bold', color:c.color }}>{c.value}</div>
-                            <div style={{ fontSize:'11px', color:'var(--text-muted)' }}>{c.label}</div>
-                          </div>
-                        ))}
+                      {/* BÁO CÁO BỐ TRÍ & IN NHÃN */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '20px' }}>
+                        <div>
+                          <h2 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, color: 'var(--status-success)' }}>
+                            <Check size={20} color="var(--status-success)" /> Quy Trình Bố Trí Kho & In Nhãn
+                          </h2>
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                            Đã bố trí thành công các mẫu vào kho. Tiến hành in nhãn và nhấn Hoàn thành để kết thúc.
+                          </p>
+                        </div>
                       </div>
 
-                      {/* Shelf list */}
-                      {scanPreview.toShelf.length > 0 && (
-                        <div style={{ marginBottom:'16px' }}>
-                          <h3 style={{ fontSize:'14px', color:'var(--status-success)', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
-                            <Check size={15} /> Xếp lên kệ ({scanPreview.toShelf.length} lô)
-                          </h3>
-                          <div style={{ maxHeight:'240px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)' }}>
-                            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
-                              <thead>
-                                <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0 }}>
-                                  {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Cây','Vị trí đề xuất','Loại'].map(h => (
-                                    <th key={h} style={{ padding:'7px 10px', textAlign:'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)', whiteSpace:'nowrap' }}>{h}</th>
-                                  ))}
+                      <div style={{ padding: '16px', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '10px', marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        🎉 <strong>Đã bố trí xong:</strong> Hệ thống đã lưu {pendingPrintSamples.length} mẫu lên kệ/thùng thành công.
+                        Bạn có thể nhấn nút <strong>In nhãn mẫu vừa bố trí</strong> bên dưới bao nhiêu lần tùy ý để in và dán. Sau khi hoàn tất in ấn, hãy nhấn <strong>Hoàn thành quy trình</strong>.
+                      </div>
+
+                      {/* Danh sách mẫu vừa bố trí */}
+                      <div style={{ maxHeight: '240px', overflowY: 'auto', borderRadius: '8px', border: '1px solid var(--glass-border)', marginBottom: '20px' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0, zIndex: 10 }}>
+                              {['Sản phẩm', 'Mẻ|Thùng', 'Khay', 'Vị trí lưu', 'Số cây'].map(h => (
+                                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600, borderBottom: '1px solid var(--glass-border)' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pendingPrintSamples.map((s, idx) => {
+                              const locText = s.box_id
+                                ? (boxes.find(b => b.id === s.box_id)?.box_name || 'Đóng thùng')
+                                : formatLocation(s.shelf, s.slot, s.column_number);
+                              return (
+                                <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                  <td style={{ padding: '8px 12px', fontWeight: 500 }}>{s.products?.product_name || s.product_name}</td>
+                                  <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{s.blend_batch}</td>
+                                  <td style={{ padding: '8px 12px' }}>Khay {s.tray_number || '—'}</td>
+                                  <td style={{ padding: '8px 12px', fontWeight: 'bold', color: 'var(--text-primary)' }}>{locText.toUpperCase()}</td>
+                                  <td style={{ padding: '8px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
                                 </tr>
-                              </thead>
-                              <tbody>
-                                {scanPreview.toShelf.map((r,i) => (
-                                  <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
-                                    <td style={{ padding:'7px 10px', fontWeight:500 }}>{r.productObj?.product_name}</td>
-                                    <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.blendBatch}|{r.boxSeq}</td>
-                                    <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.packagingDate}</td>
-                                    <td style={{ padding:'7px 10px' }}><strong>{r.qty}</strong></td>
-                                    <td style={{ padding:'7px 10px' }}>
-                                      <span style={{ background:'rgba(16,185,129,0.15)', color:'var(--status-success)', padding:'2px 8px', borderRadius:'5px', fontWeight:700 }}>
-                                        {String.fromCharCode(64 + r.shelf)}{r.slot} / Cột {r.column}
-                                      </span>
-                                    </td>
-                                    <td style={{ padding:'7px 10px', fontSize:'11px', color: r.productObj?.is_export ? '#60a5fa' : '#a78bfa' }}>
-                                      {r.productObj?.is_export ? '🌍 XK' : '🏠 NĐ'}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Nút in và hoàn thành */}
+                      <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        <button 
+                          className="btn btn-primary"
+                          style={{
+                            background: 'linear-gradient(135deg, var(--accent-blue), #2563eb)',
+                            borderColor: '#2563eb',
+                            padding: '11px 28px',
+                            fontSize: '14px',
+                            fontWeight: 'bold',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}
+                          onClick={() => {
+                            // Print this exact set of samples using our standard continuous print helper
+                            printTommyStickersForGroup("Mẫu vừa bố trí", pendingPrintSamples);
+                          }}
+                        >
+                          <Printer size={16} /> In nhãn mẫu vừa bố trí (Có thể in nhiều lần)
+                        </button>
+                        
+                        <button 
+                          className="btn btn-secondary"
+                          style={{
+                            borderColor: 'var(--status-success)',
+                            color: 'var(--status-success)',
+                            padding: '11px 28px',
+                            fontSize: '14px',
+                            fontWeight: 'bold',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}
+                          onClick={() => {
+                            setPendingPrintSamples(null);
+                            showToast("Đã hoàn thành toàn bộ quy trình bố trí kho!", "success");
+                          }}
+                        >
+                          <Check size={16} /> Hoàn thành quy trình
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px', gap:'12px', flexWrap:'wrap' }}>
+                        <div>
+                          <h2 style={{ fontSize:'18px', display:'flex', alignItems:'center', gap:'8px', margin:0 }}>
+                            <Search size={20} color="#10b981" /> Mục 2 — Quét & ĐỀ Xuất Bố Trí Kho
+                          </h2>
+                          <p style={{ fontSize:'12px', color:'var(--text-muted)', margin:'4px 0 0' }}>
+                            Tìm các mẫu chưa có vị trí kho và đề xuất phân bổ tự động
+                          </p>
+                        </div>
+                        <div style={{ display:'flex', gap:'10px', alignItems:'center' }}>
+                          {(() => {
+                            const cnt = samples.filter(s => s.status === 'pending').length;
+                            return cnt > 0
+                              ? <span style={{ padding:'6px 14px', background:'rgba(245,158,11,0.12)', border:'1px solid rgba(245,158,11,0.4)', borderRadius:'20px', fontSize:'13px', color:'#f59e0b', fontWeight:600 }}>
+                                  {cnt} mẫu chờ bố trí
+                                </span>
+                              : <span style={{ padding:'6px 14px', background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:'20px', fontSize:'13px', color:'var(--status-success)' }}>
+                                  ✓ Không có mẫu chờ
+                                </span>;
+                          })()}
+                          {samples.filter(s => s.status === 'pending').length > 0 && !scanPreview && (
+                            <button className="btn btn-secondary"
+                              style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '6px' }}
+                              onClick={() => {
+                                const pendingS = samples.filter(s => s.status === 'pending');
+                                const trays = [...new Set(pendingS.map(s => s.tray_number).filter(t => t !== null && t !== undefined))].sort((a,b)=>a-b);
+                                if (trays.length > 0) {
+                                  setSourceTrayNum(String(trays[0]));
+                                  setDestTrayNum(trays.length > 1 ? String(trays[1]) : '');
+                                } else {
+                                  setSourceTrayNum('');
+                                  setDestTrayNum('');
+                                }
+                                setIsNewDestTray(false);
+                                setNewDestTrayNum('');
+                                setSourceSelectedIds([]);
+                                setShowTrayAdjusterModal(true);
+                              }}>
+                              <ClipboardList size={15} /> Công cụ Dồn/Tách Khay
+                            </button>
+                          )}
+                          {!scanPreview && (
+                            <button className="btn btn-primary"
+                              style={{ background:'linear-gradient(135deg,#059669,#10b981)', borderColor:'#10b981' }}
+                              onClick={handleScanAndPropose}>
+                              <Search size={15} /> Quét & ĐỀ xuất
+                            </button>
+                          )}
+                          {scanPreview && (
+                            <button className="btn btn-secondary" onClick={() => setScanPreview(null)}>
+                              × Hủy đề xuất
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* No pending samples message */}
+                      {!scanPreview && samples.filter(s => s.status === 'pending').length === 0 && (
+                        <div style={{ textAlign:'center', padding:'32px', color:'var(--text-muted)', fontSize:'14px' }}>
+                          <div style={{ fontSize:'40px', marginBottom:'12px' }}>🏆</div>
+                          Tất cả mẫu đã được bố trí. Nhập mẫu mới ở Mục 1 để bắt đầu.
                         </div>
                       )}
 
-                      {/* Box groups */}
-                      {scanPreview.toBox.length > 0 && (
-                        <div style={{ marginBottom:'16px' }}>
-                          <h3 style={{ fontSize:'14px', color:'#f59e0b', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
-                            <Box size={15} /> Đóng thùng ({scanPreview.toBox.length} lô • {Object.keys(scanPreview.boxGroups).length} thùng)
-                          </h3>
-                          {Object.entries(scanPreview.boxGroups).map(([boxKey, items]) => (
-                            <div key={boxKey} style={{ marginBottom:'8px', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'8px', overflow:'hidden' }}>
-                              <div style={{ background:'rgba(245,158,11,0.08)', padding:'7px 14px', fontWeight:700, fontSize:'12px', color:'#f59e0b', display:'flex', justifyContent:'space-between' }}>
-                                <span>📦 Thùng {boxKey}</span>
-                                <span style={{ fontWeight:400, color:'var(--text-muted)' }}>{items.length} lô • {items.reduce((s,r)=>s+(parseInt(r.qty)||0),0)} cây</span>
+                      {/* Pending list (when no scanPreview yet) */}
+                      {!scanPreview && samples.filter(s => s.status === 'pending').length > 0 && (
+                        <div style={{ maxHeight:'280px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)', marginBottom:'0' }}>
+                          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px' }}>
+                            <thead>
+                              <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0, zIndex:10 }}>
+                                <th style={{ padding:'8px 12px', width:'80px', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>Khay</th>
+                                {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Số cây','Ngày nhập', 'Thao tác'].map((h, i) => (
+                                  <th key={i} style={{ padding:'8px 12px', textAlign: h === 'Thao tác' ? 'right' : 'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)' }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {samples.filter(s => s.status === 'pending').sort((a,b) => new Date(b.packaging_date) - new Date(a.packaging_date)).map(s => (
+                                <tr key={s.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
+                                  <td style={{ padding:'7px 12px', fontWeight:600, color:'var(--accent-blue)' }}>
+                                    Khay {s.tray_number || '—'}
+                                  </td>
+                                  <td style={{ padding:'7px 12px', fontWeight:500 }}>{s.products?.product_name}</td>
+                                  <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.blend_batch}</td>
+                                  <td style={{ padding:'7px 12px', color:'var(--text-secondary)', fontSize:'12px' }}>{s.packaging_date ? new Date(s.packaging_date).toLocaleDateString() : '—'}</td>
+                                  <td style={{ padding:'7px 12px' }}>{Math.round(s.available_qty / 10)} cây</td>
+                                  <td style={{ padding:'7px 12px', color:'var(--text-muted)', fontSize:'12px' }}>{s.entry_date ? new Date(s.entry_date).toLocaleDateString() : '—'}</td>
+                                  <td style={{ padding:'7px 12px', textAlign:'right', display:'flex', gap:'6px', justifyContent:'flex-end', alignItems:'center' }}>
+                                    <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'#f59e0b', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => handleOpenEditSample(s)}>
+                                      Sửa
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ padding:'4px 8px', fontSize:'11.5px', color:'var(--accent-blue)', display:'flex', alignItems: 'center', gap: '4px' }} onClick={() => setMovingSample(s)}>
+                                      <Move size={14} /> Bố trí
+                                    </button>
+                                    <button className="btn btn-secondary" style={{ padding:'4px 6px', color:'var(--status-error)', border:'none', background:'transparent', boxShadow:'none' }} onClick={() => handleDeletePendingSample(s.id)} title="Xóa mẫu chờ này">
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Scan preview results */}
+                      {scanPreview && (
+                        <div>
+                          {/* Summary */}
+                          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))', gap:'12px', marginBottom:'20px' }}>
+                            {[
+                              { label:'Tổng mẫu quét', value: scanPreview.toShelf.length + scanPreview.toBox.length, color:'#a78bfa', icon:'📊' },
+                              { label:'Xếp lên kệ', value: scanPreview.toShelf.length, color:'var(--status-success)', icon:'🗄️' },
+                              { label:'Đóng thùng', value: scanPreview.toBox.length, color:'#f59e0b', icon:'📦' },
+                              { label:'Số thùng', value: Object.keys(scanPreview.boxGroups).length, color:'#60a5fa', icon:'🗃️' },
+                            ].map(c => (
+                              <div key={c.label} style={{ padding:'14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--glass-border)', borderRadius:'10px', textAlign:'center' }}>
+                                <div style={{ fontSize:'24px', marginBottom:'2px' }}>{c.icon}</div>
+                                <div style={{ fontSize:'24px', fontWeight:'bold', color:c.color }}>{c.value}</div>
+                                <div style={{ fontSize:'11px', color:'var(--text-muted)' }}>{c.label}</div>
                               </div>
-                              {items.map((r,i) => (
-                                <div key={i} style={{ padding:'5px 14px', fontSize:'12px', borderTop:'1px solid rgba(255,255,255,0.03)', display:'flex', justifyContent:'space-between' }}>
-                                  <span>{r.productObj?.product_name}</span>
-                                  <span style={{ color:'var(--text-muted)' }}>Mẻ {r.blendBatch}|{r.boxSeq} • {r.qty} cây • {r.packagingDate}</span>
+                            ))}
+                          </div>
+
+                          {/* Shelf list */}
+                          {scanPreview.toShelf.length > 0 && (
+                            <div style={{ marginBottom:'16px' }}>
+                              <h3 style={{ fontSize:'14px', color:'var(--status-success)', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
+                                <Check size={15} /> Xếp lên kệ ({scanPreview.toShelf.length} lô)
+                              </h3>
+                              <div style={{ maxHeight:'240px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)' }}>
+                                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
+                                  <thead>
+                                    <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0 }}>
+                                      {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Cây','Vị trí đề xuất','Loại'].map(h => (
+                                        <th key={h} style={{ padding:'7px 10px', textAlign:'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)', whiteSpace:'nowrap' }}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {scanPreview.toShelf.map((r,i) => (
+                                      <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
+                                        <td style={{ padding:'7px 10px', fontWeight:500 }}>{r.productObj?.product_name}</td>
+                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.blendBatch}|{r.boxSeq}</td>
+                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.packagingDate}</td>
+                                        <td style={{ padding:'7px 10px' }}><strong>{r.qty}</strong></td>
+                                        <td style={{ padding:'7px 10px' }}>
+                                          <span style={{ background:'rgba(16,185,129,0.15)', color:'var(--status-success)', padding:'2px 8px', borderRadius:'5px', fontWeight:700 }}>
+                                            {String.fromCharCode(64 + r.shelf)}{r.slot} / Cột {r.column}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding:'7px 10px', fontSize:'11px', color: r.productObj?.is_export ? '#60a5fa' : '#a78bfa' }}>
+                                          {r.productObj?.is_export ? '🌍 XK' : '🏠 NĐ'}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Box groups */}
+                          {scanPreview.toBox.length > 0 && (
+                            <div style={{ marginBottom:'16px' }}>
+                              <h3 style={{ fontSize:'14px', color:'#f59e0b', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
+                                <Box size={15} /> Đóng thùng ({scanPreview.toBox.length} lô • {Object.keys(scanPreview.boxGroups).length} thùng)
+                              </h3>
+                              {Object.entries(scanPreview.boxGroups).map(([boxKey, items]) => (
+                                <div key={boxKey} style={{ marginBottom:'8px', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'8px', overflow:'hidden' }}>
+                                  <div style={{ background:'rgba(245,158,11,0.08)', padding:'7px 14px', fontWeight:700, fontSize:'12px', color:'#f59e0b', display:'flex', justifyContent:'space-between' }}>
+                                    <span>📦 Thùng {boxKey}</span>
+                                    <span style={{ fontWeight:400, color:'var(--text-muted)' }}>{items.length} lô • {items.reduce((s,r)=>s+(parseInt(r.qty)||0),0)} cây</span>
+                                  </div>
+                                  {items.map((r,i) => (
+                                    <div key={i} style={{ padding:'5px 14px', fontSize:'12px', borderTop:'1px solid rgba(255,255,255,0.03)', display:'flex', justifyContent:'space-between' }}>
+                                      <span>{r.productObj?.product_name}</span>
+                                      <span style={{ color:'var(--text-muted)' }}>Mẻ {r.blendBatch}|{r.boxSeq} • {r.qty} cây • {r.packagingDate}</span>
+                                    </div>
+                                  ))}
                                 </div>
                               ))}
                             </div>
-                          ))}
+                          )}
+
+                          {scanPreview.toBox.length > 0 && (
+                            <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.07)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'8px', marginBottom:'16px', display:'flex', gap:'8px', fontSize:'12px', color:'var(--text-secondary)' }}>
+                              <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink:0, marginTop:'1px' }} />
+                              Kệ kho không đủ chỗ — {scanPreview.toBox.length} lô cũ hơn sẽ được đóng thùng theo tháng SX bao. Vẫn truy xuất được qua tab <strong style={{marginLeft:'4px'}}>Tìm Kiếm Mẫu</strong>.
+                            </div>
+                          )}
+
+                          {/* Sức chứa kho kệ (Capacity Preview) */}
+                          {(() => {
+                            const occupiedKeys = new Set();
+                            samples.forEach(s => {
+                              if (s.status === 'stored' && s.shelf && s.slot && s.slot <= 4 && s.column_number) {
+                                occupiedKeys.add(`${s.shelf}-${s.slot}-${s.column_number}`);
+                              }
+                            });
+                            const currentOccupied = occupiedKeys.size;
+                            const totalColumns = 144; // 6 shelves * 4 slots * 6 columns/slot
+
+                            const newOccupiedKeys = new Set();
+                            scanPreview.toShelf.forEach(r => {
+                              const key = `${r.shelf}-${r.slot}-${r.column}`;
+                              if (!occupiedKeys.has(key)) {
+                                newOccupiedKeys.add(key);
+                              }
+                            });
+                            const willAdd = newOccupiedKeys.size;
+                            const remaining = Math.max(0, totalColumns - currentOccupied - willAdd);
+
+                            const currentPercent = Math.round((currentOccupied / totalColumns) * 100);
+                            const willAddPercent = Math.round((willAdd / totalColumns) * 100);
+                            const totalPercent = currentPercent + willAddPercent;
+
+                            return (
+                              <div style={{
+                                padding: '16px',
+                                background: 'rgba(255,255,255,0.02)',
+                                border: '1px solid var(--glass-border)',
+                                borderRadius: '10px',
+                                marginBottom: '20px'
+                              }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
+                                  <span style={{ fontWeight: '600', color: 'var(--text-secondary)' }}>📊 Sức Chứa Kho Kệ (Cột chứa mẫu):</span>
+                                  <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>
+                                    {currentPercent}% {willAdd > 0 ? `→ +${willAddPercent}% (Tổng: ${totalPercent}%)` : ''}
+                                  </span>
+                                </div>
+                                
+                                <div style={{
+                                  height: '12px',
+                                  background: 'rgba(255,255,255,0.1)',
+                                  borderRadius: '6px',
+                                  overflow: 'hidden',
+                                  display: 'flex',
+                                  marginBottom: '12px'
+                                }}>
+                                  <div style={{ width: `${currentPercent}%`, background: 'var(--accent-blue)', height: '100%' }} title={`Hiện đang dùng: ${currentOccupied} cột (${currentPercent}%)`} />
+                                  <div style={{ width: `${willAddPercent}%`, background: 'var(--status-warning)', height: '100%' }} title={`Sẽ chiếm thêm: ${willAdd} cột (${willAddPercent}%)`} />
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', flexWrap: 'wrap', gap: '8px' }}>
+                                  <span>• Hiện đang dùng: <strong>{currentOccupied}</strong> / {totalColumns} cột</span>
+                                  {willAdd > 0 && <span>• Sẽ chiếm thêm: <strong style={{ color: 'var(--status-warning)' }}>{willAdd}</strong> cột mới</span>}
+                                  <span>• Còn trống: <strong>{remaining}</strong> cột</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Confirm */}
+                          <div style={{ display:'flex', gap:'10px', justifyContent:'flex-end' }}>
+                            <button className="btn btn-secondary" onClick={() => setScanPreview(null)}>
+                              ← Hủy
+                            </button>
+                            <button className="btn btn-primary"
+                              style={{ background:'linear-gradient(135deg,#059669,#10b981)', borderColor:'#10b981', padding:'11px 28px', fontSize:'14px', minWidth:'180px' }}
+                              onClick={handleConfirmAssignment} disabled={scanSaving}>
+                              {scanSaving ? <><Loader size={15} className="spin" /> Đang áp dụng...</> : <><Check size={16} /> Xác nhận áp dụng</>}
+                            </button>
+                          </div>
                         </div>
                       )}
-
-                      {scanPreview.toBox.length > 0 && (
-                        <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.07)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'8px', marginBottom:'16px', display:'flex', gap:'8px', fontSize:'12px', color:'var(--text-secondary)' }}>
-                          <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink:0, marginTop:'1px' }} />
-                          Kệ kho không đủ chỗ — {scanPreview.toBox.length} lô cũ hơn sẽ được đóng thùng theo tháng SX bao. Vẫn truy xuất được qua tab <strong style={{marginLeft:'4px'}}>Tìm Kiếm Mẫu</strong>.
-                        </div>
-                      )}
-
-                      {/* Confirm */}
-                      <div style={{ display:'flex', gap:'10px', justifyContent:'flex-end' }}>
-                        <button className="btn btn-secondary" onClick={() => setScanPreview(null)}>
-                          ← Hủy
-                        </button>
-                        <button className="btn btn-primary"
-                          style={{ background:'linear-gradient(135deg,#059669,#10b981)', borderColor:'#10b981', padding:'11px 28px', fontSize:'14px', minWidth:'180px' }}
-                          onClick={handleConfirmAssignment} disabled={scanSaving}>
-                          {scanSaving ? <><Loader size={15} className="spin" /> Đang áp dụng...</> : <><Check size={16} /> Xác nhận áp dụng</>}
-                        </button>
-                      </div>
-                    </div>
+                    </>
                   )}
                 </div>
               </div>
