@@ -3244,10 +3244,12 @@ export default function App() {
         ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
         : formatLocation(s.shelf, s.slot, s.column_number);
       const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
+      const trayBadge = s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '';
 
       for (let i = 0; i < numLabels; i++) {
         allStickers.push(`
           <div class="sticker">
+            ${trayBadge}
             <div class="info-section">
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
               <div class="info-row">
@@ -3292,6 +3294,7 @@ export default function App() {
         `);
       }
     });
+
 
     // 2. Chunk into pages of 21
     const pagesHtml = [];
@@ -3347,11 +3350,22 @@ export default function App() {
             display: flex;
             border: 1px dashed #ddd; /* Preview grid borders */
             overflow: hidden;
+            position: relative;
           }
           @media print {
             .sticker {
               border: none;
             }
+          }
+          .tray-badge {
+            position: absolute;
+            top: 3px;
+            right: 5px;
+            font-size: 6.5px;
+            font-weight: bold;
+            color: #999;
+            white-space: nowrap;
+            line-height: 1;
           }
           .info-section {
             flex: 1;
@@ -3410,18 +3424,12 @@ export default function App() {
       return;
     }
 
-    // Group ready samples by tray_number
-    const trayGroups = {};
-    readySamples.forEach(s => {
-      const tray = s.tray_number || 0;
-      if (!trayGroups[tray]) {
-        trayGroups[tray] = [];
-      }
-      trayGroups[tray].push(s);
+    // Sort all selected samples by tray number ascending, then by created_at
+    const sortedSamples = [...readySamples].sort((a, b) => {
+      const trayDiff = (a.tray_number || 0) - (b.tray_number || 0);
+      if (trayDiff !== 0) return trayDiff;
+      return new Date(a.created_at) - new Date(b.created_at);
     });
-
-    // Sort tray numbers ascending
-    const sortedTrays = Object.keys(trayGroups).map(Number).sort((a, b) => a - b);
 
     // Open a single print window
     const printWindow = window.open('', '_blank', 'width=800,height=600');
@@ -3430,91 +3438,81 @@ export default function App() {
       return;
     }
 
-    const pagesHtml = [];
+    // Expand ALL selected samples into one continuous sticker list (no per-tray page breaks)
+    const allStickers = [];
+    sortedSamples.forEach(s => {
+      const numLabels = Math.max(1, Math.floor(s.available_qty / 10));
+      const locText = s.box_id
+        ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
+        : formatLocation(s.shelf, s.slot, s.column_number);
+      const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
+      const trayBadge = s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '';
 
-    // Loop through each tray to output separate printing pages
-    sortedTrays.forEach(trayNum => {
-      const samplesInTray = trayGroups[trayNum];
-      
-      // Sort samples within this tray by created_at ascending (the order of input)
-      const sortedSamplesInTray = [...samplesInTray].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-
-      // Expand to individual stickers
-      const trayStickers = [];
-      sortedSamplesInTray.forEach(s => {
-        const numLabels = Math.max(1, Math.floor(s.available_qty / 10));
-        const locText = s.box_id
-          ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
-          : formatLocation(s.shelf, s.slot, s.column_number);
-        const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
-
-        for (let i = 0; i < numLabels; i++) {
-          trayStickers.push(`
-            <div class="sticker">
-              <div class="info-section">
-                <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
-                <div class="info-row">
-                  <span class="info-label">Sản phẩm:</span>
-                  <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Cảnh báo:</span>
-                  <span class="info-val">${s.products?.warning_code || 'Không cảnh báo'}</span>
-                </div>
-                ${s.order_number ? `
-                <div class="info-row">
-                  <span class="info-label">Số đơn hàng:</span>
-                  <span class="info-val">${s.order_number}</span>
-                </div>` : ''}
-                <div class="info-row">
-                  <span class="info-label">Mẻ sợi:</span>
-                  <span class="info-val">${formatBlendBatch(s.blend_batch)}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Thùng lấy mẫu:</span>
-                  <span class="info-val">${boxSeqStr}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Ngày SX sợi:</span>
-                  <span class="info-val">${new Date(s.blend_date).toLocaleDateString()}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Ngày SX bao:</span>
-                  <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-label">Thời điểm lấy mẫu:</span>
-                  <span class="info-val">${new Date(s.sampling_time).toLocaleString()}</span>
-                </div>
-                <div class="info-row" style="margin-top: 2px; border-top: 1px dashed #bbb; padding-top: 2px;">
-                  <span class="info-label">Vị trí lưu:</span>
-                  <span class="info-val" style="font-weight: bold; color: #000;">${locText.toUpperCase()}</span>
-                </div>
+      for (let i = 0; i < numLabels; i++) {
+        allStickers.push(`
+          <div class="sticker">
+            ${trayBadge}
+            <div class="info-section">
+              <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
+              <div class="info-row">
+                <span class="info-label">Sản phẩm:</span>
+                <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Cảnh báo:</span>
+                <span class="info-val">${s.products?.warning_code || 'Không cảnh báo'}</span>
+              </div>
+              ${s.order_number ? `
+              <div class="info-row">
+                <span class="info-label">Số đơn hàng:</span>
+                <span class="info-val">${s.order_number}</span>
+              </div>` : ''}
+              <div class="info-row">
+                <span class="info-label">Mẻ sợi:</span>
+                <span class="info-val">${formatBlendBatch(s.blend_batch)}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Thùng lấy mẫu:</span>
+                <span class="info-val">${boxSeqStr}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Ngày SX sợi:</span>
+                <span class="info-val">${new Date(s.blend_date).toLocaleDateString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Ngày SX bao:</span>
+                <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Thời điểm lấy mẫu:</span>
+                <span class="info-val">${new Date(s.sampling_time).toLocaleString()}</span>
+              </div>
+              <div class="info-row" style="margin-top: 2px; border-top: 1px dashed #bbb; padding-top: 2px;">
+                <span class="info-label">Vị trí lưu:</span>
+                <span class="info-val" style="font-weight: bold; color: #000;">${locText.toUpperCase()}</span>
               </div>
             </div>
-          `);
-        }
-      });
-
-      // Pad with blank stickers to fill the last A4 Tommy 135 page (21 stickers) for this tray
-      const PAGE_SIZE = 21;
-      const numPagesForTray = Math.ceil(trayStickers.length / PAGE_SIZE);
-      const totalStickersToPrint = numPagesForTray * PAGE_SIZE;
-      
-      while (trayStickers.length < totalStickersToPrint) {
-        trayStickers.push('<div class="sticker blank" style="border:none; visibility:hidden;"></div>');
-      }
-
-      // Generate HTML pages for this tray
-      for (let i = 0; i < trayStickers.length; i += PAGE_SIZE) {
-        const pageStickers = trayStickers.slice(i, i + PAGE_SIZE);
-        pagesHtml.push(`
-          <div class="page">
-            ${pageStickers.join('')}
           </div>
         `);
       }
     });
+
+    // Chunk all stickers into pages of 21 continuously
+    const PAGE_SIZE = 21;
+    const pagesHtml = [];
+    for (let i = 0; i < allStickers.length; i += PAGE_SIZE) {
+      const pageStickers = allStickers.slice(i, i + PAGE_SIZE);
+      // Pad last page with invisible stickers to preserve grid layout
+      while (pageStickers.length < PAGE_SIZE) {
+        pageStickers.push('<div class="sticker blank" style="border:none; visibility:hidden;"></div>');
+      }
+      pagesHtml.push(`
+        <div class="page">
+          ${pageStickers.join('')}
+        </div>
+      `);
+    }
+
 
     // Write all pages to document
     printWindow.document.write(`
@@ -3553,11 +3551,22 @@ export default function App() {
             display: flex;
             border: 1px dashed #ddd;
             overflow: hidden;
+            position: relative;
           }
           @media print {
             .sticker {
               border: none;
             }
+          }
+          .tray-badge {
+            position: absolute;
+            top: 3px;
+            right: 5px;
+            font-size: 6.5px;
+            font-weight: bold;
+            color: #999;
+            white-space: nowrap;
+            line-height: 1;
           }
           .info-section {
             flex: 1;
