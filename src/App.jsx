@@ -90,9 +90,9 @@ const generateDeviceId = async () => {
 
 // Format capacity mapping
 const FORMAT_CAPACITIES = {
-  'Kingsize': { columns: 6, height: 7, total: 42 },
+  'Kingsize': { columns: 6, height: 6, total: 36 },
   'SuperSlim': { columns: 6, height: 10, total: 60 },
-  'Semi': { columns: 6, height: 7, total: 42 },
+  'Semi': { columns: 6, height: 6, total: 36 },
   'Demi': { columns: 8, height: 7, total: 56 },
   'Slim': { columns: 6, height: 10, total: 60 }
 };
@@ -212,8 +212,15 @@ export default function App() {
   const [authMode, setAuthMode] = useState('login'); // 'login', 'signup', or 'guest'
   const [loading, setLoading] = useState(false);
 
-  // Undo States
-  const [lastAssignedIds, setLastAssignedIds] = useState(null);
+  // Undo States — persisted to localStorage so undo works after page refresh
+  const [lastAssignedIds, setLastAssignedIdsState] = useState(() => {
+    try { const saved = localStorage.getItem('last_assigned_ids'); return saved ? JSON.parse(saved) : null; } catch { return null; }
+  });
+  const setLastAssignedIds = (ids) => {
+    setLastAssignedIdsState(ids);
+    if (ids) localStorage.setItem('last_assigned_ids', JSON.stringify(ids));
+    else localStorage.removeItem('last_assigned_ids');
+  };
   const [isUndoing, setIsUndoing] = useState(false);
 
   // Database States
@@ -673,7 +680,7 @@ export default function App() {
     }
   };
 
-  const selectBulkProduct = (idx, prod) => {
+    const selectBulkProduct = (idx, prod) => {
     setBulkRows(prev => prev.map((r, i) => i === idx ? {
       ...r,
       productId: prod.id,
@@ -726,11 +733,19 @@ export default function App() {
         if (assigned) break;
         for (let slot = 1; slot <= 4; slot++) {
           if (assigned) break;
+          // Skip if slot is explicitly full
+          const config = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
+          if (config?.is_full) continue;
+
           const slotCols = vState[shelf][slot];
           const newCartons = Math.ceil(qtyPacks / 10);
 
           // 1) Try stacking on existing column with SAME product
           for (const [colStr, colData] of Object.entries(slotCols)) {
+            // Skip column if full
+            const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === parseInt(colStr));
+            if (colConfig?.is_full) continue;
+
             if (colData.productId === prod.id) {
               const cur = Math.ceil(colData.packsCount / 10);
               if (cur + newCartons <= lim.height) {
@@ -747,8 +762,9 @@ export default function App() {
           const occupiedCols = Object.keys(slotCols).map(Number);
           const nextCol = occupiedCols.length > 0 ? Math.max(...occupiedCols) + 1 : 1;
           if (nextCol <= lim.columns && newCartons <= lim.height) {
-            // Ensure nextCol is not occupied by different product
-            if (!slotCols[nextCol]) {
+            // Ensure nextCol is not occupied by different product and not full
+            const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
+            if (!slotCols[nextCol] && !colConfig?.is_full) {
               slotCols[nextCol] = { productId: prod.id, packsCount: qtyPacks };
               toShelf.push({ ...row, shelf, slot, column: nextCol, qtyPacks });
               assigned = true;
