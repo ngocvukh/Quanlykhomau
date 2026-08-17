@@ -4536,10 +4536,25 @@ export default function App() {
                                 {col.samples.map((s, i) => {
                                   const prod = s.products || products.find(p => p.id === s.product_id);
                                   const blendParts = (s.blend_batch || '|').split('|');
+                                  const isMinority = s.product_id !== [...col.productIds][0]; // loại chiếm ít hơn
                                   return (
-                                    <div key={s.id} style={{ fontSize: '12px', display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                                      <span style={{ color: col.productIds.size > 1 ? '#fbbf24' : 'var(--text-primary)', fontWeight: 500 }}>{prod?.product_name || '?'}</span>
-                                      <span style={{ color: 'var(--text-muted)' }}>Mẻ {blendParts[0]} • {Math.round(s.available_qty/10)} cây • SX {s.packaging_date?.split('-').reverse().join('/')}</span>
+                                    <div key={s.id} style={{ fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '4px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                                        {col.productIds.size > 1 && (
+                                          <span style={{ fontSize: '10px', background: isMinority ? 'rgba(239,68,68,0.25)' : 'rgba(34,197,94,0.15)', color: isMinority ? '#fca5a5' : '#86efac', padding: '1px 5px', borderRadius: '3px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                            {isMinority ? '❌ Lẫn' : '✓ Gốc'}
+                                          </span>
+                                        )}
+                                        <span style={{ color: '#fbbf24', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prod?.product_name || '?'}</span>
+                                        <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Mẻ {blendParts[0]} • {Math.round(s.available_qty/10)} cây • SX {s.packaging_date?.split('-').reverse().join('/')}</span>
+                                      </div>
+                                      <button
+                                        className="btn btn-secondary"
+                                        style={{ padding: '3px 10px', fontSize: '11px', color: 'var(--accent-blue)', whiteSpace: 'nowrap', flexShrink: 0 }}
+                                        onClick={() => setMovingSample(s)}
+                                      >
+                                        <ArrowRightLeft size={11} style={{ marginRight: '4px' }} />Di chuyển
+                                      </button>
                                     </div>
                                   );
                                 })}
