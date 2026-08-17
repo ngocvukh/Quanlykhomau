@@ -733,9 +733,7 @@ export default function App() {
       return be - ae;
     });
 
-    const toShelf = [], toBox = [], toEvict = [];
-    // Tập ID các mẫu đang stored bị evict (đóng thùng nhường chỗ cho mẫu mới hơn)
-    const evictedSampleIds = new Set();
+    const toShelf = [], toBox = [];
 
     for (const row of sorted) {
       const prod = row.productObj;
@@ -791,92 +789,10 @@ export default function App() {
         }
       }
 
-      // 3) Kệ đầy → Evict (đóng thùng) TOÀN BỘ CỘT CŨ NHẤT để nhường chỗ cho mẫu MỚI
-      //    Phải evict cả cột (không phải 1 mẫu lẻ) để tránh xếp lẫn nhiều loại vào cùng cột.
+      // Kệ đầy → đóng thùng mẫu mới (thủ kho sẽ tự quyết định đóng thùng mẫu cũ theo quy trình 3.6)
       if (!assigned) {
-        // Lấy tất cả mẫu stored trên kệ trong shelfRange, chưa bị evict
-        const candidateSamples = samples.filter(s => {
-          if (s.status !== 'stored') return false;
-          if (!s.shelf || !s.slot || !s.column_number) return false;
-          if (s.slot > 4) return false;
-          if (!shelfRange.includes(s.shelf)) return false;
-          if (evictedSampleIds.has(s.id)) return false;
-          // Bỏ qua slot/column bị đánh dấu full
-          const slotCfg = slotConfigs.find(c => c.shelf === s.shelf && c.slot === s.slot && (c.column_number === 0 || !c.column_number));
-          if (slotCfg?.is_full) return false;
-          const colCfg = slotConfigs.find(c => c.shelf === s.shelf && c.slot === s.slot && c.column_number === s.column_number);
-          if (colCfg?.is_full) return false;
-          return true;
-        });
-
-        if (candidateSamples.length > 0) {
-          // Nhóm theo cột (shelf-slot-column)
-          const colMap = {};
-          for (const s of candidateSamples) {
-            const key = `${s.shelf}-${s.slot}-${s.column_number}`;
-            if (!colMap[key]) colMap[key] = { shelf: s.shelf, slot: s.slot, column: s.column_number, samples: [] };
-            colMap[key].samples.push(s);
-          }
-
-          // Với mỗi cột, tính ngày SX bao MỚI NHẤT trong cột đó
-          // Cột nào có ngày MỚI NHẤT CŨ NHẤT = cột cũ nhất tổng thể → evict cột đó
-          let oldestColKey = null;
-          let oldestColMaxDate = null;
-          for (const [key, col] of Object.entries(colMap)) {
-            const maxDate = col.samples.reduce((max, s) => {
-              const d = s.packaging_date ? new Date(s.packaging_date) : new Date(0);
-              return d > max ? d : max;
-            }, new Date(0));
-            if (oldestColMaxDate === null || maxDate < oldestColMaxDate) {
-              oldestColMaxDate = maxDate;
-              oldestColKey = key;
-            }
-          }
-
-          if (oldestColKey) {
-            const victimCol = colMap[oldestColKey];
-
-            // Evict TOÀN BỘ samples trong cột đó
-            for (const s of victimCol.samples) {
-              evictedSampleIds.add(s.id);
-              const evictedEntry = {
-                _sampleId: s.id,
-                productObj: s.products || products.find(p => p.id === s.product_id),
-                qty: Math.round(s.available_qty / 10),
-                qtyPacks: s.available_qty,
-                packagingDate: s.packaging_date ? s.packaging_date.split('-').reverse().join('/') : '',
-                blendBatch: (s.blend_batch || '|').split('|')[0] || '',
-                boxSeq: (s.blend_batch || '|').split('|')[1] || '',
-                shelf: s.shelf,
-                slot: s.slot,
-                column: s.column_number,
-                _evicted: true,
-              };
-              toEvict.push(evictedEntry);
-              toBox.push(evictedEntry);
-            }
-
-            // Giải phóng cột trong vState
-            if (vState[victimCol.shelf]?.[victimCol.slot]) {
-              delete vState[victimCol.shelf][victimCol.slot][victimCol.column];
-            }
-
-            // Bố trí mẫu mới vào đúng cột vừa giải phóng
-            const newCartons = Math.ceil(qtyPacks / 10);
-            if (newCartons <= lim.height) {
-              vState[victimCol.shelf][victimCol.slot][victimCol.column] = { productId: prod.id, packsCount: qtyPacks };
-              toShelf.push({ ...row, shelf: victimCol.shelf, slot: victimCol.slot, column: victimCol.column, qtyPacks });
-              assigned = true;
-            }
-          }
-        }
-
-        // Nếu vẫn không assign được, đóng thùng mẫu mới
-        if (!assigned) {
-          toBox.push({ ...row, qtyPacks: parseInt(row.qty || 0) * 10 });
-        }
+        toBox.push({ ...row, qtyPacks: parseInt(row.qty || 0) * 10 });
       }
-
     }
 
     // Group toBox by packaging month (MM/YYYY)
@@ -888,7 +804,7 @@ export default function App() {
       boxGroups[key].push(item);
     }
 
-    return { toShelf, toBox, toEvict, boxGroups };
+    return { toShelf, toBox, boxGroups };
   };
 
   const handleBulkCalculate = () => {
@@ -4496,9 +4412,9 @@ export default function App() {
 
                 {/* ── CHẨN ĐOÁN: Cột bị lẫn nhiều loại sản phẩm ── */}
                 {(() => {
-                  // Nhóm samples theo cột
+                  // Nhóm samples theo cột (BỎ QUA Ô 5 VÌ ĐÓ LÀ Ô LẺ CHỨA NHIỀU LOẠI)
                   const colMap = {};
-                  samples.filter(s => s.status === 'stored' && s.shelf && s.slot && s.column_number)
+                  samples.filter(s => s.status === 'stored' && s.shelf && s.slot && s.slot !== 5 && s.column_number)
                     .forEach(s => {
                       const key = `${s.shelf}-${s.slot}-${s.column_number}`;
                       if (!colMap[key]) colMap[key] = { shelf: s.shelf, slot: s.slot, column: s.column_number, productIds: new Set(), samples: [] };
