@@ -466,8 +466,24 @@ export default function App() {
   const [bulkStep, setBulkStep] = useState(1); // unused now, kept for compat
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkNextId, setBulkNextId] = useState(2);
-  // Scan & Propose state
-  const [scanPreview, setScanPreview] = useState(null); // { toShelf, toBox, boxGroups }
+  // Scan & Propose state — persisted to localStorage so proposal survives page refresh
+  const [scanPreview, setScanPreviewState] = useState(() => {
+    try {
+      const saved = localStorage.getItem('scan_preview_draft');
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      // Đánh dấu để UI biết đây là đề xuất được khôi phục (chưa xác nhận lần trước)
+      return { ...parsed, _restoredFromStorage: true };
+    } catch { return null; }
+  });
+  const setScanPreview = (val) => {
+    setScanPreviewState(val);
+    if (val) {
+      try { localStorage.setItem('scan_preview_draft', JSON.stringify(val)); } catch { /* quota */ }
+    } else {
+      localStorage.removeItem('scan_preview_draft');
+    }
+  };
   const [scanSaving, setScanSaving] = useState(false);
   const [theme, setTheme] = useState('dark');
   const [toasts, setToasts] = useState([]);
@@ -5685,6 +5701,16 @@ export default function App() {
                       {/* Scan preview results */}
                       {scanPreview && (
                         <div>
+                          {/* Banner: đề xuất được khôi phục từ lần trước */}
+                          {scanPreview._restoredFromStorage && (
+                            <div style={{ display:'flex', alignItems:'center', gap:'8px', padding:'10px 14px', background:'rgba(96,165,250,0.1)', border:'1px solid rgba(96,165,250,0.35)', borderRadius:'8px', marginBottom:'14px', fontSize:'12px', color:'#93c5fd' }}>
+                              <span style={{ fontSize:'16px' }}>🔄</span>
+                              <span>
+                                <strong>Đề xuất bố trí được khôi phục từ lần trước</strong> — Bạn đã tắt web trước khi xác nhận.
+                                Đề xuất này vẫn còn hiệu lực. Kiểm tra lại rồi bấm <strong>Xác nhận bố trí</strong> hoặc <strong>Hủy đề xuất</strong> để quét lại.
+                              </span>
+                            </div>
+                          )}
                           {/* Summary */}
                           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))', gap:'12px', marginBottom:'20px' }}>
                             {[
