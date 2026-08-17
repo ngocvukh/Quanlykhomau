@@ -680,7 +680,7 @@ export default function App() {
     }
   };
 
-    const selectBulkProduct = (idx, prod) => {
+  const selectBulkProduct = (idx, prod) => {
     setBulkRows(prev => prev.map((r, i) => i === idx ? {
       ...r,
       productId: prod.id,
@@ -718,6 +718,8 @@ export default function App() {
     });
 
     const toShelf = [], toBox = [];
+    // Tập ID các mẫu đang stored bị evict (đóng thùng nhường chỗ cho mẫu mới hơn)
+    const evictedSampleIds = new Set();
 
     for (const row of sorted) {
       const prod = row.productObj;
@@ -772,7 +774,70 @@ export default function App() {
           }
         }
       }
-      if (!assigned) toBox.push({ ...row, qtyPacks: parseInt(row.qty || 0) * 10 });
+
+      // 3) Kệ đầy → Evict (đóng thùng) mẫu CŨ NHẤT đang trên kệ để nhường chỗ cho mẫu MỚI này
+      if (!assigned) {
+        // Lấy tất cả mẫu stored trên kệ trong shelfRange, chưa bị evict
+        const candidates = samples.filter(s => {
+          if (s.status !== 'stored') return false;
+          if (!s.shelf || !s.slot || !s.column_number) return false;
+          if (s.slot > 4) return false;
+          if (!shelfRange.includes(s.shelf)) return false;
+          if (evictedSampleIds.has(s.id)) return false;
+          // Bỏ qua slot/column bị đánh dấu full
+          const slotCfg = slotConfigs.find(c => c.shelf === s.shelf && c.slot === s.slot && (c.column_number === 0 || !c.column_number));
+          if (slotCfg?.is_full) return false;
+          const colCfg = slotConfigs.find(c => c.shelf === s.shelf && c.slot === s.slot && c.column_number === s.column_number);
+          if (colCfg?.is_full) return false;
+          return true;
+        });
+
+        if (candidates.length > 0) {
+          // Sắp xếp tăng dần theo packaging_date → cũ nhất ở đầu
+          candidates.sort((a, b) => {
+            const da = a.packaging_date ? new Date(a.packaging_date) : new Date(0);
+            const db2 = b.packaging_date ? new Date(b.packaging_date) : new Date(0);
+            return da - db2;
+          });
+
+          const victim = candidates[0]; // mẫu cũ nhất bị đẩy xuống
+
+          // Đánh dấu evict để không dùng lại
+          evictedSampleIds.add(victim.id);
+
+          // Thêm mẫu cũ vào toBox với flag _evicted để phân biệt
+          toBox.push({
+            _sampleId: victim.id,
+            productObj: victim.products || products.find(p => p.id === victim.product_id),
+            qty: Math.round(victim.available_qty / 10),
+            qtyPacks: victim.available_qty,
+            packagingDate: victim.packaging_date ? victim.packaging_date.split('-').reverse().join('/') : '',
+            _evicted: true,  // mẫu CŨ bị đưa xuống kệ để nhường chỗ cho mẫu mới
+          });
+
+          // Giải phóng vị trí trong vState
+          if (vState[victim.shelf]?.[victim.slot]) {
+            delete vState[victim.shelf][victim.slot][victim.column_number];
+          }
+
+          // Bố trí mẫu mới vào đúng vị trí vừa giải phóng
+          const evictShelf = victim.shelf;
+          const evictSlot = victim.slot;
+          const evictCol = victim.column_number;
+          const newCartons = Math.ceil(qtyPacks / 10);
+
+          if (newCartons <= lim.height) {
+            vState[evictShelf][evictSlot][evictCol] = { productId: prod.id, packsCount: qtyPacks };
+            toShelf.push({ ...row, shelf: evictShelf, slot: evictSlot, column: evictCol, qtyPacks });
+            assigned = true;
+          }
+        }
+
+        // Nếu vẫn không bố trí được (không còn ứng viên evict), đóng thùng mẫu mới
+        if (!assigned) {
+          toBox.push({ ...row, qtyPacks: parseInt(row.qty || 0) * 10 });
+        }
+      }
     }
 
     // Group toBox by packaging month (MM/YYYY)
