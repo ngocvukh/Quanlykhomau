@@ -717,7 +717,7 @@ export default function App() {
       return be - ae;
     });
 
-    const toShelf = [], toBox = [];
+    const toShelf = [], toBox = [], toEvict = [];
     // Tập ID các mẫu đang stored bị evict (đóng thùng nhường chỗ cho mẫu mới hơn)
     const evictedSampleIds = new Set();
 
@@ -805,15 +805,22 @@ export default function App() {
           // Đánh dấu evict để không dùng lại
           evictedSampleIds.add(victim.id);
 
-          // Thêm mẫu cũ vào toBox với flag _evicted để phân biệt
-          toBox.push({
+          // Thêm mẫu cũ vào toEvict (danh sách cần lấy xuống khỏi kệ) và toBox
+          const evictedEntry = {
             _sampleId: victim.id,
             productObj: victim.products || products.find(p => p.id === victim.product_id),
             qty: Math.round(victim.available_qty / 10),
             qtyPacks: victim.available_qty,
             packagingDate: victim.packaging_date ? victim.packaging_date.split('-').reverse().join('/') : '',
-            _evicted: true,  // mẫu CŨ bị đưa xuống kệ để nhường chỗ cho mẫu mới
-          });
+            blendBatch: (victim.blend_batch || '|').split('|')[0] || '',
+            boxSeq: (victim.blend_batch || '|').split('|')[1] || '',
+            shelf: victim.shelf,
+            slot: victim.slot,
+            column: victim.column_number,
+            _evicted: true,
+          };
+          toEvict.push(evictedEntry);
+          toBox.push(evictedEntry);
 
           // Giải phóng vị trí trong vState
           if (vState[victim.shelf]?.[victim.slot]) {
@@ -849,7 +856,7 @@ export default function App() {
       boxGroups[key].push(item);
     }
 
-    return { toShelf, toBox, boxGroups };
+    return { toShelf, toBox, toEvict, boxGroups };
   };
 
   const handleBulkCalculate = () => {
@@ -5681,9 +5688,10 @@ export default function App() {
                           {/* Summary */}
                           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))', gap:'12px', marginBottom:'20px' }}>
                             {[
-                              { label:'Tổng mẫu quét', value: scanPreview.toShelf.length + scanPreview.toBox.length, color:'#a78bfa', icon:'📊' },
+                              { label:'Tổng mẫu quét', value: scanPreview.toShelf.length + (scanPreview.toBox.length - (scanPreview.toEvict?.length||0)), color:'#a78bfa', icon:'📊' },
                               { label:'Xếp lên kệ', value: scanPreview.toShelf.length, color:'var(--status-success)', icon:'🗄️' },
-                              { label:'Đóng thùng', value: scanPreview.toBox.length, color:'#f59e0b', icon:'📦' },
+                              { label:'Lấy xuống đóng thùng', value: scanPreview.toEvict?.length || 0, color:'#f97316', icon:'⬇️' },
+                              { label:'Đóng thùng (mới)', value: scanPreview.toBox.length - (scanPreview.toEvict?.length||0), color:'#f59e0b', icon:'📦' },
                               { label:'Số thùng', value: Object.keys(scanPreview.boxGroups).length, color:'#60a5fa', icon:'🗃️' },
                             ].map(c => (
                               <div key={c.label} style={{ padding:'14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--glass-border)', borderRadius:'10px', textAlign:'center' }}>
@@ -5732,6 +5740,44 @@ export default function App() {
                             </div>
                           )}
 
+                          {/* Evict list — mẫu cũ cần lấy xuống khỏi kệ */}
+                          {scanPreview.toEvict?.length > 0 && (
+                            <div style={{ marginBottom:'16px' }}>
+                              <h3 style={{ fontSize:'14px', color:'#f97316', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
+                                ⬇️ Lấy xuống khỏi kệ để đóng thùng ({scanPreview.toEvict.length} lô)
+                              </h3>
+                              <div style={{ padding:'8px 12px', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.35)', borderRadius:'8px', marginBottom:'10px', fontSize:'12px', color:'#fdba74' }}>
+                                ⚠️ Các mẫu dưới đây đang ở trên kệ nhưng sẽ bị lấy xuống vì có mẫu MỚI HƠN cần vào. Hãy đến kệ, lấy chúng ra và đóng thùng theo hướng dẫn bên dưới.
+                              </div>
+                              <div style={{ borderRadius:'8px', border:'1px solid rgba(249,115,22,0.3)', overflow:'hidden' }}>
+                                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
+                                  <thead>
+                                    <tr style={{ background:'rgba(249,115,22,0.1)', position:'sticky', top:0 }}>
+                                      {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Cây','Vị trí HIỆN TẠI trên kệ'].map(h => (
+                                        <th key={h} style={{ padding:'7px 10px', textAlign:'left', color:'#fdba74', fontWeight:600, borderBottom:'1px solid rgba(249,115,22,0.2)', whiteSpace:'nowrap' }}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {scanPreview.toEvict.map((r, i) => (
+                                      <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)', background: i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                        <td style={{ padding:'7px 10px', fontWeight:500 }}>{r.productObj?.product_name}</td>
+                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>Mẻ {r.blendBatch}{r.boxSeq ? ` | ${r.boxSeq}` : ''}</td>
+                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.packagingDate}</td>
+                                        <td style={{ padding:'7px 10px' }}><strong>{r.qty}</strong></td>
+                                        <td style={{ padding:'7px 10px' }}>
+                                          <span style={{ background:'rgba(249,115,22,0.2)', color:'#f97316', padding:'2px 10px', borderRadius:'5px', fontWeight:700 }}>
+                                            {r.shelf ? String.fromCharCode(64 + r.shelf) : '?'}{r.slot} / Cột {r.column}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Box groups */}
                           {scanPreview.toBox.length > 0 && (
                             <div style={{ marginBottom:'16px' }}>
@@ -5758,7 +5804,11 @@ export default function App() {
                           {scanPreview.toBox.length > 0 && (
                             <div style={{ padding:'10px 14px', background:'rgba(245,158,11,0.07)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'8px', marginBottom:'16px', display:'flex', gap:'8px', fontSize:'12px', color:'var(--text-secondary)' }}>
                               <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink:0, marginTop:'1px' }} />
-                              Kệ kho không đủ chỗ — {scanPreview.toBox.length} lô cũ hơn sẽ được đóng thùng theo tháng SX bao. Vẫn truy xuất được qua tab <strong style={{marginLeft:'4px'}}>Tìm Kiếm Mẫu</strong>.
+                              <span>
+                                Tổng {scanPreview.toBox.length} lô sẽ được đóng thùng
+                                {(scanPreview.toEvict?.length||0) > 0 && ` (bao gồm ${scanPreview.toEvict.length} lô lấy xuống từ kệ)`}.
+                                {' '}Vẫn truy xuất được qua tab <strong style={{marginLeft:'4px'}}>Tìm Kiếm Mẫu</strong>.
+                              </span>
                             </div>
                           )}
 
