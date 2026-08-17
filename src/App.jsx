@@ -4494,6 +4494,67 @@ export default function App() {
                   Nhấp vào một ô để xem chi tiết cách sắp xếp cây thuốc theo cột và chiều cao xếp chồng đứng (cột * cao). Ô 5 là ô dành riêng chứa bao lẻ bóc cây.
                 </p>
 
+                {/* ── CHẨN ĐOÁN: Cột bị lẫn nhiều loại sản phẩm ── */}
+                {(() => {
+                  // Nhóm samples theo cột
+                  const colMap = {};
+                  samples.filter(s => s.status === 'stored' && s.shelf && s.slot && s.column_number)
+                    .forEach(s => {
+                      const key = `${s.shelf}-${s.slot}-${s.column_number}`;
+                      if (!colMap[key]) colMap[key] = { shelf: s.shelf, slot: s.slot, column: s.column_number, productIds: new Set(), samples: [] };
+                      colMap[key].productIds.add(s.product_id);
+                      colMap[key].samples.push(s);
+                    });
+                  const mixedCols = Object.values(colMap).filter(c => c.productIds.size > 1);
+                  if (mixedCols.length === 0) return null;
+                  const letters = ['','A','B','C','D','E','F'];
+                  return (
+                    <div style={{ marginBottom: '24px', border: '2px solid #ef4444', borderRadius: '12px', overflow: 'hidden' }}>
+                      <div style={{ background: 'rgba(239,68,68,0.15)', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '20px' }}>⚠️</span>
+                        <div>
+                          <strong style={{ color: '#fca5a5', fontSize: '14px' }}>Phát hiện {mixedCols.length} cột bị lẫn nhiều loại sản phẩm!</strong>
+                          <div style={{ color: '#fca5a5', fontSize: '12px', marginTop: '2px' }}>Do lỗi thuật toán trước đó. Cần sửa thủ công từng cột bên dưới.</div>
+                        </div>
+                      </div>
+                      <div style={{ padding: '12px 16px' }}>
+                        {mixedCols.map(col => {
+                          const loc = `${letters[col.shelf]}${col.slot} / Cột ${col.column}`;
+                          const productNames = [...col.productIds].map(pid => {
+                            const p = products.find(x => x.id === pid);
+                            return p?.product_name || pid;
+                          });
+                          return (
+                            <div key={`${col.shelf}-${col.slot}-${col.column}`} style={{ marginBottom: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '10px 14px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+                                <div>
+                                  <span style={{ background: 'rgba(239,68,68,0.2)', color: '#fca5a5', padding: '2px 10px', borderRadius: '5px', fontWeight: 700, fontSize: '13px' }}>{loc}</span>
+                                  <span style={{ marginLeft: '10px', color: '#fca5a5', fontSize: '12px' }}>{col.samples.length} mẫu • {col.productIds.size} loại khác nhau</span>
+                                </div>
+                              </div>
+                              <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {col.samples.map((s, i) => {
+                                  const prod = s.products || products.find(p => p.id === s.product_id);
+                                  const blendParts = (s.blend_batch || '|').split('|');
+                                  return (
+                                    <div key={s.id} style={{ fontSize: '12px', display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                                      <span style={{ color: col.productIds.size > 1 ? '#fbbf24' : 'var(--text-primary)', fontWeight: 500 }}>{prod?.product_name || '?'}</span>
+                                      <span style={{ color: 'var(--text-muted)' }}>Mẻ {blendParts[0]} • {Math.round(s.available_qty/10)} cây • SX {s.packaging_date?.split('-').reverse().join('/')}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div style={{ marginTop: '8px', fontSize: '11px', color: '#9ca3af' }}>
+                                ➜ Cần di chuyển các mẫu bị lẫn sang cột khác hoặc đóng thùng. Dùng chức năng <strong>Di chuyển mẫu</strong> hoặc tra trực tiếp trên Supabase.
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* THE 6 KỆ VERTICAL COLS STANDING SIDE-BY-SIDE */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '20px', overflowX: 'auto', paddingBottom: '10px' }}>
                   {[1, 2, 3, 4, 5, 6].map(shelf => {
