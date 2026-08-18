@@ -1063,6 +1063,86 @@ export default function App() {
   };
 
   // ── Scan pending samples & run auto-assign algorithm
+  const handlePrintEvictList = () => {
+    if (!scanPreview || !scanPreview.toEvict || scanPreview.toEvict.length === 0) return;
+    const printWindow = window.open('', '_blank');
+    const d = new Date();
+    const dateStr = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    
+    let html = `
+      <html>
+        <head>
+          <title>Danh Sách Mẫu Cần Lấy Xuống Khỏi Kệ - ${dateStr}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h2 { text-align: center; margin-bottom: 5px; }
+            p { text-align: center; color: #555; margin-bottom: 20px; font-size: 14px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }
+            th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+            th { background-color: #f5f5f5; font-weight: bold; }
+            .location { font-weight: bold; color: #d97706; }
+            @media print {
+              body { padding: 0; }
+              @page { margin: 1.5cm; }
+            }
+          </style>
+        </head>
+        <body>
+          <h2>DANH SÁCH MẪU CẦN LẤY XUỐNG KHỎI KỆ</h2>
+          <p>Ngày in: ${dateStr} • Số lượng lô: ${scanPreview.toEvict.length}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>STT</th>
+                <th>Sản phẩm</th>
+                <th>Mẻ | Thùng</th>
+                <th>Ngày SX bao</th>
+                <th>Số cây</th>
+                <th>Vị trí HIỆN TẠI trên kệ</th>
+              </tr>
+            </thead>
+            <tbody>
+    `;
+
+    scanPreview.toEvict.forEach((r, i) => {
+      const locStr = `${r.shelf ? String.fromCharCode(64 + r.shelf) : '?'}${r.slot} / Cột ${r.column}`;
+      html += `
+              <tr>
+                <td style="text-align: center;">${i + 1}</td>
+                <td><strong>${r.productObj?.product_name || ''}</strong></td>
+                <td>Mẻ ${r.blendBatch}${r.boxSeq ? ` | ${r.boxSeq}` : ''}</td>
+                <td>${r.packagingDate || ''}</td>
+                <td style="text-align: center;"><strong>${r.qty || 0}</strong></td>
+                <td class="location">${locStr}</td>
+              </tr>
+      `;
+    });
+
+    html += `
+            </tbody>
+          </table>
+          <div style="margin-top: 30px; display: flex; justify-content: space-between;">
+            <div style="text-align: center; width: 45%;">
+              <p style="margin-bottom: 50px; font-weight: bold;">Người in phiếu</p>
+              <p>(Ký & ghi rõ họ tên)</p>
+            </div>
+            <div style="text-align: center; width: 45%;">
+              <p style="margin-bottom: 50px; font-weight: bold;">Thủ kho</p>
+              <p>(Ký & ghi rõ họ tên)</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+  };
+
   const handleScanAndPropose = () => {
     const pendingSamples = samples.filter(s => s.status === 'pending');
     if (pendingSamples.length === 0) {
@@ -5887,8 +5967,13 @@ export default function App() {
                           {/* Evict list — mẫu cũ cần lấy xuống khỏi kệ (hiển thị TRƯỚC) */}
                           {scanPreview.toEvict?.length > 0 && (
                             <div style={{ marginBottom:'16px' }}>
-                              <h3 style={{ fontSize:'14px', color:'#f97316', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
-                                ⬇️ Lấy xuống khỏi kệ để đóng thùng ({scanPreview.toEvict.length} lô)
+                              <h3 style={{ fontSize:'14px', color:'#f97316', marginBottom:'10px', display:'flex', alignItems:'center', justifyContent: 'space-between' }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                                  ⬇️ Lấy xuống khỏi kệ để đóng thùng ({scanPreview.toEvict.length} lô)
+                                </div>
+                                <button className="btn" onClick={handlePrintEvictList} style={{ padding: '4px 10px', fontSize: '12px', background: 'rgba(249,115,22,0.15)', color: '#f97316', border: '1px solid rgba(249,115,22,0.3)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <Printer size={14} /> In danh sách
+                                </button>
                               </h3>
                               <div style={{ padding:'8px 12px', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.35)', borderRadius:'8px', marginBottom:'10px', fontSize:'12px', color:'#fdba74' }}>
                                 ⚠️ Các mẫu dưới đây đang ở trên kệ nhưng sẽ bị lấy xuống vì có mẫu MỚI HƠN cần vào. Hãy đến kệ, lấy chúng ra và đóng thùng theo hướng dẫn bên dưới.
