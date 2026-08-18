@@ -5736,45 +5736,7 @@ export default function App() {
                             ))}
                           </div>
 
-                          {/* Shelf list */}
-                          {scanPreview.toShelf.length > 0 && (
-                            <div style={{ marginBottom:'16px' }}>
-                              <h3 style={{ fontSize:'14px', color:'var(--status-success)', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
-                                <Check size={15} /> Xếp lên kệ ({scanPreview.toShelf.length} lô)
-                              </h3>
-                              <div style={{ maxHeight:'240px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)' }}>
-                                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
-                                  <thead>
-                                    <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0 }}>
-                                      {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Cây','Vị trí đề xuất','Loại'].map(h => (
-                                        <th key={h} style={{ padding:'7px 10px', textAlign:'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)', whiteSpace:'nowrap' }}>{h}</th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {scanPreview.toShelf.map((r,i) => (
-                                      <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
-                                        <td style={{ padding:'7px 10px', fontWeight:500 }}>{r.productObj?.product_name}</td>
-                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.blendBatch}|{r.boxSeq}</td>
-                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.packagingDate}</td>
-                                        <td style={{ padding:'7px 10px' }}><strong>{r.qty}</strong></td>
-                                        <td style={{ padding:'7px 10px' }}>
-                                          <span style={{ background:'rgba(16,185,129,0.15)', color:'var(--status-success)', padding:'2px 8px', borderRadius:'5px', fontWeight:700 }}>
-                                            {String.fromCharCode(64 + r.shelf)}{r.slot} / Cột {r.column}
-                                          </span>
-                                        </td>
-                                        <td style={{ padding:'7px 10px', fontSize:'11px', color: r.productObj?.is_export ? '#60a5fa' : '#a78bfa' }}>
-                                          {r.productObj?.is_export ? '🌍 XK' : '🏠 NĐ'}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Evict list — mẫu cũ cần lấy xuống khỏi kệ */}
+                          {/* Evict list — mẫu cũ cần lấy xuống khỏi kệ (hiển thị TRƯỚC) */}
                           {scanPreview.toEvict?.length > 0 && (
                             <div style={{ marginBottom:'16px' }}>
                               <h3 style={{ fontSize:'14px', color:'#f97316', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
@@ -5803,6 +5765,44 @@ export default function App() {
                                           <span style={{ background:'rgba(249,115,22,0.2)', color:'#f97316', padding:'2px 10px', borderRadius:'5px', fontWeight:700 }}>
                                             {r.shelf ? String.fromCharCode(64 + r.shelf) : '?'}{r.slot} / Cột {r.column}
                                           </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Shelf list — mẫu xếp lên kệ (hiển thị SAU) */}
+                          {scanPreview.toShelf.length > 0 && (
+                            <div style={{ marginBottom:'16px' }}>
+                              <h3 style={{ fontSize:'14px', color:'var(--status-success)', marginBottom:'10px', display:'flex', alignItems:'center', gap:'6px' }}>
+                                <Check size={15} /> Xếp lên kệ ({scanPreview.toShelf.length} lô)
+                              </h3>
+                              <div style={{ maxHeight:'240px', overflowY:'auto', borderRadius:'8px', border:'1px solid var(--glass-border)' }}>
+                                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
+                                  <thead>
+                                    <tr style={{ background:'rgba(255,255,255,0.04)', position:'sticky', top:0 }}>
+                                      {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Cây','Vị trí đề xuất','Loại'].map(h => (
+                                        <th key={h} style={{ padding:'7px 10px', textAlign:'left', color:'var(--text-secondary)', fontWeight:600, borderBottom:'1px solid var(--glass-border)', whiteSpace:'nowrap' }}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {scanPreview.toShelf.map((r,i) => (
+                                      <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
+                                        <td style={{ padding:'7px 10px', fontWeight:500 }}>{r.productObj?.product_name}</td>
+                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.blendBatch}|{r.boxSeq}</td>
+                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.packagingDate}</td>
+                                        <td style={{ padding:'7px 10px' }}><strong>{r.qty}</strong></td>
+                                        <td style={{ padding:'7px 10px' }}>
+                                          <span style={{ background:'rgba(16,185,129,0.15)', color:'var(--status-success)', padding:'2px 8px', borderRadius:'5px', fontWeight:700 }}>
+                                            {String.fromCharCode(64 + r.shelf)}{r.slot} / Cột {r.column}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding:'7px 10px', fontSize:'11px', color: r.productObj?.is_export ? '#60a5fa' : '#a78bfa' }}>
+                                          {r.productObj?.is_export ? '🌍 XK' : '🏠 NĐ'}
                                         </td>
                                       </tr>
                                     ))}
