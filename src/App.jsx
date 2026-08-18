@@ -3597,6 +3597,14 @@ export default function App() {
       </html>
     `);
     printWindow.document.close();
+
+    // Hỏi người dùng có muốn xóa khỏi hàng đợi sau khi đã in không (đợi 1s để cửa sổ in bật lên trước)
+    setTimeout(() => {
+      if (window.confirm(`Đã mở cửa sổ in tem cho ${groupName}. Bạn có muốn XÓA các mẫu này khỏi Hàng đợi in không? (Nên xóa để tránh in nhầm vào lần sau)`)) {
+        const printedIds = new Set(samplesInGroup.map(s => s.id));
+        setPrintQueue(prev => prev.filter(s => !printedIds.has(s.id)));
+      }
+    }, 1000);
   };
 
   // Batch print helper for multiple sticker labels
@@ -5272,10 +5280,21 @@ export default function App() {
                                   ⚠️ Khay này có mẫu chưa bố trí kệ! Vui lòng quét bố trí ở Mục 2 trước.
                                 </span>
                               ) : (
-                                <button className="btn btn-primary" style={{ background:'linear-gradient(135deg, #2563eb, #1d4ed8)', borderColor:'#1d4ed8', fontSize:'13px' }}
-                                  onClick={() => printTommyStickersForGroup(group.name, group.items)}>
-                                  In Khay này ({totalStickersInGroup} Nhãn)
-                                </button>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button className="btn btn-primary" style={{ background:'linear-gradient(135deg, #2563eb, #1d4ed8)', borderColor:'#1d4ed8', fontSize:'13px' }}
+                                    onClick={() => printTommyStickersForGroup(group.name, group.items)}>
+                                    In Khay này ({totalStickersInGroup} Nhãn)
+                                  </button>
+                                  <button className="btn btn-secondary" style={{ borderColor:'var(--status-error)', color:'var(--status-error)', fontSize:'13px' }}
+                                    onClick={() => {
+                                      if (confirm(`Bạn có chắc chắn muốn xóa ${group.name} khỏi hàng đợi in không?`)) {
+                                        const groupIds = new Set(group.items.map(s => s.id));
+                                        setPrintQueue(prev => prev.filter(item => !groupIds.has(item.id)));
+                                      }
+                                    }}>
+                                    Xóa Khay
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
