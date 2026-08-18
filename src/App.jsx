@@ -715,14 +715,29 @@ export default function App() {
     for (let s = 1; s <= 6; s++) {
       vState[s] = {};
       for (let slot = 1; slot <= 4; slot++) {
-        vState[s][slot] = {}; // { [colNum]: { productId, packsCount } }
+        vState[s][slot] = {}; // { [colNum]: { productId, packsCount, format, items: [] } }
       }
     }
+    
     samples.filter(s => s.status === 'stored' && s.shelf && s.slot <= 4 && s.column_number)
       .forEach(s => {
-        if (!vState[s.shelf][s.slot][s.column_number])
-          vState[s.shelf][s.slot][s.column_number] = { productId: s.product_id, packsCount: 0 };
+        if (!vState[s.shelf][s.slot][s.column_number]) {
+          const prod = s.products || products.find(p => p.id === s.product_id);
+          vState[s.shelf][s.slot][s.column_number] = { 
+            productId: s.product_id, 
+            packsCount: 0,
+            format: prod?.format || 'Kingsize',
+            items: []
+          };
+        }
         vState[s.shelf][s.slot][s.column_number].packsCount += s.available_qty;
+        vState[s.shelf][s.slot][s.column_number].items.push({
+          id: s.id,
+          packagingDate: s.packaging_date,
+          qtyPacks: s.available_qty,
+          blendBatch: s.blend_batch,
+          isNew: false
+        });
       });
 
     // Sort: newest packaging_date first; same date → export before domestic
@@ -733,7 +748,26 @@ export default function App() {
       return be - ae;
     });
 
-    const toShelf = [], toBox = [];
+    const toShelf = [], toEvict = [], toBox = [];
+
+    const assignToCol = (row, shelf, slot, col, qtyPacks) => {
+      const prod = row.productObj;
+      if (!vState[shelf][slot][col]) {
+        vState[shelf][slot][col] = {
+          productId: prod.id,
+          packsCount: 0,
+          format: prod.format || 'Kingsize',
+          items: []
+        };
+      }
+      vState[shelf][slot][col].packsCount += qtyPacks;
+      vState[shelf][slot][col].items.push({
+        isNew: true,
+        // Mock properties to prevent errors during evaluation of newer rows
+        packagingDate: row.packagingDate ? row.packagingDate.split('/').reverse().join('-') : null
+      });
+      toShelf.push({ ...row, shelf, slot, column: col, qtyPacks });
+    };
 
     for (const row of sorted) {
       const prod = row.productObj;
@@ -741,55 +775,169 @@ export default function App() {
       const qtyPacks = parseInt(row.qty) * 10;
       const fmt = prod.format || 'Kingsize';
       const lim = FORMAT_CAPACITIES[fmt] || FORMAT_CAPACITIES['Kingsize'];
-      // Shelf iteration order
+      const newCartons = Math.ceil(qtyPacks / 10);
+      
+      // Export: Top-down (1->6). Domestic: Bottom-up (6->1)
       const shelfRange = prod.is_export ? [1,2,3,4,5,6] : [6,5,4,3,2,1];
 
       let assigned = false;
+
+      // PASS 1: Cùng sản phẩm, chưa đầy
       for (const shelf of shelfRange) {
         if (assigned) break;
         for (let slot = 1; slot <= 4; slot++) {
           if (assigned) break;
-          // Skip if slot is explicitly full
           const config = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
           if (config?.is_full) continue;
 
           const slotCols = vState[shelf][slot];
-          const newCartons = Math.ceil(qtyPacks / 10);
-
-          // 1) Try stacking on existing column with SAME product
           for (const [colStr, colData] of Object.entries(slotCols)) {
-            // Skip column if full
             const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === parseInt(colStr));
             if (colConfig?.is_full) continue;
 
             if (colData.productId === prod.id) {
               const cur = Math.ceil(colData.packsCount / 10);
               if (cur + newCartons <= lim.height) {
-                slotCols[colStr].packsCount += qtyPacks;
-                toShelf.push({ ...row, shelf, slot, column: parseInt(colStr), qtyPacks });
+                assignToCol(row, shelf, slot, parseInt(colStr), qtyPacks);
                 assigned = true;
                 break;
               }
             }
           }
-          if (assigned) break;
+        }
+      }
 
-          // 2) Try next consecutive empty column
-          const occupiedCols = Object.keys(slotCols).map(Number);
-          const nextCol = occupiedCols.length > 0 ? Math.max(...occupiedCols) + 1 : 1;
-          if (nextCol <= lim.columns && newCartons <= lim.height) {
-            // Ensure nextCol is not occupied by different product and not full
-            const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
-            if (!slotCols[nextCol] && !colConfig?.is_full) {
-              slotCols[nextCol] = { productId: prod.id, packsCount: qtyPacks };
-              toShelf.push({ ...row, shelf, slot, column: nextCol, qtyPacks });
-              assigned = true;
+      // PASS 2: Ô chứa cùng định dạng điếu, còn cột trống
+      if (!assigned) {
+        for (const shelf of shelfRange) {
+          if (assigned) break;
+          for (let slot = 1; slot <= 4; slot++) {
+            if (assigned) break;
+            const config = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
+            if (config?.is_full) continue;
+
+            const slotCols = vState[shelf][slot];
+            const occupiedCols = Object.keys(slotCols).map(Number);
+            if (occupiedCols.length === 0) continue; // Bỏ qua ô trống hoàn toàn (dành cho Pass 3)
+
+            // Lấy định dạng của ô (từ cột đầu tiên)
+            const slotFormat = slotCols[occupiedCols[0]].format;
+            if (slotFormat === fmt) {
+              const nextCol = Math.max(...occupiedCols) + 1;
+              if (nextCol <= lim.columns && newCartons <= lim.height) {
+                const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
+                if (!colConfig?.is_full) {
+                  assignToCol(row, shelf, slot, nextCol, qtyPacks);
+                  assigned = true;
+                  break;
+                }
+              }
             }
           }
         }
       }
 
-      // Kệ đầy → đóng thùng mẫu mới (thủ kho sẽ tự quyết định đóng thùng mẫu cũ theo quy trình 3.6)
+      // PASS 3: Cột trống bất kỳ
+      if (!assigned) {
+        for (const shelf of shelfRange) {
+          if (assigned) break;
+          for (let slot = 1; slot <= 4; slot++) {
+            if (assigned) break;
+            const config = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
+            if (config?.is_full) continue;
+
+            const slotCols = vState[shelf][slot];
+            const occupiedCols = Object.keys(slotCols).map(Number);
+            const nextCol = occupiedCols.length > 0 ? Math.max(...occupiedCols) + 1 : 1;
+
+            if (nextCol <= lim.columns && newCartons <= lim.height) {
+              const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
+              if (!colConfig?.is_full) {
+                assignToCol(row, shelf, slot, nextCol, qtyPacks);
+                assigned = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // PASS 4: Hết chỗ, thử tìm hàng cũ đẩy ra (Evict)
+      if (!assigned) {
+        let oldestColInfo = null;
+        let oldestDateObj = null;
+        const rowDateObj = parseDMY(row.packagingDate);
+
+        for (let s = 1; s <= 6; s++) {
+          for (let sl = 1; sl <= 4; sl++) {
+            const slotCols = vState[s][sl];
+            for (const [colStr, colData] of Object.entries(slotCols)) {
+              // Bỏ qua cột nếu có chứa mẫu vừa xếp vào (mẫu mới)
+              if (colData.items.some(item => item.isNew)) continue;
+
+              // Lấy ngày SX bao mới nhất trong cột (vì phải đẩy nguyên cột, tuổi cột tính bằng bao mới nhất)
+              let newestInCol = null;
+              for (const item of colData.items) {
+                let itemDate = null;
+                if (item.packagingDate && item.packagingDate.includes('-')) {
+                  const p = item.packagingDate.split('-');
+                  itemDate = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+                } else if (item.packagingDate) {
+                  itemDate = parseDMY(item.packagingDate);
+                }
+                if (!itemDate || isNaN(itemDate.getTime())) continue;
+                if (!newestInCol || itemDate > newestInCol) newestInCol = itemDate;
+              }
+
+              // Nếu cột toàn mẫu CŨ HƠN mẫu mới đang cần xếp
+              if (newestInCol && rowDateObj && newestInCol < rowDateObj) {
+                if (!oldestDateObj || newestInCol < oldestDateObj) {
+                  oldestDateObj = newestInCol;
+                  oldestColInfo = { shelf: s, slot: sl, col: parseInt(colStr), data: colData };
+                }
+              }
+            }
+          }
+        }
+
+        if (oldestColInfo && newCartons <= lim.height && oldestColInfo.col <= lim.columns) {
+          // Thực hiện đẩy cột này ra
+          const { shelf, slot, col, data } = oldestColInfo;
+          for (const item of data.items) {
+            const pDate = item.packagingDate && item.packagingDate.includes('-') 
+              ? item.packagingDate.split('-').reverse().join('/') 
+              : item.packagingDate;
+            const blendParts = (item.blendBatch || '|').split('|');
+            
+            toEvict.push({
+              ...item,
+              shelf, slot, column: col,
+              productObj: products.find(p => p.id === data.productId) || { product_name: 'Unknown' },
+              qty: Math.round(item.qtyPacks / 10),
+              packagingDate: pDate,
+              blendBatch: blendParts[0] || '',
+              boxSeq: blendParts[1] || ''
+            });
+
+            toBox.push({
+              qtyPacks: item.qtyPacks,
+              packagingDate: pDate,
+              productObj: products.find(p => p.id === data.productId) || { product_name: 'Unknown' },
+              blendBatch: blendParts[0] || '',
+              boxSeq: blendParts[1] || '',
+              qty: Math.round(item.qtyPacks / 10),
+              _sampleId: item.id
+            });
+          }
+          // Giải phóng cột ảo
+          delete vState[shelf][slot][col];
+          // Gán mẫu mới vào cột vừa trống
+          assignToCol(row, shelf, slot, col, qtyPacks);
+          assigned = true;
+        }
+      }
+
+      // Nếu vẫn không xếp được (kho đầy toàn mẫu mới hơn), cho vào thùng
       if (!assigned) {
         toBox.push({ ...row, qtyPacks: parseInt(row.qty || 0) * 10 });
       }
@@ -804,7 +952,7 @@ export default function App() {
       boxGroups[key].push(item);
     }
 
-    return { toShelf, toBox, boxGroups };
+    return { toShelf, toEvict, toBox, boxGroups };
   };
 
   const handleBulkCalculate = () => {

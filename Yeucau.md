@@ -145,8 +145,11 @@ Lưu trữ thông tin các thùng chứa mẫu được đóng gói khi kệ kho
     Khi thủ kho chuẩn bị xếp mẫu vào kệ, hệ thống sẽ tự động tính toán và gợi ý vị trí lưu tối ưu nhất dựa trên các ưu tiên sau:
     *   **Ưu tiên 1 (Cùng loại - Còn chỗ)**: Tìm kiếm các cột trong kho (Kệ 1-6, Ô 1-4) *đang chứa cùng loại sản phẩm này* và *chưa xếp chồng đầy* (chiều cao cột hiện tại < chiều cao tối đa của định dạng đó). Nếu tìm thấy, hệ thống sẽ gợi ý cột này đầu tiên để gom sản phẩm cùng loại vào chung một cột.
     *   **Ưu tiên 2 (Cột trống cùng định dạng)**: Nếu không có cột nào đang chứa sản phẩm đó còn chỗ, hệ thống tìm các ô kệ *đã có chứa các sản phẩm cùng định dạng điếu* (ví dụ: cùng chứa hàng Kingsize) và chọn một cột còn đang trống trong ô đó để đặt mẫu.
-    *   **Ưu tiên 3 (Cột trống bất kỳ từ dưới lên)**: Nếu không tìm thấy các trường hợp trên, hệ thống sẽ tìm kiếm cột trống bất kỳ trong kho, ưu tiên các kệ thấp trước (từ Kệ 1 lên Kệ 6, Ô 1 lên Ô 4, Cột 1 lên Cột 6/8) để thủ kho dễ dàng thao tác vật lý.
-    *   *Trường hợp hết chỗ*: Hệ thống hiển thị thông báo kho đã đầy và hướng dẫn thủ kho thực hiện quy trình đóng thùng mẫu cũ để lấy chỗ.
+    *   **Ưu tiên 3 (Cột trống bất kỳ)**: Nếu không tìm thấy các trường hợp trên, hệ thống sẽ tìm kiếm cột trống bất kỳ trong kho để xếp. 
+    *   **Quy tắc duyệt Kệ (Shelf Iteration Direction)**: Để dễ dàng thao tác vật lý theo chủng loại, thuật toán sẽ duyệt theo thứ tự kệ như sau:
+        *   Hàng **Xuất khẩu**: Ưu tiên duyệt các kệ thấp trước (Từ Kệ 1 lên Kệ 6).
+        *   Hàng **Nội địa**: Ưu tiên duyệt các kệ cao trước (Từ Kệ 6 xuống Kệ 1).
+    *   **Trường hợp hết chỗ (Auto Eviction)**: Hệ thống tự động tìm các cột đang chứa mẫu có ngày sản xuất bao cũ nhất trong kho. Nếu mẫu cũ nhất trên kệ CŨ HƠN mẫu mới đang cần xếp, thuật toán sẽ đẩy mẫu cũ đó ra khỏi kệ (chuyển sang trạng thái đóng thùng `toEvict`) để nhường vị trí kệ cho mẫu mới. Ngược lại, nếu mẫu mới còn cũ hơn tất cả hàng trên kệ thì đi thẳng ra thùng đóng (`toBox`).
 5.  Thủ kho có thể đồng ý với vị trí gợi ý hoặc tự chọn vị trí khác bằng tay.
 6.  Hệ thống ghi nhận, tạo mã SKU duy nhất và xuất ra một **Mã QR** chứa thông tin chi tiết lô mẫu.
 7.  Thủ kho in mã QR ra dán lên cây thuốc và đưa vào vị trí đã thống nhất.
