@@ -1150,7 +1150,7 @@ export default function App() {
     }, 500);
   };
 
-  const handleScanAndPropose = () => {
+  const handleScanAndPropose = async () => {
     const pendingSamples = samples.filter(s => s.status === 'pending');
     if (pendingSamples.length === 0) {
       showToast('Không có mẫu nào đang chờ bố trí!', 'info');
@@ -1174,6 +1174,81 @@ export default function App() {
     });
     const result = autoAssignBulkSamples(rows);
     setScanPreview(result);
+    
+    // Lưu vào database
+    if (!isDemoMode) {
+      try {
+        await supabase.from('bulk_import_drafts').upsert({
+          id: 'global-scan-preview',
+          rows_data: result,
+          updated_at: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error('Lỗi lưu tiến trình bố trí', e);
+      }
+    }
+  };
+
+  const handleConfirmEvict = async () => {
+    if (!scanPreview || !scanPreview.toEvict || scanPreview.toEvict.length === 0) return;
+    if (!window.confirm('Xác nhận đã dọn sạch các lô cũ khỏi kệ và đóng vào thùng?')) return;
+    
+    setScanSaving(true);
+    try {
+      const evictGroups = {};
+      for (const item of scanPreview.toEvict) {
+         const d = parseDMY(item.packagingDate);
+         const key = d ? `${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : 'Không rõ';
+         if (!evictGroups[key]) evictGroups[key] = [];
+         evictGroups[key].push(item);
+      }
+
+      for (const [boxKey, items] of Object.entries(evictGroups)) {
+        const boxName = `Thùng ${boxKey}`;
+        let boxId;
+        if (isDemoMode) {
+          boxId = `box-scan-${Date.now()}-${boxKey.replace('/','-')}`;
+          setBoxes(prev => [...prev, { id: boxId, box_name: boxName, status: 'stored', created_at: new Date().toISOString() }]);
+        } else {
+          const { data: bx, error } = await supabase.from('boxes').insert([{ box_name: boxName }]).select().single();
+          if (error && !error.message.includes('duplicate')) throw error;
+          if (error) {
+            const { data: existing } = await supabase.from('boxes').select('id').eq('box_name', boxName).single();
+            boxId = existing?.id;
+          } else boxId = bx.id;
+        }
+        for (const r of items) {
+          if (isDemoMode) {
+            setSamples(prev => prev.map(s => s.id === r.id
+              ? { ...s, box_id: boxId, shelf: null, slot: null, column_number: null, status: 'boxed' }
+              : s
+            ));
+          } else {
+            // NOTE: r in toEvict has original sample id mapped to r.id
+            const { error } = await supabase.from('samples')
+              .update({ box_id: boxId, shelf: null, slot: null, column_number: null, status: 'boxed' })
+              .eq('id', r.id);
+            if (error) throw error;
+          }
+        }
+      }
+
+      showToast(`✅ Đã chuyển ${scanPreview.toEvict.length} mẫu sang trạng thái đóng thùng!`, 'success');
+      
+      if (!isDemoMode) {
+        await supabase.from('bulk_import_drafts').delete().eq('id', 'global-scan-preview');
+        const { data: freshSamples } = await supabase.from('samples').select('*, products(*)').order('created_at', { ascending: false });
+        if (freshSamples) setSamples(freshSamples);
+      }
+      setScanPreview(null);
+      
+      showToast('Kệ đã trống, vui lòng bấm "Quét & Đề xuất" lần nữa để xếp hàng mới lên kệ!', 'info');
+      
+    } catch(err) {
+      showToast('Lỗi: ' + err.message, 'error');
+    } finally {
+      setScanSaving(false);
+    }
   };
 
   // ── Confirm assignment: UPDATE samples in DB
@@ -1260,6 +1335,10 @@ export default function App() {
       showToast(`✅ Đã bố trí ${scanPreview.toShelf.length} mẫu lên kệ và ${scanPreview.toBox.length} mẫu vào thùng!`, 'success');
       setPendingPrintSamples(samplesForPrint);
       setScanPreview(null);
+      // Xóa tiến trình trong DB
+      if (!isDemoMode) {
+        await supabase.from('bulk_import_drafts').delete().eq('id', 'global-scan-preview');
+      }
     } catch(err) {
       showToast('Lỗi: ' + err.message, 'error');
     } finally {
@@ -1676,6 +1755,14 @@ export default function App() {
       setSamples(s || []);
       setBoxes(b || []);
       setTransactions(t || []);
+
+      // Tải lại tiến trình scanPreview
+      try {
+        const { data: sp } = await supabase.from('bulk_import_drafts').select('rows_data').eq('id', 'global-scan-preview').single();
+        if (sp && sp.rows_data) {
+          setScanPreview(sp.rows_data);
+        }
+      } catch (e) { /* ignore */ }
 
       // Load slotconfigs defensively
       try {
@@ -5978,9 +6065,14 @@ export default function App() {
                                 <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
                                   ⬇️ Lấy xuống khỏi kệ để đóng thùng ({scanPreview.toEvict.length} lô)
                                 </div>
-                                <button className="btn" onClick={handlePrintEvictList} style={{ padding: '4px 10px', fontSize: '12px', background: 'rgba(249,115,22,0.15)', color: '#f97316', border: '1px solid rgba(249,115,22,0.3)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <Printer size={14} /> In danh sách
-                                </button>
+                                <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                                  <button className="btn" onClick={handlePrintEvictList} style={{ padding: '6px 12px', fontSize: '13px', background: 'rgba(249,115,22,0.15)', color: '#f97316', border: '1px solid rgba(249,115,22,0.3)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+                                    <Printer size={16} /> In danh sách
+                                  </button>
+                                  <button className="btn" onClick={handleConfirmEvict} disabled={scanSaving} style={{ padding: '6px 12px', fontSize: '13px', background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', color: 'white', border: 'none', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, boxShadow: '0 4px 12px rgba(234,88,12,0.3)' }}>
+                                    <Check size={16} /> ✅ Đã xác nhận dọn kho
+                                  </button>
+                                </div>
                               </h3>
                               <div style={{ padding:'8px 12px', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.35)', borderRadius:'8px', marginBottom:'10px', fontSize:'12px', color:'#fdba74' }}>
                                 ⚠️ Các mẫu dưới đây đang ở trên kệ nhưng sẽ bị lấy xuống vì có mẫu MỚI HƠN cần vào. Hãy đến kệ, lấy chúng ra và đóng thùng theo hướng dẫn bên dưới.
