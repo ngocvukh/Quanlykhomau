@@ -1099,6 +1099,7 @@ export default function App() {
                 <th>Ngày SX bao</th>
                 <th>Số cây</th>
                 <th>Vị trí HIỆN TẠI trên kệ</th>
+                <th>Đóng vào thùng</th>
               </tr>
             </thead>
             <tbody>
@@ -1106,6 +1107,11 @@ export default function App() {
 
     scanPreview.toEvict.forEach((r, i) => {
       const locStr = `${r.shelf ? String.fromCharCode(64 + r.shelf) : '?'}${r.slot} / Cột ${r.column}`;
+      let boxName = 'Không rõ';
+      if (r.packagingDate) {
+        const parts = r.packagingDate.split('/');
+        if (parts.length === 3) boxName = `Thùng ${parts[1]}/${parts[2]}`;
+      }
       html += `
               <tr>
                 <td style="text-align: center;">${i + 1}</td>
@@ -1114,6 +1120,7 @@ export default function App() {
                 <td>${r.packagingDate || ''}</td>
                 <td style="text-align: center;"><strong>${r.qty || 0}</strong></td>
                 <td class="location">${locStr}</td>
+                <td style="font-weight: bold; color: #16a34a;">${boxName}</td>
               </tr>
       `;
     });
@@ -5982,25 +5989,37 @@ export default function App() {
                                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
                                   <thead>
                                     <tr style={{ background:'rgba(249,115,22,0.1)', position:'sticky', top:0 }}>
-                                      {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Cây','Vị trí HIỆN TẠI trên kệ'].map(h => (
+                                      {['Sản phẩm','Mẻ|Thùng','Ngày SX bao','Cây','Vị trí HIỆN TẠI trên kệ', 'Đóng vào thùng'].map(h => (
                                         <th key={h} style={{ padding:'7px 10px', textAlign:'left', color:'#fdba74', fontWeight:600, borderBottom:'1px solid rgba(249,115,22,0.2)', whiteSpace:'nowrap' }}>{h}</th>
                                       ))}
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {scanPreview.toEvict.map((r, i) => (
-                                      <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)', background: i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                        <td style={{ padding:'7px 10px', fontWeight:500 }}>{r.productObj?.product_name}</td>
-                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>Mẻ {r.blendBatch}{r.boxSeq ? ` | ${r.boxSeq}` : ''}</td>
-                                        <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.packagingDate}</td>
-                                        <td style={{ padding:'7px 10px' }}><strong>{r.qty}</strong></td>
-                                        <td style={{ padding:'7px 10px' }}>
-                                          <span style={{ background:'rgba(249,115,22,0.2)', color:'#f97316', padding:'2px 10px', borderRadius:'5px', fontWeight:700 }}>
-                                            {r.shelf ? String.fromCharCode(64 + r.shelf) : '?'}{r.slot} / Cột {r.column}
-                                          </span>
-                                        </td>
-                                      </tr>
-                                    ))}
+                                    {scanPreview.toEvict.map((r, i) => {
+                                      let boxName = 'Không rõ';
+                                      if (r.packagingDate) {
+                                        const parts = r.packagingDate.split('/');
+                                        if (parts.length === 3) boxName = `Thùng ${parts[1]}/${parts[2]}`;
+                                      }
+                                      return (
+                                        <tr key={i} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)', background: i%2===0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                          <td style={{ padding:'7px 10px', fontWeight:500 }}>{r.productObj?.product_name}</td>
+                                          <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>Mẻ {r.blendBatch}{r.boxSeq ? ` | ${r.boxSeq}` : ''}</td>
+                                          <td style={{ padding:'7px 10px', color:'var(--text-secondary)' }}>{r.packagingDate}</td>
+                                          <td style={{ padding:'7px 10px' }}><strong>{r.qty}</strong></td>
+                                          <td style={{ padding:'7px 10px' }}>
+                                            <span style={{ background:'rgba(249,115,22,0.2)', color:'#f97316', padding:'2px 10px', borderRadius:'5px', fontWeight:700 }}>
+                                              {r.shelf ? String.fromCharCode(64 + r.shelf) : '?'}{r.slot} / Cột {r.column}
+                                            </span>
+                                          </td>
+                                          <td style={{ padding:'7px 10px' }}>
+                                            <span style={{ background:'rgba(22,163,74,0.2)', color:'#4ade80', padding:'2px 10px', borderRadius:'5px', fontWeight:700 }}>
+                                              📦 {boxName}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
                                   </tbody>
                                 </table>
                               </div>
