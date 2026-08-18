@@ -3244,7 +3244,7 @@ export default function App() {
           note: `Di chuyển mẫu từ ${oldLoc} sang ${newLoc}`
         });
 
-        await fetchSamples();
+        await fetchDatabaseData();
         showToast("Di chuyển mẫu thành công!", "success");
         setMovingSample(null);
         setSelectedSlot(null);
