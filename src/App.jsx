@@ -2804,6 +2804,12 @@ export default function App() {
     }
 
     if (isDemoMode) {
+      let finalNote = note || 'Lấy mẫu sử dụng';
+      if (!profile) {
+        const guestName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+        finalNote = `[Khách: ${guestName}] ${finalNote}`.trim();
+      }
+
       const newTx = {
         id: `t-${Date.now()}`,
         sample_id: sample.id,
@@ -2813,7 +2819,7 @@ export default function App() {
         type: 'take_request',
         quantity: parseInt(qty),
         status: 'pending',
-        note: note || 'Lấy mẫu sử dụng',
+        note: finalNote,
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [newTx, ...prev]);
@@ -2844,13 +2850,20 @@ export default function App() {
     } else {
       try {
         setLoading(true);
+
+        let finalNote = note || '';
+        if (!profile) {
+          const guestName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+          finalNote = `[Khách: ${guestName}] ${finalNote}`.trim();
+        }
+
         const { error } = await supabase.from('transactions').insert({
           sample_id: sample.id,
           user_id: profile?.id || null, // safe fallback for guest to prevent crashes
           type: 'take_request',
           quantity: parseInt(qty),
           status: 'pending',
-          note: note
+          note: finalNote
         });
         if (error) throw error;
         showToast("Gửi yêu cầu thành công!", "success");
@@ -5187,14 +5200,25 @@ export default function App() {
                       <AlertTriangle size={18} color="orange" />
                       <span style={{ color: 'orange', fontWeight: '500' }}>Vừa bố trí {lastAssignedIds.length} mẫu. Nếu nhầm lẫn, bạn có thể hoàn tác.</span>
                     </div>
-                    <button 
-                      className="btn" 
-                      style={{ background: 'orange', color: '#fff', padding: '6px 12px', fontSize: '13px' }}
-                      onClick={handleUndoAssignment}
-                      disabled={isUndoing}
-                    >
-                      {isUndoing ? <Loader size={14} className="spin" /> : 'Hoàn tác ngay'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button 
+                        className="btn" 
+                        style={{ background: 'orange', color: '#fff', padding: '6px 12px', fontSize: '13px' }}
+                        onClick={handleUndoAssignment}
+                        disabled={isUndoing}
+                      >
+                        {isUndoing ? <Loader size={14} className="spin" /> : 'Hoàn tác ngay'}
+                      </button>
+                      <button 
+                        className="btn" 
+                        style={{ background: 'transparent', color: 'orange', border: '1px solid orange', padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => setLastAssignedIds(null)}
+                        disabled={isUndoing}
+                        title="Đóng thông báo"
+                      >
+                        <X size={14} /> Tắt
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', borderBottom:'1px solid var(--glass-border)', paddingBottom:'16px', marginBottom:'20px', flexWrap:'wrap', gap:'16px' }}>
