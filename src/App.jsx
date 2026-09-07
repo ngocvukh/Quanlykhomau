@@ -267,8 +267,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('shelves');
   const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
   const [showPackByMonthModal, setShowPackByMonthModal] = useState(false);
-  const [packMonthStr, setPackMonthStr] = useState('');
-
+  const [packMonth, setPackMonth] = useState(new Date().getMonth() + 1);
+  const [packYear, setPackYear] = useState(new Date().getFullYear());
   // Bulk Import State
   const createEmptyBulkRow = (id) => ({
     id, productId: '', productObj: null, searchQuery: '', suggestions: [],
@@ -2904,18 +2904,19 @@ export default function App() {
 
   // Pack by Month (Đóng thùng theo tháng)
   const handlePackByMonthSubmit = async () => {
-    if (!packMonthStr) {
-      showToast("Vui lòng chọn tháng/năm!", "warning");
+    if (!packMonth || !packYear || packMonth < 1 || packMonth > 12 || packYear < 2000) {
+      showToast("Vui lòng nhập tháng và năm hợp lệ!", "warning");
       return;
     }
 
-    const [year, month] = packMonthStr.split('-');
+    const month = parseInt(packMonth, 10);
+    const year = parseInt(packYear, 10);
     
     // Filter samples in shelves that match the selected month and year
     const samplesToBox = samples.filter(s => {
       if (s.status !== 'stored' || s.shelf === null) return false;
       const d = new Date(s.packaging_date);
-      return d.getFullYear() === parseInt(year) && d.getMonth() + 1 === parseInt(month);
+      return d.getFullYear() === year && d.getMonth() + 1 === month;
     });
 
     if (samplesToBox.length === 0) {
@@ -2954,7 +2955,7 @@ export default function App() {
       showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${boxName}`, "success");
       setManifestModal({ ...newBox, samples: samplesToBox });
       setShowPackByMonthModal(false);
-      setPackMonthStr('');
+      // Giữ nguyên tháng năm để tiện đóng tiếp nếu cần
     } else {
       try {
         setLoading(true);
@@ -3000,7 +3001,6 @@ export default function App() {
         showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${boxName}`, "success");
         setManifestModal({ ...savedBox, samples: samplesToBox });
         setShowPackByMonthModal(false);
-        setPackMonthStr('');
       } catch (e) {
         console.error("Error packing by month:", e);
         showToast("Có lỗi xảy ra khi đóng thùng!", "error");
@@ -4439,23 +4439,36 @@ export default function App() {
                 <p style={{ fontSize: '14px', marginBottom: '16px', color: 'var(--text-secondary)' }}>
                   Tính năng này sẽ gom toàn bộ các mẫu (đang nằm trên kệ) có cùng tháng/năm sản xuất bao mà bạn chọn và đóng chúng vào một thùng lưu trữ mới.
                 </p>
-                <div className="form-group">
-                  <label className="form-label">Chọn tháng/năm sản xuất bao:</label>
-                  <input 
-                    type="month" 
-                    className="form-input" 
-                    value={packMonthStr}
-                    onChange={e => setPackMonthStr(e.target.value)}
-                  />
+                <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label className="form-label">Tháng (1-12):</label>
+                    <input 
+                      type="number" 
+                      min="1" 
+                      max="12" 
+                      className="form-input" 
+                      value={packMonth}
+                      onChange={e => setPackMonth(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Năm:</label>
+                    <input 
+                      type="number" 
+                      min="2000" 
+                      className="form-input" 
+                      value={packYear}
+                      onChange={e => setPackYear(e.target.value)}
+                    />
+                  </div>
                 </div>
-                {packMonthStr && (
+                {packMonth && packYear && (
                   <div style={{ padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', marginTop: '16px', fontSize: '13px' }}>
                     Số lượng mẫu tìm thấy: <strong>
                       {samples.filter(s => {
                         if (s.status !== 'stored' || s.shelf === null) return false;
                         const d = new Date(s.packaging_date);
-                        const [y, m] = packMonthStr.split('-');
-                        return d.getFullYear() === parseInt(y) && d.getMonth() + 1 === parseInt(m);
+                        return d.getFullYear() === parseInt(packYear, 10) && d.getMonth() + 1 === parseInt(packMonth, 10);
                       }).length}
                     </strong> mẫu.
                   </div>
