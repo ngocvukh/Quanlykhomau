@@ -719,7 +719,7 @@ export default function App() {
       }
     }
     
-    samples.filter(s => s.status === 'stored' && s.shelf && s.slot <= 4 && s.column_number)
+    samples.filter(s => s.status === 'stored' && s.shelf && s.slot <= 4 && s.column_number && s.available_qty > 0)
       .forEach(s => {
         if (!vState[s.shelf][s.slot][s.column_number]) {
           const prod = s.products || products.find(p => p.id === s.product_id);
@@ -820,10 +820,14 @@ export default function App() {
             const occupiedCols = Object.keys(slotCols).map(Number);
             if (occupiedCols.length === 0) continue; // Bỏ qua ô trống hoàn toàn (dành cho Pass 3)
 
-            // Lấy định dạng của ô (từ cột đầu tiên)
-            const slotFormat = slotCols[occupiedCols[0]].format;
+            // Lấy định dạng của ô (từ cột đầu tiên theo thứ tự số)
+            const sortedOccupied = [...occupiedCols].sort((a, b) => a - b);
+            const slotFormat = slotCols[sortedOccupied[0]].format;
             if (slotFormat === fmt) {
-              const nextCol = Math.max(...occupiedCols) + 1;
+              // [FIX] Tìm cột trống ĐẦU TIÊN trong phạm vi, không chỉ max+1
+              // Điều này giải quyết trường hợp có gap giữa các cột
+              let nextCol = 1;
+              while (nextCol <= lim.columns && vState[shelf][slot][nextCol]) nextCol++;
               if (nextCol <= lim.columns && newCartons <= lim.height) {
                 const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
                 if (!colConfig?.is_full) {
@@ -846,9 +850,10 @@ export default function App() {
             const config = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
             if (config?.is_full) continue;
 
-            const slotCols = vState[shelf][slot];
-            const occupiedCols = Object.keys(slotCols).map(Number);
-            const nextCol = occupiedCols.length > 0 ? Math.max(...occupiedCols) + 1 : 1;
+            // [FIX] Tìm cột trống ĐẦU TIÊN trong phạm vi lim.columns, không chỉ max+1
+            // Giải quyết trường hợp có gap (ô có cột 1, 3 nhưng cột 2 trống → trước đây bỏ qua cột 2)
+            let nextCol = 1;
+            while (nextCol <= lim.columns && vState[shelf][slot][nextCol]) nextCol++;
 
             if (nextCol <= lim.columns && newCartons <= lim.height) {
               const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
@@ -870,6 +875,9 @@ export default function App() {
 
         for (let s = 1; s <= 6; s++) {
           for (let sl = 1; sl <= 4; sl++) {
+            // [FIX] Bỏ qua slot đã bị admin đánh dấu is_full
+            const slotFullConfig = slotConfigs.find(c => c.shelf === s && c.slot === sl && (c.column_number === 0 || !c.column_number));
+            if (slotFullConfig?.is_full) continue;
             const slotCols = vState[s][sl];
             for (const [colStr, colData] of Object.entries(slotCols)) {
               // Bỏ qua cột nếu có chứa mẫu vừa xếp vào (mẫu mới)
