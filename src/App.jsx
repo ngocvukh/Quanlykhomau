@@ -4,7 +4,7 @@ import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
-  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer
+  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar
 } from 'lucide-react';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
@@ -266,6 +266,8 @@ export default function App() {
   // Application UI States
   const [activeTab, setActiveTab] = useState('shelves');
   const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
+  const [showPackByMonthModal, setShowPackByMonthModal] = useState(false);
+  const [packMonthStr, setPackMonthStr] = useState('');
 
   // Bulk Import State
   const createEmptyBulkRow = (id) => ({
@@ -2896,8 +2898,115 @@ export default function App() {
       const searchLower = val.toLowerCase().trim();
       const matches = products.filter(p => p.product_name.toLowerCase().includes(searchLower)).slice(0, 8);
       setSearchSuggestions(matches);
+        setSearchSuggestions([]);
+    }
+  };
+
+  // Pack by Month (Đóng thùng theo tháng)
+  const handlePackByMonthSubmit = async () => {
+    if (!packMonthStr) {
+      showToast("Vui lòng chọn tháng/năm!", "warning");
+      return;
+    }
+
+    const [year, month] = packMonthStr.split('-');
+    
+    // Filter samples in shelves that match the selected month and year
+    const samplesToBox = samples.filter(s => {
+      if (s.status !== 'stored' || s.shelf === null) return false;
+      const d = new Date(s.packaging_date);
+      return d.getFullYear() === parseInt(year) && d.getMonth() + 1 === parseInt(month);
+    });
+
+    if (samplesToBox.length === 0) {
+      showToast(`Không có mẫu nào trên kệ được sản xuất vào tháng ${month}/${year}!`, "warning");
+      return;
+    }
+
+    if (!window.confirm(`Tìm thấy ${samplesToBox.length} mẫu của tháng ${month}/${year}. Bạn có chắc chắn muốn đóng toàn bộ vào một thùng mới?`)) return;
+
+    const boxName = `Thùng ${month}/${year}`;
+    const boxId = `b-${Date.now()}`;
+    const newBox = {
+      id: boxId,
+      box_name: boxName,
+      created_at: new Date().toISOString(),
+      status: 'stored'
+    };
+
+    if (isDemoMode) {
+      setBoxes(prev => [newBox, ...prev]);
+      
+      setSamples(prev => prev.map(s => {
+        if (samplesToBox.some(x => x.id === s.id)) {
+          return {
+            ...s,
+            shelf: null,
+            slot: null,
+            column_number: null,
+            box_id: boxId,
+            status: 'boxed'
+          };
+        }
+        return s;
+      }));
+
+      showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${boxName}`, "success");
+      setManifestModal({ ...newBox, samples: samplesToBox });
+      setShowPackByMonthModal(false);
+      setPackMonthStr('');
     } else {
-      setSearchSuggestions([]);
+      try {
+        setLoading(true);
+        // Create box
+        const { data: savedBox, error: bError } = await supabase
+          .from('boxes')
+          .insert({ box_name: boxName })
+          .select()
+          .single();
+
+        if (bError) throw bError;
+
+        // Update samples
+        const ids = samplesToBox.map(s => s.id);
+        const { error: sError } = await supabase
+          .from('samples')
+          .update({
+            shelf: null,
+            slot: null,
+            column_number: null,
+            box_id: savedBox.id,
+            status: 'boxed'
+          })
+          .in('id', ids);
+
+        if (sError) throw sError;
+
+        setBoxes(prev => [savedBox, ...prev]);
+        setSamples(prev => prev.map(s => {
+          if (ids.includes(s.id)) {
+            return {
+              ...s,
+              shelf: null,
+              slot: null,
+              column_number: null,
+              box_id: savedBox.id,
+              status: 'boxed'
+            };
+          }
+          return s;
+        }));
+
+        showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${boxName}`, "success");
+        setManifestModal({ ...savedBox, samples: samplesToBox });
+        setShowPackByMonthModal(false);
+        setPackMonthStr('');
+      } catch (e) {
+        console.error("Error packing by month:", e);
+        showToast("Có lỗi xảy ra khi đóng thùng!", "error");
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -4318,6 +4427,55 @@ export default function App() {
 
   return (
     <div className="app-container">
+        {/* Pack By Month Modal */}
+        {showPackByMonthModal && (
+          <div className="modal-overlay" onClick={() => setShowPackByMonthModal(false)}>
+            <div className="modal-content" style={{ maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Đóng thùng theo tháng sản xuất</h3>
+                <button className="btn" style={{ padding: '4px' }} onClick={() => setShowPackByMonthModal(false)}><X size={20} /></button>
+              </div>
+              <div className="modal-body">
+                <p style={{ fontSize: '14px', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                  Tính năng này sẽ gom toàn bộ các mẫu (đang nằm trên kệ) có cùng tháng/năm sản xuất bao mà bạn chọn và đóng chúng vào một thùng lưu trữ mới.
+                </p>
+                <div className="form-group">
+                  <label className="form-label">Chọn tháng/năm sản xuất bao:</label>
+                  <input 
+                    type="month" 
+                    className="form-input" 
+                    value={packMonthStr}
+                    onChange={e => setPackMonthStr(e.target.value)}
+                  />
+                </div>
+                {packMonthStr && (
+                  <div style={{ padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', marginTop: '16px', fontSize: '13px' }}>
+                    Số lượng mẫu tìm thấy: <strong>
+                      {samples.filter(s => {
+                        if (s.status !== 'stored' || s.shelf === null) return false;
+                        const d = new Date(s.packaging_date);
+                        const [y, m] = packMonthStr.split('-');
+                        return d.getFullYear() === parseInt(y) && d.getMonth() + 1 === parseInt(m);
+                      }).length}
+                    </strong> mẫu.
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setShowPackByMonthModal(false)}>Hủy</button>
+                <button 
+                  className="btn btn-primary" 
+                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                  onClick={handlePackByMonthSubmit}
+                  disabled={loading}
+                >
+                  {loading ? <Loader size={16} className="logo-icon" /> : 'Xác nhận đóng thùng'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       {/* Toast notifications */}
       <div className="toast-container">
         {toasts.map(t => (
@@ -6612,6 +6770,9 @@ export default function App() {
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button className="btn btn-secondary" onClick={handleOvercapacityBoxing}>
                       <Archive size={16} /> Đóng thùng mẫu cũ nhất
+                    </button>
+                    <button className="btn btn-primary" onClick={() => setShowPackByMonthModal(true)} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', borderColor: '#059669' }}>
+                      <Calendar size={16} /> Đóng thùng theo tháng
                     </button>
                     <button className="btn btn-danger" onClick={printDestructionManifest}>
                       <FileText size={16} /> Báo cáo hủy mẫu tuần (PDF)
