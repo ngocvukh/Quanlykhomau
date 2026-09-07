@@ -577,7 +577,35 @@ export default function App() {
     }
   };
   
-  // Offline / Demo Mode fallback (for instant preview without Supabase keys)
+  // Xóa các mẫu đã chọn (xóa vĩnh viễn khỏi DB)
+  const handleDeleteSelectedSamples = async () => {
+    if (sourceSelectedIds.length === 0) {
+      showToast('Vui lòng chọn mẫu cần xóa!', 'warning');
+      return;
+    }
+    if (!window.confirm(`Xóa vĩnh viễn ${sourceSelectedIds.length} mẫu đã chọn? Hành động này không thể hoàn tác!`)) return;
+    setLoading(true);
+    try {
+      if (isDemoMode) {
+        setSamples(prev => prev.filter(s => !sourceSelectedIds.includes(s.id)));
+      } else {
+        const { error } = await supabase
+          .from('samples')
+          .delete()
+          .in('id', sourceSelectedIds);
+        if (error) throw error;
+        setSamples(prev => prev.filter(s => !sourceSelectedIds.includes(s.id)));
+      }
+      showToast(`✅ Đã xóa ${sourceSelectedIds.length} mẫu!`, 'success');
+      setSourceSelectedIds([]);
+    } catch (e) {
+      console.error('Error deleting samples:', e);
+      showToast('Có lỗi xảy ra khi xóa mẫu!', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   // Modal / Detail States
   const [selectedSlot, setSelectedSlot] = useState(null); // { shelf, slot }
@@ -7184,8 +7212,8 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* MIDDLE COLUMN: TRANSFER BUTTON */}
-                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                {/* MIDDLE COLUMN: TRANSFER & DELETE BUTTONS */}
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
                   <button className="btn btn-primary"
                     style={{ 
                       padding: '12px 10px', 
@@ -7199,6 +7227,23 @@ export default function App() {
                     disabled={sourceSelectedIds.length === 0 || loading}>
                     <span style={{ fontSize: '16px', fontWeight: 'bold', display: 'block' }}>➡</span>
                     <span style={{ fontSize: '10px', marginTop: '4px', display: 'block', whiteSpace: 'nowrap' }}>Chuyển ({sourceSelectedIds.length})</span>
+                  </button>
+                  <button
+                    style={{
+                      padding: '10px 8px',
+                      borderRadius: '8px',
+                      background: sourceSelectedIds.length > 0 ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${sourceSelectedIds.length > 0 ? 'rgba(239,68,68,0.45)' : 'var(--glass-border)'}`,
+                      color: sourceSelectedIds.length > 0 ? '#ef4444' : 'var(--text-muted)',
+                      cursor: sourceSelectedIds.length > 0 ? 'pointer' : 'not-allowed',
+                      opacity: sourceSelectedIds.length > 0 ? 1 : 0.35,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+                      fontWeight: 600,
+                    }}
+                    onClick={handleDeleteSelectedSamples}
+                    disabled={sourceSelectedIds.length === 0 || loading}>
+                    <Trash2 size={16} />
+                    <span style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>Xóa ({sourceSelectedIds.length})</span>
                   </button>
                 </div>
 
