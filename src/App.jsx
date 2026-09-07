@@ -539,6 +539,43 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  // Xóa khây: reset tray_number của tất cả mẫu trong khây về null
+  const handleDeleteTray = async (trayNum) => {
+    const trayNumInt = parseInt(trayNum, 10);
+    if (isNaN(trayNumInt)) {
+      showToast('Vui lòng chọn khây cần xóa!', 'warning');
+      return;
+    }
+    const trayItems = samples.filter(s => s.status === 'pending' && s.tray_number === trayNumInt);
+    if (trayItems.length === 0) {
+      showToast(`Khây số ${trayNumInt} không có mẫu nào!`, 'info');
+      return;
+    }
+    if (!window.confirm(`Xóa khây số ${trayNumInt}? ${trayItems.length} mẫu sẽ bị tách ra khỏi khây này (chỉ xóa khây, không xóa mẫu).`)) return;
+    setLoading(true);
+    try {
+      const ids = trayItems.map(s => s.id);
+      if (isDemoMode) {
+        setSamples(prev => prev.map(s => ids.includes(s.id) ? { ...s, tray_number: null } : s));
+      } else {
+        const { error } = await supabase
+          .from('samples')
+          .update({ tray_number: null })
+          .in('id', ids);
+        if (error) throw error;
+        setSamples(prev => prev.map(s => ids.includes(s.id) ? { ...s, tray_number: null } : s));
+      }
+      showToast(`✅ Đã xóa Khây số ${trayNumInt} (${ids.length} mẫu được tách ra)!`, 'success');
+      setSourceTrayNum('');
+      setSourceSelectedIds([]);
+    } catch (e) {
+      console.error('Error deleting tray:', e);
+      showToast('Có lỗi xảy ra khi xóa khây!', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
   
   // Offline / Demo Mode fallback (for instant preview without Supabase keys)
 
@@ -7244,7 +7281,27 @@ export default function App() {
 
               </div>
 
-              <div className="modal-footer">
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  className="btn"
+                  disabled={!sourceTrayNum || loading}
+                  onClick={() => handleDeleteTray(sourceTrayNum)}
+                  style={{
+                    background: sourceTrayNum ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.03)',
+                    color: sourceTrayNum ? '#ef4444' : 'var(--text-muted)',
+                    border: `1px solid ${sourceTrayNum ? 'rgba(239,68,68,0.4)' : 'var(--glass-border)'}`,
+                    padding: '8px 18px',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: sourceTrayNum ? 'pointer' : 'not-allowed',
+                    opacity: sourceTrayNum ? 1 : 0.5,
+                  }}
+                >
+                  <Trash2 size={15} /> Xóa Khây Gửi
+                </button>
                 <button className="btn btn-secondary" onClick={() => setShowTrayAdjusterModal(false)}>Đóng công cụ</button>
               </div>
             </div>
