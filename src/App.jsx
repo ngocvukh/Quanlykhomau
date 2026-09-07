@@ -1189,6 +1189,32 @@ export default function App() {
     }
   };
 
+  const handleSkipEvict = () => {
+    if (!scanPreview || !scanPreview.toEvict || scanPreview.toEvict.length === 0) return;
+    if (!window.confirm('Hủy dọn kho? Các mẫu dự kiến xếp vào chỗ đó sẽ được chuyển thẳng vào thùng.')) return;
+    
+    const evictedCols = new Set(scanPreview.toEvict.map(e => `${e.shelf}-${e.slot}-${e.column}`));
+    
+    const newToShelf = [];
+    const newToBox = [...scanPreview.toBox];
+    
+    for (const item of scanPreview.toShelf) {
+      if (evictedCols.has(`${item.shelf}-${item.slot}-${item.column}`)) {
+        newToBox.push(item);
+      } else {
+        newToShelf.push(item);
+      }
+    }
+    
+    setScanPreview({
+      ...scanPreview,
+      toShelf: newToShelf,
+      toBox: newToBox,
+      toEvict: []
+    });
+    showToast("Đã hủy dọn kho. Các mẫu liên quan được chuyển thẳng vào thùng.", "info");
+  };
+
   const handleConfirmEvict = async () => {
     if (!scanPreview || !scanPreview.toEvict || scanPreview.toEvict.length === 0) return;
     if (!window.confirm('Xác nhận đã dọn sạch các lô cũ khỏi kệ và đóng vào thùng?')) return;
@@ -6111,6 +6137,9 @@ export default function App() {
                                 <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
                                   <button className="btn" onClick={handlePrintEvictList} style={{ padding: '6px 12px', fontSize: '13px', background: 'rgba(249,115,22,0.15)', color: '#f97316', border: '1px solid rgba(249,115,22,0.3)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
                                     <Printer size={16} /> In danh sách
+                                  </button>
+                                  <button className="btn" onClick={handleSkipEvict} disabled={scanSaving} style={{ padding: '6px 12px', fontSize: '13px', background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+                                    <X size={16} /> Hủy dọn kho
                                   </button>
                                   <button className="btn" onClick={handleConfirmEvict} disabled={scanSaving} style={{ padding: '6px 12px', fontSize: '13px', background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', color: 'white', border: 'none', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, boxShadow: '0 4px 12px rgba(234,88,12,0.3)' }}>
                                     <Check size={16} /> ✅ Đã xác nhận dọn kho
