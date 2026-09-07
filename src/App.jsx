@@ -269,6 +269,7 @@ export default function App() {
   const [showPackByMonthModal, setShowPackByMonthModal] = useState(false);
   const [packMonth, setPackMonth] = useState(new Date().getMonth() + 1);
   const [packYear, setPackYear] = useState(new Date().getFullYear());
+  const [samplesToPack, setSamplesToPack] = useState(null);
   // Bulk Import State
   const createEmptyBulkRow = (id) => ({
     id, productId: '', productObj: null, searchQuery: '', suggestions: [],
@@ -2902,8 +2903,8 @@ export default function App() {
     }
   };
 
-  // Pack by Month (Đóng thùng theo tháng)
-  const handlePackByMonthSubmit = async () => {
+  // Pack by Month (Đóng thùng theo tháng) - XEM DANH SÁCH
+  const handleViewPackMonthSamples = () => {
     if (!packMonth || !packYear || packMonth < 1 || packMonth > 12 || packYear < 2000) {
       showToast("Vui lòng nhập tháng và năm hợp lệ!", "warning");
       return;
@@ -2921,10 +2922,23 @@ export default function App() {
 
     if (samplesToBox.length === 0) {
       showToast(`Không có mẫu nào trên kệ được sản xuất vào tháng ${month}/${year}!`, "warning");
+      setSamplesToPack(null);
       return;
     }
 
-    if (!window.confirm(`Tìm thấy ${samplesToBox.length} mẫu của tháng ${month}/${year}. Bạn có chắc chắn muốn đóng toàn bộ vào một thùng mới?`)) return;
+    setSamplesToPack(samplesToBox);
+  };
+
+  // Pack by Month (Đóng thùng theo tháng) - XÁC NHẬN ĐÓNG
+  const handlePackByMonthSubmit = async () => {
+    if (!samplesToPack || samplesToPack.length === 0) return;
+    
+    const month = parseInt(packMonth, 10);
+    const year = parseInt(packYear, 10);
+
+    if (!window.confirm(`Bạn đã thu gom đủ ${samplesToPack.length} mẫu của tháng ${month}/${year} từ các kệ và muốn đóng chúng vào thùng mới?`)) return;
+
+    const samplesToBox = samplesToPack;
 
     const boxName = `Thùng ${month}/${year}`;
     const boxId = `b-${Date.now()}`;
@@ -3001,6 +3015,7 @@ export default function App() {
         showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${boxName}`, "success");
         setManifestModal({ ...savedBox, samples: samplesToBox });
         setShowPackByMonthModal(false);
+        setSamplesToPack(null);
       } catch (e) {
         console.error("Error packing by month:", e);
         showToast("Có lỗi xảy ra khi đóng thùng!", "error");
@@ -4440,7 +4455,7 @@ export default function App() {
               </div>
               <div className="modal-body">
                 <p style={{ fontSize: '14px', marginBottom: '16px', color: 'var(--text-secondary)' }}>
-                  Tính năng này sẽ gom toàn bộ các mẫu (đang nằm trên kệ) có cùng tháng/năm sản xuất bao mà bạn chọn và đóng chúng vào một thùng lưu trữ mới.
+                  Tra cứu các mẫu của một tháng cụ thể đang nằm trên kệ để đi thu gom và đóng thùng.
                 </p>
                 <div className="form-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
@@ -4451,7 +4466,7 @@ export default function App() {
                       max="12" 
                       className="form-input" 
                       value={packMonth}
-                      onChange={e => setPackMonth(e.target.value)}
+                      onChange={e => { setPackMonth(e.target.value); setSamplesToPack(null); }}
                     />
                   </div>
                   <div>
@@ -4461,31 +4476,49 @@ export default function App() {
                       min="2000" 
                       className="form-input" 
                       value={packYear}
-                      onChange={e => setPackYear(e.target.value)}
+                      onChange={e => { setPackYear(e.target.value); setSamplesToPack(null); }}
                     />
                   </div>
                 </div>
-                {packMonth && packYear && (
+
+                {!samplesToPack && (
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ width: '100%', marginTop: '16px' }}
+                    onClick={handleViewPackMonthSamples}
+                  >
+                    <Search size={16} /> Xem danh sách mẫu cần lấy
+                  </button>
+                )}
+
+                {samplesToPack && (
                   <div style={{ padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', marginTop: '16px', fontSize: '13px' }}>
-                    Số lượng mẫu tìm thấy: <strong>
-                      {samples.filter(s => {
-                        if (s.status !== 'stored' || s.shelf === null) return false;
-                        const d = new Date(s.packaging_date);
-                        return d.getFullYear() === parseInt(packYear, 10) && d.getMonth() + 1 === parseInt(packMonth, 10);
-                      }).length}
-                    </strong> mẫu.
+                    <div style={{ marginBottom: '12px', color: 'var(--status-success)', fontWeight: 600 }}>
+                      Đã tìm thấy {samplesToPack.length} mẫu trên kệ. Hãy đến các vị trí sau để thu gom:
+                    </div>
+                    <div style={{ maxHeight: '200px', overflowY: 'auto', borderTop: '1px solid var(--glass-border)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                      {samplesToPack.map(s => (
+                        <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: '1px solid var(--glass-border)' }}>
+                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                             <div style={{ fontWeight: 600 }}>{s.products?.product_name || s.product_name}</div>
+                             <div style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>📍 Kệ {s.shelf} - Ô {s.slot} - Cột {s.column_number}</div>
+                           </div>
+                           <div style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>{s.available_qty} bao</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
               <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowPackByMonthModal(false)}>Hủy</button>
+                <button className="btn btn-secondary" onClick={() => { setShowPackByMonthModal(false); setSamplesToPack(null); }}>Hủy</button>
                 <button 
                   className="btn btn-primary" 
                   style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
                   onClick={handlePackByMonthSubmit}
-                  disabled={loading}
+                  disabled={loading || !samplesToPack}
                 >
-                  {loading ? <Loader size={16} className="logo-icon" /> : 'Xác nhận đóng thùng'}
+                  {loading ? <Loader size={16} className="logo-icon" /> : 'Xác nhận đã lấy mẫu & Đóng thùng'}
                 </button>
               </div>
             </div>
