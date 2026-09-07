@@ -607,6 +607,15 @@ export default function App() {
   };
 
 
+  const handleQuickImport = (shelf, slot, col) => {
+    setImportShelf(String(shelf));
+    setImportSlot(String(slot));
+    setImportColumn(String(col));
+    setActiveTab('import');
+    setSelectedSlot(null); // Close the modal
+    showToast(`Đã chọn vị trí Kệ ${shelf} - Ô ${slot} - Cột ${col}`, 'info');
+  };
+
   // Modal / Detail States
   const [selectedSlot, setSelectedSlot] = useState(null); // { shelf, slot }
   const [qrCodeModal, setQrCodeModal] = useState(null); // sample object
@@ -2491,10 +2500,11 @@ export default function App() {
     const limitInfo = FORMAT_CAPACITIES[format] || FORMAT_CAPACITIES['Kingsize'];
     const maxCols = limitInfo.columns;
 
-    if (colNum !== correctNextCol) {
-      showToast(`Không đúng thứ tự xếp cột! Cột tiếp theo phải xếp vào là Cột ${correctNextCol}.`, "error");
-      return;
-    }
+    // Removed strict consecutive column check to allow manual placement
+    // if (colNum !== correctNextCol) {
+    //   showToast(`Không đúng thứ tự xếp cột! Cột tiếp theo phải xếp vào là Cột ${correctNextCol}.`, "error");
+    //   return;
+    // }
 
     if (colNum > maxCols) {
       showToast(`Ô này đã đạt giới hạn số cột tối đa cho định dạng ${format} (${maxCols} cột)! Vui lòng chọn Kệ/Ô khác.`, "error");
@@ -5262,23 +5272,31 @@ export default function App() {
                         <p style={{ fontSize: '13px', marginTop: '6px' }}>{suggestedLoc.reason}</p>
                         
                         {!suggestedLoc.error && (
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '12px' }}>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label className="form-label">Kệ</label>
-                              <input className="form-input" type="number" required min="1" max="6" value={importShelf} onChange={e => handleShelfChange(e.target.value)} />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label className="form-label">Ô (1-4)</label>
-                              <input className="form-input" type="number" required min="1" max="4" value={importSlot} onChange={e => handleSlotChange(e.target.value)} />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label className="form-label">Cột</label>
-                              <input className="form-input" type="number" disabled value={importColumn} style={{ opacity: 0.75, cursor: 'not-allowed' }} />
-                            </div>
+                          <div style={{ marginTop: '12px' }}>
+                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Bạn có thể dùng vị trí gợi ý hoặc tự chọn bên dưới.</span>
                           </div>
                         )}
                       </div>
                     )}
+
+                    {/* MANUAL LOCATION SELECTION */}
+                    <div className="glass-panel" style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', marginBottom: '20px' }}>
+                      <h4 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px' }}>Vị trí lưu kho (Kệ / Ô / Cột)</h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Kệ</label>
+                          <input className="form-input" type="number" required min="1" max="6" value={importShelf} onChange={e => handleShelfChange(e.target.value)} />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Ô (1-4)</label>
+                          <input className="form-input" type="number" required min="1" max="4" value={importSlot} onChange={e => handleSlotChange(e.target.value)} />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Cột</label>
+                          <input className="form-input" type="number" required min="1" value={importColumn} onChange={e => setImportColumn(e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
                       <button className="btn btn-primary" type="submit" disabled={loading || (suggestedLoc && suggestedLoc.error)}>
@@ -7003,6 +7021,14 @@ export default function App() {
                                   style={{ padding: '2px 6px', fontSize: '9.5px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--glass-border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-secondary)', marginTop: '2px', outline: 'none' }}
                                 >
                                   ⚙️ Cấu hình
+                                </button>
+                              )}
+                              {height === 0 && (
+                                <button
+                                  onClick={() => handleQuickImport(selectedSlot.shelf, selectedSlot.slot, col)}
+                                  style={{ padding: '2px 6px', fontSize: '9.5px', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.3)', borderRadius: '4px', cursor: 'pointer', color: 'var(--accent-blue)', marginTop: '2px', outline: 'none' }}
+                                >
+                                  + Nhập mẫu
                                 </button>
                               )}
                             </div>
