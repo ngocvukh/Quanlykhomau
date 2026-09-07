@@ -3512,7 +3512,7 @@ export default function App() {
 
   // Generate Print View for Box packing list PDF
   const printBoxManifest = (box) => {
-    const boxSamples = samples.filter(s => s.box_id === box.id);
+    const boxSamples = box.samples || samples.filter(s => s.box_id === box.id);
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <html>
@@ -3537,6 +3537,7 @@ export default function App() {
         <table>
           <thead>
             <tr>
+              <th>Vị Trí Cũ (Kệ-Ô-Cột)</th>
               <th>Mã SKU</th>
               <th>Tên Sản Phẩm</th>
               <th>Mẻ Sợi</th>
@@ -3549,8 +3550,10 @@ export default function App() {
             ${boxSamples.map(s => {
               const packDate = new Date(s.packaging_date);
               const expDate = new Date(packDate.setMonth(packDate.getMonth() + 12)).toLocaleDateString();
+              const loc = s.shelf ? `Kệ ${s.shelf} - Ô ${s.slot} - Cột ${s.column_number}` : 'Đã đóng thùng';
               return `
                 <tr>
+                  <td><strong>${loc}</strong></td>
                   <td>${s.sku}</td>
                   <td>${s.products?.product_name || s.product_name}</td>
                   <td>${formatBlendBatch(s.blend_batch)}</td>
@@ -7753,12 +7756,18 @@ export default function App() {
 
               <h4 style={{ fontSize: '14px', marginBottom: '10px', fontWeight: 'bold' }}>Danh sách mẫu trong thùng này:</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {manifestModal.samples?.map(s => (
-                  <div key={s.id} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '6px', fontSize: '13px', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{s.products?.product_name || s.product_name}</span>
-                    <strong style={{ color: 'var(--accent-blue)' }}>{s.available_qty} bao</strong>
-                  </div>
-                ))}
+                {manifestModal.samples?.map(s => {
+                  const loc = s.shelf ? `Kệ ${s.shelf} - Ô ${s.slot} - Cột ${s.column_number}` : '';
+                  return (
+                    <div key={s.id} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '6px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span>{s.products?.product_name || s.product_name}</span>
+                        {loc && <span style={{ fontSize: '11.5px', color: '#f59e0b', fontWeight: 600 }}>📍 Vị trí lấy mẫu: {loc}</span>}
+                      </div>
+                      <strong style={{ color: 'var(--accent-blue)' }}>{s.available_qty} bao</strong>
+                    </div>
+                  );
+                })}
               </div>
             </div>
             
