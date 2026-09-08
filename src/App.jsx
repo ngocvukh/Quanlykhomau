@@ -7475,8 +7475,9 @@ export default function App() {
                                         scrollMarginTop: '20px',
                                       }}
                                     >
-                                      <div>
-                                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center' }}>
+                                      {/* Info left side */}
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
                                           Mẻ sợi: {formatBlendBatch(sample.blend_batch)}
                                           {positionBadge}
                                         </div>
@@ -7486,8 +7487,57 @@ export default function App() {
                                         <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                                           Mã QR: <strong style={{ color: 'var(--accent-blue)' }}>{sample.sku}</strong> | Số lượng: <strong>{cartons} cây</strong> ({sample.available_qty} bao)
                                         </div>
+
+                                        {/* Inline Lấy mẫu form — hiện khi đã nhập số */}
+                                        {takeQuantities[sample.id] !== undefined && (
+                                          <div
+                                            style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
+                                            onClick={e => e.stopPropagation()}
+                                          >
+                                            <input
+                                              type="number"
+                                              min="1"
+                                              max={sample.available_qty}
+                                              placeholder="Số bao cần lấy..."
+                                              value={takeQuantities[sample.id]}
+                                              onChange={e => setTakeQuantities(prev => ({ ...prev, [sample.id]: e.target.value }))}
+                                              style={{ width: '130px', padding: '4px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
+                                              autoFocus
+                                            />
+                                            <button
+                                              className="btn btn-primary"
+                                              style={{ padding: '4px 10px', fontSize: '11px', background: 'linear-gradient(135deg,#10b981,#059669)' }}
+                                              disabled={!takeQuantities[sample.id] || parseInt(takeQuantities[sample.id]) <= 0 || parseInt(takeQuantities[sample.id]) > sample.available_qty || loading}
+                                              onClick={() => {
+                                                handleTakeRequest(sample, parseInt(takeQuantities[sample.id]), 'Lấy mẫu từ kệ');
+                                                setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
+                                              }}
+                                            >
+                                              Xác nhận
+                                            </button>
+                                            <button
+                                              className="btn btn-secondary"
+                                              style={{ padding: '4px 8px', fontSize: '11px' }}
+                                              onClick={() => setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; })}
+                                            >
+                                              <X size={13} />
+                                            </button>
+                                          </div>
+                                        )}
                                       </div>
-                                      <div style={{ display: 'flex', gap: '6px' }}>
+
+                                      {/* Action buttons right side */}
+                                      <div style={{ display: 'flex', gap: '6px', flexShrink: 0, marginLeft: '8px' }} onClick={e => e.stopPropagation()}>
+                                        {/* Lấy mẫu button — hiện cho tất cả */}
+                                        {sample.available_qty > 0 && takeQuantities[sample.id] === undefined && (
+                                          <button
+                                            className="btn btn-primary"
+                                            style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none' }}
+                                            onClick={() => setTakeQuantities(prev => ({ ...prev, [sample.id]: '' }))}
+                                          >
+                                            <LogOut size={13} /> Lấy mẫu
+                                          </button>
+                                        )}
                                         <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => setQrCodeModal(sample)}>
                                           <QrCode size={14} /> QR
                                         </button>
