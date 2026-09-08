@@ -240,6 +240,7 @@ export default function App() {
   const [editingCol, setEditingCol] = useState(null);
   const [editingColIsFull, setEditingColIsFull] = useState(false);
   const [editingColNote, setEditingColNote] = useState('');
+  const [highlightedSampleId, setHighlightedSampleId] = useState(null);
   const [searchResultSlots, setSearchResultSlots] = useState([]);
 
   // Tommy 128 Blank QC Template printing states
@@ -2929,6 +2930,109 @@ export default function App() {
     setSamplesToPack(samplesToBox);
   };
 
+  // Pack by Month - XUẤT PDF DANH SÁCH THU GOM
+  const handlePrintPackList = () => {
+    if (!samplesToPack || samplesToPack.length === 0) return;
+    const month = parseInt(packMonth, 10);
+    const year = parseInt(packYear, 10);
+
+    // Group by shelf → slot → column for readability
+    const grouped = {};
+    samplesToPack.forEach(s => {
+      const key = `Kệ ${s.shelf} - Ô ${s.slot} - Cột ${s.column_number}`;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(s);
+    });
+
+    const totalBao = samplesToPack.reduce((sum, s) => sum + (s.available_qty || 0), 0);
+    const now = new Date();
+    const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} ngày ${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}`;
+
+    let rowsHtml = '';
+    let stt = 1;
+    samplesToPack
+      .slice()
+      .sort((a, b) => {
+        if (a.shelf !== b.shelf) return a.shelf - b.shelf;
+        if (a.slot !== b.slot) return a.slot - b.slot;
+        return (a.column_number || 0) - (b.column_number || 0);
+      })
+      .forEach(s => {
+        const productName = s.products?.product_name || s.product_name || '';
+        const packDate = s.packaging_date
+          ? (() => { const d = new Date(s.packaging_date); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; })()
+          : '';
+        rowsHtml += `
+          <tr>
+            <td style="text-align:center">${stt++}</td>
+            <td>${productName}</td>
+            <td style="text-align:center">Kệ ${s.shelf}</td>
+            <td style="text-align:center">${s.slot}</td>
+            <td style="text-align:center">${s.column_number}</td>
+            <td style="text-align:center">${packDate}</td>
+            <td style="text-align:center;font-weight:bold">${s.available_qty}</td>
+            <td></td>
+          </tr>`;
+      });
+
+    const html = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<title>Danh sách thu gom - Tháng ${month}/${year}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 13px; color: #111; padding: 20px; }
+  h1 { text-align: center; font-size: 17px; margin-bottom: 4px; }
+  .sub { text-align: center; font-size: 12px; color: #555; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  th { background: #1e3a5f; color: #fff; padding: 7px 6px; font-size: 12px; }
+  td { padding: 6px; border-bottom: 1px solid #ddd; }
+  tr:nth-child(even) td { background: #f5f8fc; }
+  .total { text-align: right; font-weight: bold; font-size: 13px; margin-top: 6px; }
+  .footer { margin-top: 30px; display: flex; justify-content: space-between; font-size: 12px; }
+  .sign { text-align: center; }
+  .sign p { margin-bottom: 50px; }
+  @media print { body { padding: 10px; } }
+</style>
+</head>
+<body>
+<h1>DANH SÁCH MẪU CẦN THU GOM & ĐÓNG THÙNG</h1>
+<p class="sub">Tháng sản xuất: <strong>${month}/${year}</strong> &nbsp;|&nbsp; In lúc: ${nowStr} &nbsp;|&nbsp; Tổng: <strong>${samplesToPack.length} mẫu</strong> / <strong>${totalBao} bao</strong></p>
+<table>
+  <thead>
+    <tr>
+      <th style="width:36px">STT</th>
+      <th>Tên sản phẩm</th>
+      <th style="width:60px">Kệ</th>
+      <th style="width:50px">Ô</th>
+      <th style="width:55px">Cột</th>
+      <th style="width:90px">Ngày SX</th>
+      <th style="width:65px">Số bao</th>
+      <th style="width:70px">Đã lấy ✓</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rowsHtml}
+  </tbody>
+</table>
+<p class="total">Tổng cộng: ${totalBao} bao</p>
+<div class="footer">
+  <div class="sign"><p>Người thu gom</p><p>.....................................</p></div>
+  <div class="sign"><p>Người kiểm tra</p><p>.....................................</p></div>
+  <div class="sign"><p>Quản lý kho</p><p>.....................................</p></div>
+</div>
+</body>
+</html>`;
+
+    const w = window.open('', '_blank', 'width=860,height=700');
+    if (!w) { showToast('Trình duyệt chặn popup. Vui lòng cho phép popup để xuất PDF!', 'warning'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 400);
+  };
+
   // Pack by Month (Đóng thùng theo tháng) - XÁC NHẬN ĐÓNG
   const handlePackByMonthSubmit = async () => {
     if (!samplesToPack || samplesToPack.length === 0) return;
@@ -3864,6 +3968,15 @@ export default function App() {
       return;
     }
 
+    // Sắp xếp theo thứ tự nhập (created_at), nếu bằng nhau thì theo tên sản phẩm A→Z
+    const sortedSamples = [...samplesInGroup].sort((a, b) => {
+      const tDiff = new Date(a.created_at) - new Date(b.created_at);
+      if (tDiff !== 0) return tDiff;
+      const nameA = (a.products?.product_name || a.product_name || '').toLowerCase();
+      const nameB = (b.products?.product_name || b.product_name || '').toLowerCase();
+      return nameA.localeCompare(nameB, 'vi');
+    });
+
     const printWindow = window.open('', '_blank', 'width=800,height=600');
     if (!printWindow) {
       showToast("Không thể mở cửa sổ in. Vui lòng tắt trình chặn Pop-up!", "error");
@@ -3872,7 +3985,7 @@ export default function App() {
 
     // 1. Expand all samples in this group to individual sticker HTMLs
     const allStickers = [];
-    samplesInGroup.forEach(s => {
+    sortedSamples.forEach(s => {
       const numLabels = Math.max(1, Math.floor(s.available_qty / 10));
       const locText = s.box_id
         ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
@@ -4058,11 +4171,15 @@ export default function App() {
       return;
     }
 
-    // Sort all selected samples by tray number ascending, then by created_at
+    // Sort: tray number asc, then within tray by created_at (input order), then product name A→Z
     const sortedSamples = [...readySamples].sort((a, b) => {
       const trayDiff = (a.tray_number || 0) - (b.tray_number || 0);
       if (trayDiff !== 0) return trayDiff;
-      return new Date(a.created_at) - new Date(b.created_at);
+      const tDiff = new Date(a.created_at) - new Date(b.created_at);
+      if (tDiff !== 0) return tDiff;
+      const nameA = (a.products?.product_name || a.product_name || '').toLowerCase();
+      const nameB = (b.products?.product_name || b.product_name || '').toLowerCase();
+      return nameA.localeCompare(nameB, 'vi');
     });
 
     // Open a single print window
@@ -4493,15 +4610,33 @@ export default function App() {
 
                 {samplesToPack && (
                   <div style={{ padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', marginTop: '16px', fontSize: '13px' }}>
-                    <div style={{ marginBottom: '12px', color: 'var(--status-success)', fontWeight: 600 }}>
-                      Đã tìm thấy {samplesToPack.length} mẫu trên kệ. Hãy đến các vị trí sau để thu gom:
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <div style={{ color: 'var(--status-success)', fontWeight: 600 }}>
+                        Đã tìm thấy {samplesToPack.length} mẫu trên kệ. Hãy đến các vị trí sau để thu gom:
+                      </div>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ fontSize: '12px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', flexShrink: 0, marginLeft: '8px' }}
+                        onClick={handlePrintPackList}
+                        title="Xuất danh sách chi tiết ra PDF để in"
+                      >
+                        <Printer size={13} /> Xuất PDF
+                      </button>
                     </div>
                     <div style={{ maxHeight: '200px', overflowY: 'auto', borderTop: '1px solid var(--glass-border)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
-                      {samplesToPack.map(s => (
+                      {samplesToPack
+                        .slice()
+                        .sort((a, b) => {
+                          if (a.shelf !== b.shelf) return a.shelf - b.shelf;
+                          if (a.slot !== b.slot) return a.slot - b.slot;
+                          return (a.column_number || 0) - (b.column_number || 0);
+                        })
+                        .map((s, idx) => (
                         <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: '1px solid var(--glass-border)' }}>
                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                             <div style={{ fontWeight: 600 }}>{s.products?.product_name || s.product_name}</div>
+                             <div style={{ fontWeight: 600 }}><span style={{ color: 'var(--text-secondary)', marginRight: '6px', fontSize: '11px' }}>#{idx+1}</span>{s.products?.product_name || s.product_name}</div>
                              <div style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>📍 Kệ {s.shelf} - Ô {s.slot} - Cột {s.column_number}</div>
+                             {s.packaging_date && <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>NSX: {(() => { const d = new Date(s.packaging_date); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; })()}</div>}
                            </div>
                            <div style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>{s.available_qty} bao</div>
                         </div>
@@ -7173,23 +7308,44 @@ export default function App() {
                                 colSamples.forEach((s, sIdx) => {
                                   const cartons = Math.ceil(s.available_qty / 10);
                                   const blockHeight = cartons * (240 / maxHeight);
+                                  const isHighlighted = highlightedSampleId === s.id;
                                   elements.push(
-                                    <div key={`batch-${s.id || sIdx}`} style={{
-                                      height: `${blockHeight}px`,
-                                      width: '100%',
-                                      background: 'var(--accent-gradient)',
-                                      borderTop: '1px solid rgba(255,255,255,0.15)',
-                                      display: 'flex',
-                                      flexDirection: 'column',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      padding: '2px',
-                                      boxSizing: 'border-box',
-                                      textAlign: 'center',
-                                      overflow: 'hidden',
-                                      boxShadow: 'inset 0 0 10px rgba(0,0,0,0.2)',
-                                      position: 'relative'
-                                    }}>
+                                    <div
+                                      key={`batch-${s.id || sIdx}`}
+                                      title={`${s.products?.product_name || s.product_name} — ${s.available_qty} bao\nClick để xem chi tiết`}
+                                      onClick={() => {
+                                        setHighlightedSampleId(isHighlighted ? null : s.id);
+                                        if (!isHighlighted) {
+                                          setTimeout(() => {
+                                            const el = document.getElementById(`sample-row-${s.id}`);
+                                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                          }, 60);
+                                        }
+                                      }}
+                                      style={{  
+                                        height: `${blockHeight}px`,
+                                        width: '100%',
+                                        background: isHighlighted
+                                          ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
+                                          : 'var(--accent-gradient)',
+                                        borderTop: '1px solid rgba(255,255,255,0.15)',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '2px',
+                                        boxSizing: 'border-box',
+                                        textAlign: 'center',
+                                        overflow: 'hidden',
+                                        boxShadow: isHighlighted
+                                          ? 'inset 0 0 0 2px rgba(255,255,255,0.7), 0 0 14px rgba(245,158,11,0.6)'
+                                          : 'inset 0 0 10px rgba(0,0,0,0.2)',
+                                        position: 'relative',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.18s, box-shadow 0.18s',
+                                        outline: isHighlighted ? '2px solid #fbbf24' : 'none',
+                                      }}
+                                    >
                                       <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#ffffff', lineHeight: '1.2', textShadow: '0 1px 2px rgba(0,0,0,0.8)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%' }}>
                                         {s.products?.product_name || s.product_name}
                                       </span>
@@ -7299,8 +7455,26 @@ export default function App() {
                                     positionBadge = <span style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontSize: '10px', padding: '1px 5px', borderRadius: '4px', marginLeft: '8px' }}>[Ở giữa]</span>;
                                   }
 
+                                  const isRowHighlighted = highlightedSampleId === sample.id;
                                   return (
-                                    <div key={sample.id || sIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', padding: '8px 12px', borderRadius: '6px', fontSize: '12.5px', border: '1px dotted rgba(255,255,255,0.04)' }}>
+                                    <div
+                                      id={`sample-row-${sample.id}`}
+                                      key={sample.id || sIdx}
+                                      onClick={() => setHighlightedSampleId(isRowHighlighted ? null : sample.id)}
+                                      style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        background: isRowHighlighted ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.01)',
+                                        padding: '8px 12px',
+                                        borderRadius: '6px',
+                                        fontSize: '12.5px',
+                                        border: isRowHighlighted ? '1px solid rgba(245,158,11,0.5)' : '1px dotted rgba(255,255,255,0.04)',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s, border 0.2s',
+                                        scrollMarginTop: '20px',
+                                      }}
+                                    >
                                       <div>
                                         <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center' }}>
                                           Mẻ sợi: {formatBlendBatch(sample.blend_batch)}
