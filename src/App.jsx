@@ -3501,6 +3501,40 @@ export default function App() {
     }
   };
 
+  // Delete all empty boxes
+  const handleDeleteEmptyBoxes = async () => {
+    const boxesWithSamples = new Set(samples.filter(s => s.box_id).map(s => s.box_id));
+    const emptyBoxes = boxes.filter(b => !boxesWithSamples.has(b.id));
+    
+    if (emptyBoxes.length === 0) {
+      showToast("Không tìm thấy thùng rỗng nào!", "info");
+      return;
+    }
+    
+    if (!window.confirm(`Bạn có chắc muốn xóa vĩnh viễn ${emptyBoxes.length} thùng rỗng (không chứa lô mẫu nào) không?`)) {
+      return;
+    }
+    
+    if (isDemoMode) {
+      setBoxes(prev => prev.filter(b => !emptyBoxes.find(eb => eb.id === b.id)));
+      showToast(`Đã xóa ${emptyBoxes.length} thùng rỗng`, "success");
+    } else {
+      try {
+        setLoading(true);
+        const emptyBoxIds = emptyBoxes.map(b => b.id);
+        const { error } = await supabase.from('boxes').delete().in('id', emptyBoxIds);
+        if (error) throw error;
+        
+        showToast(`Đã xóa thành công ${emptyBoxes.length} thùng rỗng`, "success");
+        fetchDatabaseData();
+      } catch(e) {
+        showToast("Lỗi khi xóa thùng: " + e.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   // Confirm Sample Destruction (Hủy mẫu quá hạn 12 tháng)
   const handleDestroySample = async (sampleId) => {
     if (isDemoMode) {
@@ -7052,6 +7086,9 @@ export default function App() {
                     </button>
                     <button className="btn btn-primary" onClick={() => setShowPackByMonthModal(true)} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', borderColor: '#059669' }}>
                       <Calendar size={16} /> Đóng thùng theo tháng
+                    </button>
+                    <button className="btn btn-secondary" onClick={handleDeleteEmptyBoxes} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.2)' }}>
+                      <Trash2 size={16} /> Dọn dẹp thùng rỗng
                     </button>
                     <button className="btn btn-danger" onClick={printDestructionManifest}>
                       <FileText size={16} /> Báo cáo hủy mẫu tuần (PDF)
