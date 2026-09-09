@@ -3666,8 +3666,11 @@ export default function App() {
   };
 
   // Generate Print View for Box packing list PDF
-  const printBoxManifest = (box) => {
-    const boxSamples = box.samples || samples.filter(s => s.box_id === box.id);
+  const printBoxManifest = (box, groupBoxIds) => {
+    // If groupBoxIds provided, gather samples from ALL boxes in the group
+    const boxSamples = groupBoxIds
+      ? samples.filter(s => groupBoxIds.includes(s.box_id))
+      : (box.samples || samples.filter(s => s.box_id === box.id));
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <html>
@@ -7112,24 +7115,44 @@ export default function App() {
                     </h3>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {boxes.map(b => {
-                        const boxSamples = samples.filter(s => s.box_id === b.id);
-                        return (
-                          <div key={b.id} style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <strong style={{ fontSize: '15px' }}>{b.box_name}</strong>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                Ngày đóng: {new Date(b.created_at).toLocaleDateString()} | Chứa: <strong>{boxSamples.length} lô mẫu</strong>
+                     {/* Group boxes by box_name before rendering */}
+                      {(() => {
+                        const grouped = boxes.reduce((acc, b) => {
+                          if (!acc[b.box_name]) acc[b.box_name] = [];
+                          acc[b.box_name].push(b);
+                          return acc;
+                        }, {});
+                        return Object.entries(grouped).map(([boxName, groupBoxes]) => {
+                          const groupIds = groupBoxes.map(b => b.id);
+                          const groupSamples = samples.filter(s => groupIds.includes(s.box_id));
+                          // Use earliest created_at as the displayed date
+                          const latestDate = groupBoxes.reduce((latest, b) =>
+                            new Date(b.created_at) > new Date(latest) ? b.created_at : latest,
+                            groupBoxes[0].created_at
+                          );
+                          const representativeBox = groupBoxes[0];
+                          return (
+                            <div key={boxName} style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <strong style={{ fontSize: '15px' }}>{boxName}</strong>
+                                {groupBoxes.length > 1 && (
+                                  <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--accent-blue)', background: 'rgba(37,99,235,0.12)', padding: '1px 6px', borderRadius: '4px' }}>
+                                    {groupBoxes.length} đợt đóng
+                                  </span>
+                                )}
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                  Ngày đóng gần nhất: {new Date(latestDate).toLocaleDateString()} | Chứa: <strong>{groupSamples.length} lô mẫu</strong>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => printBoxManifest(representativeBox, groupIds)}>
+                                  In danh sách (PDF)
+                                </button>
                               </div>
                             </div>
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => printBoxManifest(b)}>
-                                In danh sách (PDF)
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        });
+                      })()}
                       {boxes.length === 0 && (
                         <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '14px' }}>
                           Chưa có thùng lưu trữ nào được đóng gói.
