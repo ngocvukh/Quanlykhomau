@@ -7115,11 +7115,17 @@ export default function App() {
                     </h3>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                     {/* Group boxes by box_name before rendering */}
+                     {/* Group boxes by normalized box_name before rendering */}
                       {(() => {
+                        // Normalize: "Thùng 9/2025" → "Thùng 09/2025"
+                        const normalizeName = (name) => name.trim().replace(
+                          /(\d{1,2})\/(\d{4})/,
+                          (_, m, y) => `${m.padStart(2, '0')}/${y}`
+                        );
                         const grouped = boxes.reduce((acc, b) => {
-                          if (!acc[b.box_name]) acc[b.box_name] = [];
-                          acc[b.box_name].push(b);
+                          const key = normalizeName(b.box_name);
+                          if (!acc[key]) acc[key] = [];
+                          acc[key].push(b);
                           return acc;
                         }, {});
                         return Object.entries(grouped).map(([boxName, groupBoxes]) => {
