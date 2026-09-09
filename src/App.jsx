@@ -242,6 +242,9 @@ export default function App() {
   const [editingColNote, setEditingColNote] = useState('');
   const [highlightedSampleId, setHighlightedSampleId] = useState(null);
   const [searchResultSlots, setSearchResultSlots] = useState([]);
+  // QR Scan modal (when user opens app via QR code on label)
+  const [scanResultModal, setScanResultModal] = useState(null); // sample object | { notFound, sku }
+  const [scanQty, setScanQty] = useState('');
 
   // Tommy 128 Blank QC Template printing states
   const [print128BlankModalOpen, setPrint128BlankModalOpen] = useState(false);
@@ -3130,6 +3133,39 @@ export default function App() {
   };
 
   // Register Take Request (Staff)
+  // ── QR Sticker URL helper ──────────────────────────────────────────
+  const makeStickerQrUrl = (sku) => {
+    const base = window.location.origin + window.location.pathname.replace(/\/$/, '');
+    return `${base}?scan=${encodeURIComponent(sku)}`;
+  };
+
+  // Detect ?scan=<sku> when app loads (from QR code on printed label)
+  // This runs once on mount; guests can use it without login
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  /* scan-on-mount handled in dedicated useEffect below */
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const scanSku = params.get('scan');
+    if (!scanSku) return;
+    // Remove ?scan= from URL without reload
+    window.history.replaceState({}, '', window.location.pathname);
+    // Query Supabase for this sample
+    supabase
+      .from('samples')
+      .select('*, products(*)')
+      .eq('sku', scanSku)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error || !data) {
+          setScanResultModal({ notFound: true, sku: scanSku });
+        } else {
+          setScanResultModal(data);
+        }
+      });
+  }, []);
+
   const handleTakeRequest = async (sample, qty, note) => {
     if (!qty || qty <= 0) {
       showToast("Số lượng lấy phải lớn hơn 0!", "error");
@@ -4037,6 +4073,10 @@ export default function App() {
                 <span class="info-val" style="font-weight: bold; color: #000;">${locText.toUpperCase()}</span>
               </div>
             </div>
+            <div class="qr-section">
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=84x84&margin=2&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" width="84" height="84" alt="${s.sku}" style="display:block;" />
+              <div class="qr-sku">${s.sku}</div>
+            </div>
           </div>
         `);
       }
@@ -4148,6 +4188,24 @@ export default function App() {
             overflow: hidden;
             text-overflow: ellipsis;
           }
+          .qr-section {
+            width: 22mm;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding-left: 2px;
+          }
+          .qr-sku {
+            font-size: 5px;
+            color: #555;
+            text-align: center;
+            margin-top: 2px;
+            word-break: break-all;
+            line-height: 1.1;
+            max-width: 22mm;
+          }
         </style>
       </head>
       <body>
@@ -4242,6 +4300,10 @@ export default function App() {
                 <span class="info-label">Vị trí lưu:</span>
                 <span class="info-val" style="font-weight: bold; color: #000;">${locText.toUpperCase()}</span>
               </div>
+            </div>
+            <div class="qr-section">
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=84x84&margin=2&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" width="84" height="84" alt="${s.sku}" style="display:block;" />
+              <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
         `);
@@ -4352,6 +4414,24 @@ export default function App() {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+          }
+          .qr-section {
+            width: 22mm;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding-left: 2px;
+          }
+          .qr-sku {
+            font-size: 5px;
+            color: #555;
+            text-align: center;
+            margin-top: 2px;
+            word-break: break-all;
+            line-height: 1.1;
+            max-width: 22mm;
           }
         </style>
       </head>
@@ -8412,6 +8492,99 @@ export default function App() {
               <button className="btn btn-primary" style={{ flex: 2 }} onClick={saveVisitorName}>
                 <Check size={16} /> Xác nhận
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── QR SCAN RESULT MODAL (auto-opens when app loaded via ?scan=) ── */}
+      {scanResultModal && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => { setScanResultModal(null); setScanQty(''); }}>
+          <div className="modal-content" style={{ maxWidth: '380px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize: '17px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📦 Thông tin mẫu
+              </h3>
+              <button className="close-btn" onClick={() => { setScanResultModal(null); setScanQty(''); }}><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              {scanResultModal.notFound ? (
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔍</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--status-error)', marginBottom: '6px' }}>Không tìm thấy mẫu</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Mã: <strong>{scanResultModal.sku}</strong></div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px', marginBottom: '16px' }}>
+                    <div style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                        {scanResultModal.products?.product_name || scanResultModal.product_name}
+                        {scanResultModal.products?.warning_code && (
+                          <span style={{ marginLeft: '8px', fontSize: '11px', background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px', fontWeight: 'normal', color: 'var(--text-secondary)' }}>
+                            {scanResultModal.products.warning_code}
+                          </span>
+                        )}
+                      </div>
+                      <div><span style={{ color: 'var(--text-secondary)' }}>Mẻ sợi:</span> <strong>{formatBlendBatch(scanResultModal.blend_batch)}</strong></div>
+                      <div><span style={{ color: 'var(--text-secondary)' }}>Ngày SX bao:</span> <strong>{new Date(scanResultModal.packaging_date).toLocaleDateString()}</strong></div>
+                      {scanResultModal.shelf && (
+                        <div style={{ marginTop: '4px', padding: '6px 10px', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.25)', borderRadius: '6px', fontWeight: 'bold', color: 'var(--accent-blue)', fontSize: '14px' }}>
+                          📍 {formatLocation(scanResultModal.shelf, scanResultModal.slot, scanResultModal.column_number)}
+                        </div>
+                      )}
+                      <div style={{ marginTop: '4px' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Còn lại:</span>{' '}
+                        {scanResultModal.available_qty > 0
+                          ? <strong style={{ color: 'var(--status-success)' }}>{scanResultModal.available_qty} bao</strong>
+                          : <strong style={{ color: 'var(--status-error)' }}>Đã hết</strong>
+                        }
+                      </div>
+                    </div>
+                  </div>
+
+                  {scanResultModal.available_qty > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Số bao cần lấy:</label>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          max={scanResultModal.available_qty}
+                          placeholder={`Tối đa ${scanResultModal.available_qty} bao`}
+                          value={scanQty}
+                          onChange={e => setScanQty(e.target.value)}
+                          className="form-input"
+                          style={{ flex: 1 }}
+                          autoFocus
+                        />
+                        <button
+                          className="btn btn-primary"
+                          style={{ background: 'linear-gradient(135deg,#10b981,#059669)', whiteSpace: 'nowrap', padding: '0 16px' }}
+                          disabled={!scanQty || parseInt(scanQty) <= 0 || parseInt(scanQty) > scanResultModal.available_qty || loading}
+                          onClick={() => {
+                            handleTakeRequest(scanResultModal, parseInt(scanQty), 'Lấy mẫu qua QR tem');
+                            setScanResultModal(null);
+                            setScanQty('');
+                          }}
+                        >
+                          <LogOut size={15} /> Lấy mẫu
+                        </button>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Yêu cầu sẽ được gửi đến thủ kho để xác nhận.
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', color: 'var(--status-error)', fontWeight: 'bold', fontSize: '14px', padding: '8px 0' }}>
+                      ⚠️ Mẫu này đã hết, không thể lấy.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => { setScanResultModal(null); setScanQty(''); }}>Đóng</button>
             </div>
           </div>
         </div>
