@@ -1858,6 +1858,35 @@ export default function App() {
     }
   }, [user, authMode, isDemoMode]);
 
+  // FIX SCRIPT
+  useEffect(() => {
+    const fixDB = async () => {
+      if (isDemoMode) return;
+      try {
+        const sourceBoxId = 'ec8925e8-f997-4abb-aa1a-cea929e35850'; // Thùng 9/2026
+        const targetBoxId = '924be28f-bcd9-48d1-9d33-1b77ee47d1ce'; // Thùng 10/2025
+        
+        const { data: samplesIn92026 } = await supabase
+          .from('samples')
+          .select('id')
+          .eq('box_id', sourceBoxId);
+          
+        if (samplesIn92026 && samplesIn92026.length > 0) {
+          await supabase
+            .from('samples')
+            .update({ box_id: targetBoxId })
+            .eq('box_id', sourceBoxId);
+            
+          await supabase.from('boxes').delete().eq('id', sourceBoxId);
+          fetchDatabaseData(); // Reload data
+        }
+      } catch (e) {
+        console.error('Error auto fixing db:', e);
+      }
+    };
+    fixDB();
+  }, [user]);
+
   const fetchDatabaseData = async () => {
     try {
       setLoading(true);
