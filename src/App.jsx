@@ -3422,10 +3422,18 @@ export default function App() {
     // 2. Sort by packaging_date (oldest first)
     const sorted = [...storedSamples].sort((a, b) => new Date(a.packaging_date) - new Date(b.packaging_date));
     
-    // Choose the oldest 3 samples to box up (to make room)
-    const samplesToBox = sorted.slice(0, Math.min(3, sorted.length));
+    // Find the oldest month/year
+    const oldestDate = new Date(sorted[0].packaging_date);
+    const oldestMonth = oldestDate.getMonth() + 1;
+    const oldestYear = oldestDate.getFullYear();
+    const boxName = `Thùng ${String(oldestMonth).padStart(2, '0')}/${oldestYear}`;
+
+    // Select up to 10 samples from this oldest month to box (to make room)
+    const samplesToBox = sorted.filter(s => {
+      const d = new Date(s.packaging_date);
+      return d.getMonth() + 1 === oldestMonth && d.getFullYear() === oldestYear;
+    }).slice(0, 10);
     
-    const boxName = `Thùng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`;
     const boxId = `b-${Date.now()}`;
     const newBox = {
       id: boxId,
