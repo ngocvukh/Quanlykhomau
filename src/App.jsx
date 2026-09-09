@@ -4074,7 +4074,7 @@ export default function App() {
               </div>
             </div>
             <div class="qr-section">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=84x84&margin=2&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" width="84" height="84" alt="${s.sku}" style="display:block;" />
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=58x58&margin=1&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" width="58" height="58" alt="${s.sku}" style="display:block;" />
               <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
@@ -4189,7 +4189,7 @@ export default function App() {
             text-overflow: ellipsis;
           }
           .qr-section {
-            width: 22mm;
+            width: 16mm;
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
@@ -4204,7 +4204,7 @@ export default function App() {
             margin-top: 2px;
             word-break: break-all;
             line-height: 1.1;
-            max-width: 22mm;
+            max-width: 16mm;
           }
         </style>
       </head>
@@ -4302,7 +4302,7 @@ export default function App() {
               </div>
             </div>
             <div class="qr-section">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=84x84&margin=2&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" width="84" height="84" alt="${s.sku}" style="display:block;" />
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=58x58&margin=1&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" width="58" height="58" alt="${s.sku}" style="display:block;" />
               <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
@@ -4416,7 +4416,7 @@ export default function App() {
             text-overflow: ellipsis;
           }
           .qr-section {
-            width: 22mm;
+            width: 16mm;
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
@@ -4431,7 +4431,7 @@ export default function App() {
             margin-top: 2px;
             word-break: break-all;
             line-height: 1.1;
-            max-width: 22mm;
+            max-width: 16mm;
           }
         </style>
       </head>
