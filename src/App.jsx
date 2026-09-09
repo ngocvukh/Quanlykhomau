@@ -4156,6 +4156,7 @@ export default function App() {
           }
           .info-section {
             flex: 1;
+            min-width: 0;
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
@@ -4384,6 +4385,7 @@ export default function App() {
           }
           .info-section {
             flex: 1;
+            min-width: 0;
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
