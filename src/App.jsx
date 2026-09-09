@@ -4037,7 +4037,7 @@ export default function App() {
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
               <div class="info-row">
                 <span class="info-label">Sản phẩm:</span>
-                <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name}</span>
+                <span class="info-val" style="font-weight: bold; font-size: 9px; white-space: normal; word-break: break-word; line-height: 1.2;">${s.products?.product_name || s.product_name}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Cảnh báo:</span>
@@ -4267,7 +4267,7 @@ export default function App() {
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
               <div class="info-row">
                 <span class="info-label">Sản phẩm:</span>
-                <span class="info-val" style="font-weight: bold; font-size: 9.5px;">${s.products?.product_name || s.product_name}</span>
+                <span class="info-val" style="font-weight: bold; font-size: 9px; white-space: normal; word-break: break-word; line-height: 1.2;">${s.products?.product_name || s.product_name}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Cảnh báo:</span>
