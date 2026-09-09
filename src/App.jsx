@@ -4074,7 +4074,7 @@ export default function App() {
               </div>
             </div>
             <div class="qr-section">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=58x58&margin=1&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" width="58" height="58" alt="${s.sku}" style="display:block;" />
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=2&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" alt="${s.sku}" style="width:100%;height:auto;display:block;" />
               <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
@@ -4189,13 +4189,14 @@ export default function App() {
             text-overflow: ellipsis;
           }
           .qr-section {
-            width: 16mm;
+            width: 15mm;
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             padding-left: 2px;
+            overflow: hidden;
           }
           .qr-sku {
             font-size: 5px;
@@ -4302,7 +4303,7 @@ export default function App() {
               </div>
             </div>
             <div class="qr-section">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=58x58&margin=1&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" width="58" height="58" alt="${s.sku}" style="display:block;" />
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=2&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" alt="${s.sku}" style="width:100%;height:auto;display:block;" />
               <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
@@ -4416,13 +4417,14 @@ export default function App() {
             text-overflow: ellipsis;
           }
           .qr-section {
-            width: 16mm;
+            width: 15mm;
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             padding-left: 2px;
+            overflow: hidden;
           }
           .qr-sku {
             font-size: 5px;
