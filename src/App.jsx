@@ -4856,16 +4856,24 @@ export default function App() {
                     title="Thông báo"
                   >
                     <Bell size={20} />
-                    {unreadCount > 0 && (
-                      <span style={{
-                        position: 'absolute', top: '-2px', right: '-2px',
-                        background: 'var(--status-error)', color: '#fff',
-                        fontSize: '9px', fontWeight: 'bold',
-                        padding: '1px 4px', borderRadius: '10px',
-                        minWidth: '16px', textAlign: 'center',
-                        lineHeight: '12px'
-                      }}>{unreadCount}</span>
-                    )}
+                    {(() => {
+                      let sysCount = 0;
+                      if (profile?.role === 'admin') {
+                        if (transactions.some(t => t.type === 'take_request' && t.status === 'pending')) sysCount++;
+                        if (getExpiredSamples().length > 0) sysCount++;
+                      }
+                      const totalBadge = unreadCount + sysCount;
+                      return totalBadge > 0 ? (
+                        <span style={{
+                          position: 'absolute', top: '-2px', right: '-2px',
+                          background: 'var(--status-error)', color: '#fff',
+                          fontSize: '9px', fontWeight: 'bold',
+                          padding: '1px 4px', borderRadius: '10px',
+                          minWidth: '16px', textAlign: 'center',
+                          lineHeight: '12px'
+                        }}>{totalBadge > 9 ? '9+' : totalBadge}</span>
+                      ) : null;
+                    })()}
                   </button>
 
                   {/* Notification Dropdown */}
@@ -4877,37 +4885,72 @@ export default function App() {
                       borderRadius: '12px', boxShadow: '0 8px 32px var(--glass-shadow)',
                       backdropFilter: 'blur(16px)', zIndex: 1000
                     }}>
-                      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700, fontSize: '14px' }}>🔔 Thông báo</span>
-                        {notifications.length > 0 && (
-                          <button style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
-                            onClick={() => setNotifications([])}>
-                            Xóa tất cả
-                          </button>
-                        )}
-                      </div>
-                      {notifications.length === 0 ? (
-                        <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                          <Bell size={28} style={{ opacity: 0.3, marginBottom: '8px', display: 'block', margin: '0 auto 8px' }} />
-                          Không có thông báo mới
-                        </div>
-                      ) : (
-                        notifications.map((n, i) => (
-                          <div key={n.id + i} style={{
-                            padding: '12px 16px',
-                            borderBottom: '1px solid rgba(255,255,255,0.04)',
-                            display: 'flex', gap: '10px', alignItems: 'flex-start',
-                            textAlign: 'left'
-                          }}>
-                            <span style={{ fontSize: '20px', flexShrink: 0 }}>{n.icon}</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '2px', color: 'var(--text-primary)' }}>{n.title}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{n.time}</div>
+                      {(() => {
+                        const allNotifications = [...notifications];
+                        if (profile?.role === 'admin') {
+                          const pendingReqsCount = transactions.filter(t => t.type === 'take_request' && t.status === 'pending').length;
+                          if (pendingReqsCount > 0) {
+                            allNotifications.unshift({
+                              id: 'sys_pending_req', icon: '⏳', title: 'Yêu cầu cấp mẫu',
+                              body: `Có ${pendingReqsCount} yêu cầu lấy mẫu đang chờ phê duyệt.`, time: 'Hệ thống', onClickTab: 'requests'
+                            });
+                          }
+                          const expiredCount = getExpiredSamples().length;
+                          if (expiredCount > 0) {
+                            allNotifications.unshift({
+                              id: 'sys_expired', icon: '⚠️', title: 'Danh sách mẫu hết hạn',
+                              body: `Có ${expiredCount} mẫu đã quá hạn lưu trữ cần xử lý/hủy.`, time: 'Hệ thống', onClickTab: 'archives'
+                            });
+                          }
+                        }
+                        
+                        return (
+                          <>
+                            <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, fontSize: '14px' }}>🔔 Thông báo</span>
+                              {notifications.length > 0 && (
+                                <button style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+                                  onClick={() => setNotifications([])}>
+                                  Xóa lịch sử
+                                </button>
+                              )}
                             </div>
-                          </div>
-                        ))
-                      )}
+                            {allNotifications.length === 0 ? (
+                              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                                <Bell size={28} style={{ opacity: 0.3, marginBottom: '8px', display: 'block', margin: '0 auto 8px' }} />
+                                Không có thông báo mới
+                              </div>
+                            ) : (
+                              allNotifications.map((n, i) => (
+                                <div key={n.id + i} 
+                                  style={{
+                                    padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                    display: 'flex', gap: '10px', alignItems: 'flex-start', textAlign: 'left',
+                                    cursor: n.onClickTab ? 'pointer' : 'default',
+                                    background: n.onClickTab ? 'rgba(255,255,255,0.02)' : 'transparent',
+                                    transition: 'background 0.2s'
+                                  }}
+                                  onClick={() => {
+                                    if (n.onClickTab) {
+                                      setActiveTab(n.onClickTab);
+                                      setShowNotifDropdown(false);
+                                    }
+                                  }}
+                                  onMouseEnter={e => { if (n.onClickTab) e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                                  onMouseLeave={e => { if (n.onClickTab) e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}
+                                >
+                                  <span style={{ fontSize: '20px', flexShrink: 0 }}>{n.icon}</span>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '2px', color: n.id?.startsWith('sys_') ? 'var(--accent-blue)' : 'var(--text-primary)' }}>{n.title}</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', whiteSpace: 'normal' }}>{n.body}</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{n.time}</div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
