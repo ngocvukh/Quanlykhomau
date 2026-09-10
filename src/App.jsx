@@ -4078,13 +4078,13 @@ export default function App() {
       return;
     }
 
-    // Sắp xếp theo thứ tự nhập (created_at), nếu bằng nhau thì theo tên sản phẩm A→Z
+    // Sắp xếp theo tên sản phẩm A→Z (thứ tự ABC), nếu cùng tên thì theo thứ tự nhập (created_at)
     const sortedSamples = [...samplesInGroup].sort((a, b) => {
-      const tDiff = new Date(a.created_at) - new Date(b.created_at);
-      if (tDiff !== 0) return tDiff;
       const nameA = (a.products?.product_name || a.product_name || '').toLowerCase();
       const nameB = (b.products?.product_name || b.product_name || '').toLowerCase();
-      return nameA.localeCompare(nameB, 'vi');
+      const nameDiff = nameA.localeCompare(nameB, 'vi');
+      if (nameDiff !== 0) return nameDiff;
+      return new Date(a.created_at) - new Date(b.created_at);
     });
 
     const printWindow = window.open('', '_blank', 'width=800,height=600');
@@ -4305,15 +4305,15 @@ export default function App() {
       return;
     }
 
-    // Sort: tray number asc, then within tray by created_at (input order), then product name A→Z
+    // Sort: tray number asc, then within tray by product name A→Z (ABC order), then created_at
     const sortedSamples = [...readySamples].sort((a, b) => {
       const trayDiff = (a.tray_number || 0) - (b.tray_number || 0);
       if (trayDiff !== 0) return trayDiff;
-      const tDiff = new Date(a.created_at) - new Date(b.created_at);
-      if (tDiff !== 0) return tDiff;
       const nameA = (a.products?.product_name || a.product_name || '').toLowerCase();
       const nameB = (b.products?.product_name || b.product_name || '').toLowerCase();
-      return nameA.localeCompare(nameB, 'vi');
+      const nameDiff = nameA.localeCompare(nameB, 'vi');
+      if (nameDiff !== 0) return nameDiff;
+      return new Date(a.created_at) - new Date(b.created_at);
     });
 
     // Open a single print window
