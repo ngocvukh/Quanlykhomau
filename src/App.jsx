@@ -277,6 +277,7 @@ export default function App() {
   // Destruction Logic States
   const [destructionLogs, setDestructionLogs] = useState([]);
   const [showDestructionProcessModal, setShowDestructionProcessModal] = useState(false);
+  const [destructionBoxTarget, setDestructionBoxTarget] = useState(null);
   const [destructionConfirmed, setDestructionConfirmed] = useState(false);
   const [destroyedTab, setDestroyedTab] = useState('samples'); // 'samples' or 'reports'
   const [pdfGenerating, setPdfGenerating] = useState(false);
@@ -348,7 +349,8 @@ export default function App() {
       bulkSyncTimeoutRef.current = null;
     }, 5000);
 
-    return () => {
+    const samplesToDestroy = destructionBoxTarget ? samples.filter(s => s.box_id === destructionBoxTarget.id && s.status === 'boxed') : getExpiredSamples();
+  return () => {
       if (bulkSyncTimeoutRef.current) {
         clearTimeout(bulkSyncTimeoutRef.current);
       }
@@ -7188,8 +7190,8 @@ export default function App() {
                     <h3 style={{ fontSize: '16px', color: 'var(--status-error)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <ShieldAlert size={18} /> Danh Sách Mẫu Hết Hạn ({getExpiredSamples().length})
                     </h3>
-                    {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
-                    {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
+                    {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionBoxTarget(null); setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
+                    {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionBoxTarget(null); setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       {getExpiredSamples().map(s => {
@@ -8760,9 +8762,9 @@ export default function App() {
       {showDestructionProcessModal && (
         <div className="modal-overlay" onClick={() => !loading && !pdfGenerating && setShowDestructionProcessModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '95%' }}>
-            <h2>Tiến Hành Hủy Mẫu</h2>
+            <h2>{destructionBoxTarget ? 'Tiến Hành Hủy Thùng ' + destructionBoxTarget.box_name : 'Tiến Hành Hủy Mẫu Hết Hạn'}</h2>
             <div ref={pdfRef} style={{ padding: '20px', background: 'white', color: 'black', borderRadius: '8px', marginBottom: '20px' }}>
-              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>BIÊN BẢN HỦY MẪU HẾT HẠN</h3>
+              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>{destructionBoxTarget ? 'BIÊN BẢN HỦY THÙNG ' + destructionBoxTarget.box_name.toUpperCase() : 'BIÊN BẢN HỦY MẪU HẾT HẠN'}</h3>
               <p>Ngày lập: {new Date().toLocaleDateString()}</p>
               <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
                 <thead>
@@ -8774,7 +8776,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {getExpiredSamples().map(s => (
+                  {samplesToDestroy.map(s => (
                     <tr key={s.id} style={{ borderBottom: '1px solid #eee' }}>
                       <td style={{ padding: '8px' }}>{s.sku}</td>
                       <td style={{ padding: '8px' }}>{s.product_id?.product_name || s.product_id}</td>
@@ -8784,7 +8786,7 @@ export default function App() {
                   ))}
                 </tbody>
               </table>
-              <p style={{ marginTop: '20px' }}>Tổng số lượng: {getExpiredSamples().reduce((acc, s) => acc + s.available_qty, 0)} bao ({getExpiredSamples().length} lô)</p>
+              <p style={{ marginTop: '20px' }}>Tổng số lượng: {samplesToDestroy.reduce((acc, s) => acc + s.available_qty, 0)} bao ({samplesToDestroy.length} lô)</p>
             </div>
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
@@ -8796,7 +8798,7 @@ export default function App() {
                 style={{ width: '20px', height: '20px' }}
               />
               <label htmlFor="confirmDestroy" style={{ cursor: 'pointer', fontSize: '1.1rem' }}>
-                Tôi xác nhận đã kiểm tra danh sách và đồng ý in biên bản PDF, đồng thời hủy {getExpiredSamples().length} mẫu này.
+                Tôi xác nhận đã kiểm tra danh sách và đồng ý in biên bản PDF, đồng thời hủy {samplesToDestroy.length} mẫu này.
               </label>
             </div>
             
