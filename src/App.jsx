@@ -8865,11 +8865,11 @@ export default function App() {
             <div ref={pdfRef} style={{ padding: '20px', background: 'white', color: 'black', borderRadius: '8px', marginBottom: '20px' }}>
               <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>{destructionBoxTarget ? 'BIÊN BẢN HỦY THÙNG ' + (destructionBoxTarget.name || '').toUpperCase() : 'BIÊN BẢN HỦY MẪU HẾT HẠN'}</h3>
               <p>Ngày lập: {new Date().toLocaleDateString()}</p>
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize: '12px', wordBreak: 'break-word' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #ccc' }}>
-                    <th style={{ textAlign: 'left', padding: '8px' }}>SKU</th>
-                    <th style={{ textAlign: 'left', padding: '8px' }}>Tên SP</th>
+                    <th style={{ textAlign: 'left', padding: '8px', width: '25%' }}>SKU</th>
+                    <th style={{ textAlign: 'left', padding: '8px', width: '40%' }}>Tên SP</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>Ngày SX</th>
                     <th style={{ textAlign: 'right', padding: '8px' }}>Số lượng</th>
                   </tr>
@@ -8878,7 +8878,7 @@ export default function App() {
                   {samplesToDestroy.map(s => (
                     <tr key={s.id} style={{ borderBottom: '1px solid #eee' }}>
                       <td style={{ padding: '8px' }}>{s.sku}</td>
-                      <td style={{ padding: '8px' }}>{s.product_id?.product_name || s.product_id}</td>
+                      <td style={{ padding: '8px' }}>{s.products?.product_name || s.product_name || s.product_id}</td>
                       <td style={{ padding: '8px' }}>{new Date(s.packaging_date).toLocaleDateString()}</td>
                       <td style={{ textAlign: 'right', padding: '8px' }}>{s.available_qty}</td>
                     </tr>
