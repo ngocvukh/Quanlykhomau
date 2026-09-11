@@ -7289,7 +7289,7 @@ export default function App() {
                                 <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => printBoxManifest(representativeBox, groupIds)}>
                                   In danh sách (PDF)
                                 </button>
-                                <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px', background: '#ef4444', color: 'white', marginLeft: '10px' }} onClick={() => { setDestructionBoxTarget({ name: representativeBox.box_name, ids: groupIds }); setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>
+                                <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px', background: '#ef4444', color: 'white', marginLeft: '10px' }} onClick={() => { setDestructionBoxTarget({ name: boxName || 'Thùng', ids: groupIds }); setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>
                                   Hủy Thùng
                                 </button>
                               </div>
@@ -8765,9 +8765,9 @@ export default function App() {
       {showDestructionProcessModal && (
         <div className="modal-overlay" onClick={() => !loading && !pdfGenerating && setShowDestructionProcessModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '95%' }}>
-            <h2>{destructionBoxTarget ? 'Tiến Hành Hủy Thùng ' + destructionBoxTarget.name : 'Tiến Hành Hủy Mẫu Hết Hạn'}</h2>
+            <h2>{destructionBoxTarget ? 'Tiến Hành Hủy Thùng ' + (destructionBoxTarget.name || '') : 'Tiến Hành Hủy Mẫu Hết Hạn'}</h2>
             <div ref={pdfRef} style={{ padding: '20px', background: 'white', color: 'black', borderRadius: '8px', marginBottom: '20px' }}>
-              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>{destructionBoxTarget ? 'BIÊN BẢN HỦY THÙNG ' + destructionBoxTarget.name.toUpperCase() : 'BIÊN BẢN HỦY MẪU HẾT HẠN'}</h3>
+              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>{destructionBoxTarget ? 'BIÊN BẢN HỦY THÙNG ' + (destructionBoxTarget.name || '').toUpperCase() : 'BIÊN BẢN HỦY MẪU HẾT HẠN'}</h3>
               <p>Ngày lập: {new Date().toLocaleDateString()}</p>
               <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
                 <thead>
