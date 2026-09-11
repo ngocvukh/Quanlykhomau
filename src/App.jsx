@@ -7286,8 +7286,7 @@ export default function App() {
                     <h3 style={{ fontSize: '16px', color: 'var(--status-error)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <ShieldAlert size={18} /> Danh Sách Mẫu Hết Hạn ({getExpiredSamples().length})
                     </h3>
-                    {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionBoxTarget(null); setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
-                    {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionBoxTarget(null); setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
+                                        {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionBoxTarget(null); setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       {getExpiredSamples().map(s => {
@@ -7305,9 +7304,7 @@ export default function App() {
                                 Vị trí: <strong style={{ color: 'var(--accent-blue)' }}>{location}</strong> | Tồn: {s.available_qty} bao
                               </div>
                             </div>
-                            <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px', alignSelf: 'center' }} onClick={() => handleDestroySample(s.id)}>
-                              Xác nhận hủy
-                            </button>
+                            
                           </div>
                         );
                       })}
