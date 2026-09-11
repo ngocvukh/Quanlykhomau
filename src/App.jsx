@@ -7289,6 +7289,9 @@ export default function App() {
                                 <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => printBoxManifest(representativeBox, groupIds)}>
                                   In danh sách (PDF)
                                 </button>
+                                <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px', background: '#ef4444', color: 'white', marginLeft: '10px' }} onClick={() => { setDestructionBoxTarget(representativeBox); setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>
+                                  Hủy Thùng
+                                </button>
                               </div>
                             </div>
                           );
