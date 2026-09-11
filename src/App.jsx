@@ -8890,7 +8890,7 @@ export default function App() {
               </div>
             </div>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '20px', flexShrink: 0 }}>
               <input 
                 type="checkbox" 
                 id="confirmDestroy" 
@@ -8903,7 +8903,7 @@ export default function App() {
               </label>
             </div>
             
-            <div className="modal-actions" style={{ justifyContent: 'flex-end', gap: '10px' }}>
+            <div className="modal-actions" style={{ justifyContent: 'center', gap: '10px' }}>
               <button className="btn btn-secondary" onClick={() => setShowDestructionProcessModal(false)} disabled={loading || pdfGenerating}>
                 Hủy bỏ
               </button>
