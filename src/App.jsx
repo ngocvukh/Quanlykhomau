@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
+import html2pdf from 'html2pdf.js';
 import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
@@ -272,6 +273,15 @@ export default function App() {
   const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
   const [showPackByMonthModal, setShowPackByMonthModal] = useState(false);
   const [showDestroyedSamplesModal, setShowDestroyedSamplesModal] = useState(false);
+
+  // Destruction Logic States
+  const [destructionLogs, setDestructionLogs] = useState([]);
+  const [showDestructionProcessModal, setShowDestructionProcessModal] = useState(false);
+  const [destructionConfirmed, setDestructionConfirmed] = useState(false);
+  const [destroyedTab, setDestroyedTab] = useState('samples'); // 'samples' or 'reports'
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const pdfRef = useRef();
+
   const [packMonth, setPackMonth] = useState(new Date().getMonth() + 1);
   const [packYear, setPackYear] = useState(new Date().getFullYear());
   const [samplesToPack, setSamplesToPack] = useState(null);
@@ -7178,6 +7188,8 @@ export default function App() {
                     <h3 style={{ fontSize: '16px', color: 'var(--status-error)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <ShieldAlert size={18} /> Danh Sách Mẫu Hết Hạn ({getExpiredSamples().length})
                     </h3>
+                    {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
+                    {getExpiredSamples().length > 0 && <button className="btn btn-danger" style={{ marginLeft: 'auto', background: '#ef4444', color: 'white' }} onClick={() => { setDestructionConfirmed(false); setShowDestructionProcessModal(true); }}>Tiến hành hủy mẫu</button>}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       {getExpiredSamples().map(s => {
@@ -8739,6 +8751,68 @@ export default function App() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => { setScanResultModal(null); setScanQty(''); }}>Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      
+      {showDestructionProcessModal && (
+        <div className="modal-overlay" onClick={() => !loading && !pdfGenerating && setShowDestructionProcessModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '95%' }}>
+            <h2>Tiến Hành Hủy Mẫu</h2>
+            <div ref={pdfRef} style={{ padding: '20px', background: 'white', color: 'black', borderRadius: '8px', marginBottom: '20px' }}>
+              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>BIÊN BẢN HỦY MẪU HẾT HẠN</h3>
+              <p>Ngày lập: {new Date().toLocaleDateString()}</p>
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #ccc' }}>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>SKU</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>Tên SP</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>Ngày SX</th>
+                    <th style={{ textAlign: 'right', padding: '8px' }}>Số lượng</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {getExpiredSamples().map(s => (
+                    <tr key={s.id} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '8px' }}>{s.sku}</td>
+                      <td style={{ padding: '8px' }}>{s.product_id?.product_name || s.product_id}</td>
+                      <td style={{ padding: '8px' }}>{new Date(s.packaging_date).toLocaleDateString()}</td>
+                      <td style={{ textAlign: 'right', padding: '8px' }}>{s.available_qty}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{ marginTop: '20px' }}>Tổng số lượng: {getExpiredSamples().reduce((acc, s) => acc + s.available_qty, 0)} bao ({getExpiredSamples().length} lô)</p>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+              <input 
+                type="checkbox" 
+                id="confirmDestroy" 
+                checked={destructionConfirmed}
+                onChange={e => setDestructionConfirmed(e.target.checked)}
+                style={{ width: '20px', height: '20px' }}
+              />
+              <label htmlFor="confirmDestroy" style={{ cursor: 'pointer', fontSize: '1.1rem' }}>
+                Tôi xác nhận đã kiểm tra danh sách và đồng ý in biên bản PDF, đồng thời hủy {getExpiredSamples().length} mẫu này.
+              </label>
+            </div>
+            
+            <div className="modal-actions" style={{ justifyContent: 'flex-end', gap: '10px' }}>
+              <button className="btn btn-secondary" onClick={() => setShowDestructionProcessModal(false)} disabled={loading || pdfGenerating}>
+                Hủy bỏ
+              </button>
+              <button 
+                className="btn btn-primary" 
+                style={{ background: '#ef4444', border: 'none', opacity: (!destructionConfirmed || loading || pdfGenerating) ? 0.5 : 1 }}
+                onClick={handleExecuteDestruction}
+                disabled={!destructionConfirmed || loading || pdfGenerating}
+              >
+                {loading || pdfGenerating ? <Loader className="spin" size={16} /> : <Trash2 size={16} />} 
+                Xác nhận & Hủy mẫu
+              </button>
             </div>
           </div>
         </div>
