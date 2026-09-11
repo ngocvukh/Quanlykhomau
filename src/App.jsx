@@ -8860,9 +8860,10 @@ export default function App() {
       
       {showDestructionProcessModal && (
         <div className="modal-overlay" onClick={() => !loading && !pdfGenerating && setShowDestructionProcessModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '95%' }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             <h2>{destructionBoxTarget ? 'Tiến Hành Hủy Thùng ' + (destructionBoxTarget.name || '') : 'Tiến Hành Hủy Mẫu Hết Hạn'}</h2>
-            <div ref={pdfRef} style={{ padding: '20px', background: 'white', color: 'black', borderRadius: '8px', marginBottom: '20px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: '20px', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
+              <div ref={pdfRef} style={{ padding: '20px', background: 'white', color: 'black' }}>
               <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>{destructionBoxTarget ? 'BIÊN BẢN HỦY THÙNG ' + (destructionBoxTarget.name || '').toUpperCase() : 'BIÊN BẢN HỦY MẪU HẾT HẠN'}</h3>
               <p>Ngày lập: {new Date().toLocaleDateString()}</p>
               <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize: '12px', wordBreak: 'break-word' }}>
@@ -8886,9 +8887,10 @@ export default function App() {
                 </tbody>
               </table>
               <p style={{ marginTop: '20px' }}>Tổng số lượng: {samplesToDestroy.reduce((acc, s) => acc + s.available_qty, 0)} bao ({samplesToDestroy.length} lô)</p>
+              </div>
             </div>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', flexShrink: 0 }}>
               <input 
                 type="checkbox" 
                 id="confirmDestroy" 
