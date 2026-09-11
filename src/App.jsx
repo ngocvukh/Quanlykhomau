@@ -348,8 +348,6 @@ export default function App() {
       }
       bulkSyncTimeoutRef.current = null;
     }, 5000);
-
-    const samplesToDestroy = destructionBoxTarget ? samples.filter(s => destructionBoxTarget.ids.includes(s.box_id) && s.status === 'boxed') : getExpiredSamples();
   return () => {
       if (bulkSyncTimeoutRef.current) {
         clearTimeout(bulkSyncTimeoutRef.current);
@@ -4730,6 +4728,104 @@ export default function App() {
     const colSamples = samples.filter(s => s.shelf === shelf && s.slot === slot && s.column_number === col && s.status === 'stored');
     return colSamples.length > 0 ? colSamples[0] : null;
   };
+  // --- DESTRUCTION LOGIC ---
+  const handleGenerateAndUploadPdf = async () => {
+    if (!pdfRef.current) return null;
+    setPdfGenerating(true);
+    showToast("Đang tạo và tải lên biên bản PDF...", "info");
+    try {
+      const element = pdfRef.current;
+      const html2pdf = (await import('html2pdf.js')).default;
+      const opt = {
+        margin: 10,
+        filename: 'bien-ban-huy.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+      
+      const pdfBlob = await html2pdf().set(opt).from(element).outputPdf('blob');
+      
+      const fileName = `destruction_report_${Date.now()}.pdf`;
+      const { data, error } = await supabase.storage
+        .from('destruction_reports')
+        .upload(fileName, pdfBlob, {
+          contentType: 'application/pdf',
+          upsert: false
+        });
+        
+      if (error) throw error;
+      
+      const { data: publicUrlData } = supabase.storage
+        .from('destruction_reports')
+        .getPublicUrl(fileName);
+        
+      return publicUrlData.publicUrl;
+    } catch (error) {
+      console.error("Lỗi tạo PDF:", error);
+      showToast("Lỗi khi tạo và tải lên PDF", "error");
+      return null;
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+
+  const samplesToDestroy = destructionBoxTarget ? samples.filter(s => destructionBoxTarget.ids.includes(s.box_id) && s.status === 'boxed') : getExpiredSamples();
+
+  const handleExecuteDestruction = async () => {
+    if (!destructionConfirmed) return;
+    setLoading(true);
+    try {
+      const targetSamples = samplesToDestroy;
+        
+      if (targetSamples.length === 0) {
+        showToast("Không có mẫu nào để hủy", "warning");
+        setLoading(false);
+        return;
+      }
+      
+      const pdfUrl = await handleGenerateAndUploadPdf();
+      if (!pdfUrl) {
+        setLoading(false);
+        return;
+      }
+
+      if (!isDemoMode) {
+        const sampleIds = targetSamples.map(s => s.id);
+        await supabase.from('samples').update({ status: 'destroyed', shelf: null, slot: null, column_number: null, box_id: null }).in('id', sampleIds);
+        
+        if (destructionBoxTarget) {
+           await supabase.from('boxes').update({ status: 'destroyed' }).in('id', destructionBoxTarget.ids);
+        }
+
+        await supabase.from('destruction_logs').insert({
+          report_url: pdfUrl,
+          num_samples_destroyed: sampleIds.length,
+        });
+
+        const txs = sampleIds.map(id => ({
+          sample_id: id,
+          user_id: user?.id || 'demo-user',
+          type: 'destroy',
+          quantity: targetSamples.find(s => s.id === id).available_qty,
+          status: 'approved',
+          note: destructionBoxTarget ? `Hủy theo thùng ${destructionBoxTarget.name}` : 'Hủy theo quy trình',
+        }));
+        await supabase.from('transactions').insert(txs);
+      }
+      
+      showToast("Hủy thành công!", "success");
+      setShowDestructionProcessModal(false);
+      setDestructionBoxTarget(null);
+      fetchData(user, authRole);
+    } catch(e) {
+      console.error(e);
+      showToast("Có lỗi xảy ra", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+  // -------------------------
 
   return (
     <div className="app-container">
