@@ -8869,18 +8869,18 @@ export default function App() {
               <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize: '12px', wordBreak: 'break-word' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #ccc' }}>
-                    <th style={{ textAlign: 'left', padding: '8px', width: '25%' }}>Số Đơn Hàng</th>
                     <th style={{ textAlign: 'left', padding: '8px', width: '40%' }}>Tên SP</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>Ngày SX</th>
+                    <th style={{ textAlign: 'left', padding: '8px', width: '25%' }}>Số Đơn Hàng</th>
                     <th style={{ textAlign: 'right', padding: '8px' }}>Số lượng</th>
                   </tr>
                 </thead>
                 <tbody>
                   {samplesToDestroy.map(s => (
                     <tr key={s.id} style={{ borderBottom: '1px solid #eee' }}>
-                      <td style={{ padding: '8px' }}>{s.order_number || '-'}</td>
                       <td style={{ padding: '8px' }}>{s.products?.product_name || s.product_name || s.product_id}</td>
                       <td style={{ padding: '8px' }}>{new Date(s.packaging_date).toLocaleDateString()}</td>
+                      <td style={{ padding: '8px' }}>{s.order_number || '-'}</td>
                       <td style={{ textAlign: 'right', padding: '8px' }}>{s.available_qty}</td>
                     </tr>
                   ))}
