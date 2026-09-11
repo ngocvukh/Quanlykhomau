@@ -8922,44 +8922,88 @@ export default function App() {
       {showDestroyedSamplesModal && (
         <div className="modal-overlay" onClick={() => setShowDestroyedSamplesModal(false)}>
           <div className="modal-content" style={{ maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Danh sách mẫu đã hủy</h3>
+            <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid var(--glass-border)' }}>
+              <h3>Danh sách đã hủy</h3>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  className={`btn ${destroyedTab === 'samples' ? 'btn-primary' : 'btn-secondary'}`} 
+                  onClick={() => setDestroyedTab('samples')}
+                  style={{ padding: '6px 12px', fontSize: '13px' }}
+                >
+                  Mẫu đã hủy
+                </button>
+                <button 
+                  className={`btn ${destroyedTab === 'reports' ? 'btn-primary' : 'btn-secondary'}`} 
+                  onClick={() => setDestroyedTab('reports')}
+                  style={{ padding: '6px 12px', fontSize: '13px' }}
+                >
+                  Biên bản PDF
+                </button>
+              </div>
               <button className="btn" style={{ padding: '4px' }} onClick={() => setShowDestroyedSamplesModal(false)}><X size={20} /></button>
             </div>
             <div className="modal-body" style={{ overflowY: 'auto', flex: 1, padding: '16px 0' }}>
-              {samples.filter(s => s.status === 'destroyed').length === 0 ? (
-                <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>Không có mẫu nào đã hủy.</p>
+              {destroyedTab === 'samples' ? (
+                samples.filter(s => s.status === 'destroyed').length === 0 ? (
+                  <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>Không có mẫu nào đã hủy.</p>
+                ) : (
+                  <div className="table-responsive" style={{ margin: '0 16px' }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Tên Sản Phẩm</th>
+                          <th>Ngày SX Bao</th>
+                          <th>Số Đơn Hàng</th>
+                          <th>Mẻ Sợi</th>
+                          <th>Số Lượng (Bao)</th>
+                          <th>Ghi Chú</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {samples.filter(s => s.status === 'destroyed').sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(s => (
+                          <tr key={s.id}>
+                            <td><strong>{s.products?.product_name || s.product_name}</strong></td>
+                            <td>{new Date(s.packaging_date).toLocaleDateString()}</td>
+                            <td>{s.order_number || '-'}</td>
+                            <td>{s.blend_batch ? formatBlendBatch(s.blend_batch) : '-'}</td>
+                            <td>{s.available_qty}</td>
+                            <td>{s.transactions?.find(t => t.type === 'destroy')?.note || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
               ) : (
                 <div className="table-responsive" style={{ margin: '0 16px' }}>
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Tên Sản Phẩm</th>
-                        <th>Ngày SX Bao</th>
-                        <th>Số Đơn Hàng</th>
-                        <th>Mẻ Sợi</th>
-                        <th>Số Lượng (Bao)</th>
-                        <th>Ghi Chú</th>
+                        <th>Thời Gian Hủy</th>
+                        <th>Số Mẫu Hủy</th>
+                        <th>File Biên Bản</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {samples.filter(s => s.status === 'destroyed').sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(s => (
-                        <tr key={s.id}>
-                          <td><strong>{s.products?.product_name || s.product_name}</strong></td>
-                          <td>{new Date(s.packaging_date).toLocaleDateString()}</td>
-                          <td>{s.order_number || '-'}</td>
-                          <td>{s.blend_batch ? formatBlendBatch(s.blend_batch) : '-'}</td>
-                          <td>{s.available_qty}</td>
-                          <td>{s.note || '-'}</td>
-                        </tr>
-                      ))}
+                      {destructionLogs.length === 0 ? (
+                        <tr><td colSpan="3" style={{textAlign: 'center', padding: '20px', color: 'var(--text-secondary)'}}>Chưa có biên bản hủy nào.</td></tr>
+                      ) : (
+                        destructionLogs.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(log => (
+                          <tr key={log.id}>
+                            <td>{new Date(log.created_at).toLocaleString()}</td>
+                            <td>{log.num_samples_destroyed} mẫu</td>
+                            <td>
+                              <a href={log.report_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <FileText size={14} /> Xem PDF
+                              </a>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
               )}
-            </div>
-            <div className="modal-footer" style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--glass-border)', padding: '16px' }}>
-              <button className="btn btn-secondary" onClick={() => setShowDestroyedSamplesModal(false)}>Đóng</button>
             </div>
           </div>
         </div>
