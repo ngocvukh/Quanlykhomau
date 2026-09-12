@@ -1905,7 +1905,7 @@ export default function App() {
       const { data: s } = await supabase.from('samples').select('*, products(*)').order('created_at', { ascending: false });
       const { data: b } = await supabase.from('boxes').select('*').order('created_at', { ascending: false });
       const { data: t } = await supabase.from('transactions').select('*, samples(*, products(*)), profiles(*)').order('created_at', { ascending: false });
-      const { data: dl } = await supabase.from('destruction_logs').select('*').order('created_at', { ascending: false }).catch(() => ({ data: [] }));
+      const { data: dl } = await supabase.from('destruction_logs').select('*').order('created_at', { ascending: false });
       
       setProducts(p || []);
       setSamples(s || []);
