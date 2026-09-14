@@ -8901,13 +8901,81 @@ export default function App() {
                 style={{ width: '20px', height: '20px' }}
               />
               <label htmlFor="confirmDestroy" style={{ cursor: 'pointer', fontSize: '1.1rem' }}>
-                Tôi xác nhận đã kiểm tra danh sách và đồng ý in biên bản PDF, đồng thời hủy {samplesToDestroy.length} mẫu này.
+                Tôi xác nhận đã in danh sách, kiểm tra xác thực và đồng ý hủy {samplesToDestroy.length} mẫu này.
               </label>
             </div>
             
             <div className="modal-actions" style={{ justifyContent: 'center', gap: '10px' }}>
               <button className="btn btn-secondary" onClick={() => setShowDestructionProcessModal(false)} disabled={loading || pdfGenerating}>
-                Hủy bỏ
+                Đóng
+              </button>
+              <button 
+                className="btn btn-primary" 
+                style={{ background: '#3b82f6', border: 'none' }}
+                onClick={() => {
+                  const targetSamples = samplesToDestroy;
+                  const printWindow = window.open('', '_blank');
+                  printWindow.document.write(`
+                    <html>
+                    <head>
+                      <title>${destructionBoxTarget ? 'Biên bản hủy thùng ' + (destructionBoxTarget.name || '') : 'Biên bản hủy mẫu hết hạn'}</title>
+                      <style>
+                        body { font-family: 'Outfit', sans-serif; padding: 40px; color: #333; }
+                        h1 { border-bottom: 2px solid #dc2626; padding-bottom: 10px; color: #dc2626; margin-bottom: 30px; text-align: center; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                        th { background-color: #fef2f2; color: #991b1b; }
+                        .footer { margin-top: 50px; display: flex; justify-content: space-between; font-style: italic; }
+                      </style>
+                    </head>
+                    <body>
+                      <h1>${destructionBoxTarget ? 'BIÊN BẢN HỦY THÙNG ' + (destructionBoxTarget.name || '').toUpperCase() : 'BIÊN BẢN HỦY MẪU HẾT HẠN'}</h1>
+                      <p><strong>Ngày lập:</strong> ${new Date().toLocaleDateString()}</p>
+                      
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Tên Sản Phẩm</th>
+                            <th>Ngày SX Bao</th>
+                            <th>Số Đơn Hàng</th>
+                            <th style="text-align: right">Số lượng</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${targetSamples.map(s => `
+                            <tr>
+                              <td>${s.products?.product_name || s.product_name || s.product_id}</td>
+                              <td>${new Date(s.packaging_date).toLocaleDateString()}</td>
+                              <td>${s.order_number || '-'}</td>
+                              <td style="text-align: right">${s.available_qty}</td>
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+                      
+                      <p style="margin-top: 20px;"><strong>Tổng số lượng:</strong> ${targetSamples.reduce((acc, s) => acc + s.available_qty, 0)} bao (${targetSamples.length} lô)</p>
+                      
+                      <div class="footer">
+                        <div style="text-align: center;">
+                          <p>Người lập</p>
+                          <br/><br/><br/>
+                          <p>__________________________</p>
+                        </div>
+                        <div style="text-align: center;">
+                          <p>Xác nhận hủy</p>
+                          <br/><br/><br/>
+                          <p>__________________________</p>
+                        </div>
+                      </div>
+                      <script>window.print();</script>
+                    </body>
+                    </html>
+                  `);
+                  printWindow.document.close();
+                }}
+                disabled={loading || pdfGenerating}
+              >
+                <Printer size={16} /> In Danh Sách (Xác thực)
               </button>
               <button 
                 className="btn btn-primary" 
