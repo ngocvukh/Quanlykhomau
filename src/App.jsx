@@ -7267,9 +7267,7 @@ export default function App() {
                     <Archive size={22} color="var(--accent-blue)" /> Quản Lý Quá Tải Lực Chứa & Hủy Mẫu
                   </h2>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button className="btn btn-secondary" onClick={handleOvercapacityBoxing}>
-                      <Archive size={16} /> Đóng thùng mẫu cũ nhất
-                    </button>
+
                     <button className="btn btn-primary" onClick={() => setShowPackByMonthModal(true)} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', borderColor: '#059669' }}>
                       <Calendar size={16} /> Đóng thùng theo tháng
                     </button>
