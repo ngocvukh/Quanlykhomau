@@ -3779,11 +3779,12 @@ export default function App() {
         <table>
           <thead>
             <tr>
-              <th>Vị Trí Cũ (Kệ-Ô-Cột)</th>
-              <th>Mã SKU</th>
               <th>Tên Sản Phẩm</th>
+              <th>Đơn Hàng</th>
               <th>Mẻ Sợi</th>
+              <th>Ngày SX Sợi</th>
               <th>Ngày SX Bao</th>
+              <th>STT Thùng</th>
               <th>Số lượng (Bao)</th>
               <th>Hạn Lưu Trữ (12T)</th>
             </tr>
@@ -3792,14 +3793,15 @@ export default function App() {
             ${boxSamples.map(s => {
               const packDate = new Date(s.packaging_date);
               const expDate = new Date(packDate.setMonth(packDate.getMonth() + 12)).toLocaleDateString();
-              const loc = s.shelf ? `Kệ ${s.shelf} - Ô ${s.slot} - Cột ${s.column_number}` : 'Đã đóng thùng';
+              const blendDateStr = s.blend_date ? new Date(s.blend_date).toLocaleDateString() : '';
               return `
                 <tr>
-                  <td><strong>${loc}</strong></td>
-                  <td>${s.sku}</td>
                   <td>${s.products?.product_name || s.product_name}</td>
+                  <td>${s.order_number || ''}</td>
                   <td>${formatBlendBatch(s.blend_batch)}</td>
-                  <td>${new Date(s.packaging_date).toLocaleDateString()} ${formatSamplingBox(s.blend_batch)}</td>
+                  <td>${blendDateStr}</td>
+                  <td>${new Date(s.packaging_date).toLocaleDateString()}</td>
+                  <td>${s.box_seq || ''}</td>
                   <td>${s.available_qty}</td>
                   <td>${expDate}</td>
                 </tr>
