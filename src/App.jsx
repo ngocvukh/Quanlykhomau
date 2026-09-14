@@ -3794,6 +3794,7 @@ export default function App() {
               const packDate = new Date(s.packaging_date);
               const expDate = new Date(packDate.setMonth(packDate.getMonth() + 12)).toLocaleDateString();
               const blendDateStr = s.blend_date ? new Date(s.blend_date).toLocaleDateString() : '';
+              const sttThung = s.blend_batch && s.blend_batch.includes('|') ? s.blend_batch.split('|')[1] : (s.box_seq || '');
               return `
                 <tr>
                   <td>${s.products?.product_name || s.product_name}</td>
@@ -3801,7 +3802,7 @@ export default function App() {
                   <td>${formatBlendBatch(s.blend_batch)}</td>
                   <td>${blendDateStr}</td>
                   <td>${new Date(s.packaging_date).toLocaleDateString()}</td>
-                  <td>${s.box_seq || ''}</td>
+                  <td>${sttThung}</td>
                   <td>${s.available_qty}</td>
                   <td>${expDate}</td>
                 </tr>
