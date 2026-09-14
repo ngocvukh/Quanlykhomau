@@ -8866,7 +8866,7 @@ export default function App() {
             <h2>{destructionBoxTarget ? 'Tiến Hành Hủy Thùng ' + (destructionBoxTarget.name || '') : 'Tiến Hành Hủy Mẫu Hết Hạn'}</h2>
             <div style={{ flex: 1, overflowY: 'auto', marginBottom: '20px', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
               <div ref={pdfRef} style={{ padding: '20px', background: 'white', color: 'black' }}>
-              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>{destructionBoxTarget ? 'BIÊN BẢN HỦY THÙNG ' + (destructionBoxTarget.name || '').toUpperCase() : 'BIÊN BẢN HỦY MẪU HẾT HẠN'}</h3>
+              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>{destructionBoxTarget ? 'DANH SÁCH MẪU HẾT HẠN - ' + (destructionBoxTarget.name || '').toUpperCase() : 'DANH SÁCH MẪU HẾT HẠN'}</h3>
               <p>Ngày lập: {new Date().toLocaleDateString()}</p>
               <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize: '12px', wordBreak: 'break-word' }}>
                 <thead>
@@ -8918,7 +8918,7 @@ export default function App() {
                   printWindow.document.write(`
                     <html>
                     <head>
-                      <title>${destructionBoxTarget ? 'Biên bản hủy thùng ' + (destructionBoxTarget.name || '') : 'Biên bản hủy mẫu hết hạn'}</title>
+                      <title>${destructionBoxTarget ? 'Danh sách mẫu hết hạn - ' + (destructionBoxTarget.name || '') : 'Danh sách mẫu hết hạn'}</title>
                       <style>
                         body { font-family: 'Outfit', sans-serif; padding: 40px; color: #333; }
                         h1 { border-bottom: 2px solid #dc2626; padding-bottom: 10px; color: #dc2626; margin-bottom: 30px; text-align: center; }
@@ -8929,7 +8929,7 @@ export default function App() {
                       </style>
                     </head>
                     <body>
-                      <h1>${destructionBoxTarget ? 'BIÊN BẢN HỦY THÙNG ' + (destructionBoxTarget.name || '').toUpperCase() : 'BIÊN BẢN HỦY MẪU HẾT HẠN'}</h1>
+                      <h1>${destructionBoxTarget ? 'DANH SÁCH MẪU HẾT HẠN - ' + (destructionBoxTarget.name || '').toUpperCase() : 'DANH SÁCH MẪU HẾT HẠN'}</h1>
                       <p><strong>Ngày lập:</strong> ${new Date().toLocaleDateString()}</p>
                       
                       <table>
