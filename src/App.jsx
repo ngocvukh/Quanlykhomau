@@ -6571,7 +6571,17 @@ export default function App() {
                       <div key={tx.id} className="glass-panel" style={{ borderLeft: `4px solid ${tx.status === 'pending' ? 'var(--status-warning)' : tx.status === 'approved' ? 'var(--status-success)' : 'var(--text-muted)'}`, padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', background: tx.status === 'pending' ? 'rgba(245,158,11,0.02)' : 'var(--glass-bg)' }}>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <span style={{ textTransform: 'uppercase', fontSize: '11px', background: tx.status === 'pending' ? 'var(--status-warning)' : 'var(--status-success)', color: '#000', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>{tx.status === 'pending' ? 'Chờ duyệt cấp' : 'Đã cấp'}</span>
+                            <span style={{ 
+                              textTransform: 'uppercase', 
+                              fontSize: '11px', 
+                              background: tx.status === 'pending' ? 'var(--status-warning)' : (tx.status === 'cancelled' ? 'var(--status-error)' : 'var(--status-success)'), 
+                              color: '#000', 
+                              padding: '2px 8px', 
+                              borderRadius: '12px', 
+                              fontWeight: 'bold' 
+                            }}>
+                              {tx.status === 'pending' ? 'Chờ duyệt cấp' : (tx.status === 'cancelled' ? 'Đã hủy' : 'Đã cấp')}
+                            </span>
                             <h4 style={{ fontSize: '18px', fontWeight: 'bold' }}>{sample?.products?.product_name || sample?.product_name || 'Mẫu đã xóa'}</h4>
                             <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy: <strong>{tx.quantity} bao</strong> ({tx.quantity % 10 !== 0 ? 'Bóc cây lẻ' : `${tx.quantity/10} cây nguyên`})</span>
                           </div>
