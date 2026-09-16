@@ -5650,7 +5650,7 @@ export default function App() {
                           KỆ {shelfLetter} ({shelf})
                         </div>
                         
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateRows: 'repeat(5, 1fr)', gap: '12px', flex: 1 }}>
                           {[1, 2, 3, 4, 5].map(slot => {
                             const slotSamples = samples.filter(s => s.shelf === shelf && s.slot === slot && s.status === 'stored');
                             const isLooseSlot = slot === 5;
