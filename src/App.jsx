@@ -2902,6 +2902,7 @@ export default function App() {
 
   // Phục vụ tính năng tìm kiếm động / thời gian thực khi gõ bất kỳ kí tự nào
   useEffect(() => {
+    let timer;
     const trimmed = searchName.trim();
     if (trimmed.length >= 1) {
       // Lưu lại tab nghiệp vụ trước đó (nếu không phải search) và chuyển ngay sang tab search
@@ -2930,6 +2931,29 @@ export default function App() {
       const matchedConfigs = slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower));
       setSearchResultSlots(matchedConfigs);
       setSearchResults(filtered);
+
+      timer = setTimeout(async () => {
+        if (!isDemoMode && deviceId) {
+          let currentName = 'Khách ẩn danh';
+          if (profile) {
+            currentName = profile.full_name || (profile.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên');
+          } else {
+            currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+          }
+          try {
+            await supabase.from('search_logs').insert({
+              device_id: deviceId,
+              user_name: currentName,
+              keyword: trimmed,
+              month_filter: monthVal || null,
+              results_count: filtered.length
+            });
+          } catch (err) {
+            console.error("Lỗi ghi log tìm kiếm realtime:", err);
+          }
+        }
+      }, 1500);
+
     } else {
       setSearchResultSlots([]);
       // Nếu xóa hết ô tìm kiếm và đang ở tab search, tự động trả về tab nghiệp vụ trước đó
@@ -2937,6 +2961,10 @@ export default function App() {
         setActiveTab(previousTabBeforeSearch || 'shelves');
       }
     }
+    
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [searchName, searchSelMonth, searchSelYear]);
 
   const handleSearchInputChange = (val) => {
