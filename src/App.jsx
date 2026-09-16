@@ -505,7 +505,10 @@ export default function App() {
   const [scanSaving, setScanSaving] = useState(false);
   const [theme, setTheme] = useState('dark');
   const [toasts, setToasts] = useState([]);
-  
+  // Consolidation States
+  const [showConsolidationModal, setShowConsolidationModal] = useState(false);
+  const [consolidationProposals, setConsolidationProposals] = useState(null);
+
   // Tray merge and split side-by-side modal states & functions
   const [showTrayAdjusterModal, setShowTrayAdjusterModal] = useState(false);
   const [sourceTrayNum, setSourceTrayNum] = useState('');
@@ -1288,6 +1291,187 @@ export default function App() {
         console.error('Lỗi lưu tiến trình bố trí', e);
       }
     }
+  };
+
+  const handleScanConsolidation = () => {
+    const productColMap = {};
+    const shelfSamples = samples.filter(s => s.status === 'stored' && s.shelf && s.slot && s.slot !== 5 && s.column_number);
+    
+    // Group by product_id
+    shelfSamples.forEach(s => {
+      if (!productColMap[s.product_id]) {
+        productColMap[s.product_id] = {};
+      }
+      const colKey = `${s.shelf}-${s.slot}-${s.column_number}`;
+      if (!productColMap[s.product_id][colKey]) {
+        productColMap[s.product_id][colKey] = {
+          shelf: s.shelf,
+          slot: s.slot,
+          column_number: s.column_number,
+          samples: [],
+          totalQty: 0
+        };
+      }
+      productColMap[s.product_id][colKey].samples.push(s);
+      productColMap[s.product_id][colKey].totalQty += (s.available_qty / 10);
+    });
+
+    const proposals = [];
+    
+    // Check each product
+    Object.keys(productColMap).forEach(productId => {
+      const columnsObj = productColMap[productId];
+      const columnKeys = Object.keys(columnsObj);
+      
+      if (columnKeys.length >= 2) {
+        let totalCartons = 0;
+        const columns = columnKeys.map(k => {
+           totalCartons += columnsObj[k].totalQty;
+           return columnsObj[k];
+        });
+        
+        const firstProduct = columns[0].samples[0]?.products || products.find(p => p.id === productId);
+        const format = firstProduct?.format || 'Kingsize';
+        const maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
+        
+        // Need Math.ceil because it's cartons
+        if (Math.ceil(totalCartons) <= maxHeight) {
+          // Sort by quantity descending to pick the fullest column as destination
+          columns.sort((a, b) => b.totalQty - a.totalQty);
+          
+          const destCol = columns[0];
+          const sourceCols = columns.slice(1);
+          
+          const samplesToMove = [];
+          sourceCols.forEach(col => {
+            samplesToMove.push(...col.samples);
+          });
+          
+          proposals.push({
+            product: firstProduct || { product_name: 'Unknown' },
+            destCol,
+            sourceCols,
+            samplesToMove,
+            totalCartons: Math.ceil(totalCartons)
+          });
+        }
+      }
+    });
+    
+    if (proposals.length === 0) {
+      showToast("Kho đang tối ưu, không có cột nào cần gom!", "info");
+      return;
+    }
+
+    setConsolidationProposals(proposals);
+    setShowConsolidationModal(true);
+  };
+
+  const handleConfirmConsolidation = async () => {
+    if (!consolidationProposals || consolidationProposals.length === 0) return;
+    setLoading(true);
+    
+    try {
+      const allSamplesToMove = [];
+      const updates = [];
+      
+      consolidationProposals.forEach(p => {
+         p.samplesToMove.forEach(s => {
+            allSamplesToMove.push({ ...s, shelf: p.destCol.shelf, slot: p.destCol.slot, column_number: p.destCol.column_number });
+            updates.push(
+               supabase.from('samples')
+                 .update({ shelf: p.destCol.shelf, slot: p.destCol.slot, column_number: p.destCol.column_number })
+                 .eq('id', s.id)
+            );
+         });
+      });
+      
+      await Promise.all(updates);
+      
+      // Auto queue for QR printing
+      setPrintQueue(prev => {
+         const newQueue = [...prev];
+         allSamplesToMove.forEach(s => {
+            if (!newQueue.find(q => q.id === s.id)) {
+               newQueue.push(s);
+            }
+         });
+         return newQueue;
+      });
+
+      showToast(`Đã dồn ${consolidationProposals.length} vị trí thành công! Đã đưa vào Hàng chờ In tem.`, "success");
+      setShowConsolidationModal(false);
+      setConsolidationProposals(null);
+      await fetchSamples();
+    } catch (e) {
+      console.error(e);
+      showToast("Có lỗi khi gộp kho!", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateConsolidationPDF = () => {
+    if (!consolidationProposals || consolidationProposals.length === 0) return;
+    
+    let htmlContent = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h1 style="text-align: center; color: #10b981;">PHIẾU LỆNH DỒN KHO</h1>
+        <p style="text-align: center; font-size: 14px; color: #666;">Ngày tạo: ${new Date().toLocaleDateString()}</p>
+        <hr style="border: 1px solid #ddd; margin: 20px 0;" />
+        <p style="font-size: 14px; margin-bottom: 20px;">Vui lòng thực hiện lấy các mẫu từ [Cột Nguồn] và chuyển sang xếp vào [Cột Đích] theo danh sách dưới đây:</p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="background-color: #f3f4f6;">
+              <th style="border: 1px solid #ccc; padding: 10px;">Sản phẩm</th>
+              <th style="border: 1px solid #ccc; padding: 10px;">Vị trí Nguồn (Lấy ra)</th>
+              <th style="border: 1px solid #ccc; padding: 10px;">Vị trí Đích (Xếp vào)</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    consolidationProposals.forEach((p, index) => {
+      const sourceList = p.sourceCols.map(c => `Kệ ${c.shelf} - Ô ${c.slot} - Cột ${c.column_number} (${Math.ceil(c.totalQty)} cây)`).join('<br/>');
+      const destStr = `Kệ ${p.destCol.shelf} - Ô ${p.destCol.slot} - Cột ${p.destCol.column_number}`;
+      
+      htmlContent += `
+        <tr>
+          <td style="border: 1px solid #ccc; padding: 10px;">
+            <strong>${p.product.product_name}</strong><br/>
+            <span style="font-size: 11px; color: #666;">Tổng sau khi gom: ${p.totalCartons} cây</span>
+          </td>
+          <td style="border: 1px solid #ccc; padding: 10px; color: #dc2626;">${sourceList}</td>
+          <td style="border: 1px solid #ccc; padding: 10px; color: #16a34a; font-weight: bold;">${destStr}</td>
+        </tr>
+      `;
+    });
+
+    htmlContent += `
+          </tbody>
+        </table>
+        <div style="margin-top: 40px; display: flex; justify-content: space-between;">
+          <div style="text-align: center; width: 45%;">
+            <p><strong>Người lập phiếu</strong></p>
+            <p style="margin-top: 50px;">(Ký & ghi rõ họ tên)</p>
+          </div>
+          <div style="text-align: center; width: 45%;">
+            <p><strong>Thủ kho thực hiện</strong></p>
+            <p style="margin-top: 50px;">(Ký & ghi rõ họ tên)</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const element = document.createElement('div');
+    element.innerHTML = htmlContent;
+    html2pdf().from(element).set({
+      margin: 10,
+      filename: `Phieu_Don_Kho_${new Date().toISOString().slice(0,10)}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2 },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }).save();
   };
 
   const handleSkipEvict = () => {
@@ -5557,9 +5741,20 @@ export default function App() {
             {/* SHELVES GRID VISUALIZATION */}
             {activeTab === 'shelves' && (
               <div className="glass-panel">
-                <h2 style={{ fontSize: '20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Database size={22} color="var(--accent-blue)" /> Sơ Đồ Không Gian Kho Lưu (6 Kệ x 5 Ô)
-                </h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                  <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <Database size={22} color="var(--accent-blue)" /> Sơ Đồ Không Gian Kho Lưu (6 Kệ x 5 Ô)
+                  </h2>
+                  {profile?.role === 'admin' && (
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={handleScanConsolidation} 
+                      style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', padding: '6px 14px' }}
+                    >
+                      <Layers size={16} /> Dọn dẹp & Gom kho
+                    </button>
+                  )}
+                </div>
                 <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
                   Nhấp vào một ô để xem chi tiết cách sắp xếp cây thuốc theo cột và chiều cao xếp chồng đứng (cột * cao). Ô 5 là ô dành riêng chứa bao lẻ bóc cây.
                 </p>
@@ -7984,6 +8179,72 @@ export default function App() {
       )}
 
       {/* TRAY ADJUSTER MODAL (SIDE BY SIDE MERGE/SPLIT TOOL) */}
+      {/* CONSOLIDATION MODAL */}
+      {showConsolidationModal && (
+        <div className="modal-overlay" style={{ zIndex: 1000 }} onClick={() => setShowConsolidationModal(false)}>
+          <div className="modal-content glass-panel" style={{ width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Layers size={22} color="var(--accent-blue)" /> Đề xuất Dọn dẹp & Gom Kho
+              </h2>
+              <button className="close-btn" onClick={() => setShowConsolidationModal(false)}><X size={18} /></button>
+            </div>
+            
+            {consolidationProposals?.length > 0 ? (
+              <>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '15px' }}>
+                  Phát hiện {consolidationProposals.length} sản phẩm đang bị phân mảnh rải rác. Có thể dồn lại để giải phóng thêm cột.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px' }}>
+                  {consolidationProposals.map((p, idx) => (
+                    <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '8px', color: 'var(--accent-blue)' }}>
+                        {p.product.product_name} <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>(Tổng sau khi gom: {p.totalCartons} cây)</span>
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1 }}>
+                          <strong style={{ fontSize: '12px', color: 'var(--status-error)' }}>Từ (Nguồn):</strong>
+                          <ul style={{ margin: '5px 0 0 0', paddingLeft: '20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                            {p.sourceCols.map((c, i) => (
+                              <li key={i}>Kệ {c.shelf} - Ô {c.slot} - Cột {c.column_number} ({Math.ceil(c.totalQty)} cây)</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div style={{ marginTop: '20px' }}>
+                          <ArrowRightLeft size={18} color="var(--accent-blue)" />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <strong style={{ fontSize: '12px', color: '#10b981' }}>Đến (Đích):</strong>
+                          <div style={{ marginTop: '5px', fontSize: '13px', color: 'var(--text-primary)', fontWeight: 'bold' }}>
+                            Kệ {p.destCol.shelf} - Ô {p.destCol.slot} - Cột {p.destCol.column_number}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+                  <button className="btn btn-secondary" onClick={() => setShowConsolidationModal(false)}>Hủy bỏ</button>
+                  <button className="btn btn-secondary" onClick={generateConsolidationPDF} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Printer size={15} /> In lệnh dồn kho
+                  </button>
+                  <button className="btn btn-primary" onClick={handleConfirmConsolidation} disabled={loading} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}>
+                    {loading ? <Loader size={16} className="spin" /> : <Check size={16} />} 
+                    Xác nhận Gom kho & In mã mới
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                Kho của bạn hiện đang tối ưu, không có cột nào bị phân mảnh cần gom!
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {showTrayAdjusterModal && (() => {
         const pendingS = samples.filter(s => s.status === 'pending');
         const traysList = [...new Set(pendingS.map(s => s.tray_number).filter(t => t !== null && t !== undefined))].sort((a,b)=>a-b);
