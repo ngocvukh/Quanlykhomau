@@ -89,6 +89,27 @@ const generateDeviceId = async () => {
   }
 };
 
+// Telegram Integration
+const TELEGRAM_TOKEN = '8968519387:AAGS_g2ZLOO2oN1f4PCz-Lz5GTYIlDswrnU';
+const TELEGRAM_CHAT_ID = '-5527417385';
+
+export const sendTelegramNotification = async (message) => {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+        parse_mode: 'HTML'
+      })
+    });
+  } catch (error) {
+    console.error("Lỗi gửi thông báo Telegram:", error);
+  }
+};
+
 // Format capacity mapping
 const FORMAT_CAPACITIES = {
   'Kingsize': { columns: 6, height: 6, total: 36 },
@@ -3451,6 +3472,8 @@ export default function App() {
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [newTx, ...prev]);
+      const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+      sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Ghi chú: ${finalNote}\n- Tình trạng: Đang chờ duyệt`);
       showToast("Đã gửi yêu cầu lấy mẫu! Chờ thủ kho xác nhận.", "success");
       
       // Update result quantity locally for preview
@@ -3494,6 +3517,8 @@ export default function App() {
           note: finalNote
         });
         if (error) throw error;
+        const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
+        sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Ghi chú: ${finalNote}\n- Tình trạng: Đang chờ duyệt`);
         showToast("Gửi yêu cầu thành công!", "success");
         fetchDatabaseData();
 
@@ -3593,6 +3618,7 @@ export default function App() {
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [approveTx, ...prev]);
+      sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qtyToTake} bao\n- Người duyệt: ${profile?.full_name || 'Thủ kho Demo'}`);
       showToast("Đã duyệt cấp mẫu thành công!", "success");
     } else {
       try {
@@ -3629,6 +3655,7 @@ export default function App() {
           note: `Đã duyệt cấp ${qtyToTake} bao. Vị trí cũ: ${formatLocation(sample.shelf, sample.slot)}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5) : 'Hết mẫu'}`
         });
 
+        sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qtyToTake} bao\n- Người duyệt: ${profile?.full_name || 'Admin'}`);
         showToast("Đã phê duyệt cấp mẫu thành công!", "success");
         fetchDatabaseData();
       } catch (e) {
@@ -3646,6 +3673,7 @@ export default function App() {
         if (t.id === txId) return { ...t, status: 'cancelled' };
         return t;
       }));
+      sendTelegramNotification(`❌ <b>YÊU CẦU BỊ TỪ CHỐI (DEMO)</b>\n- Yêu cầu ID: ${txId}\n- Người từ chối: ${profile?.full_name || 'Admin'}`);
       showToast("Đã từ chối/hủy yêu cầu", "info");
     } else {
       try {
@@ -3655,6 +3683,7 @@ export default function App() {
           .update({ status: 'cancelled' })
           .eq('id', txId);
         if (error) throw error;
+        sendTelegramNotification(`❌ <b>YÊU CẦU BỊ TỪ CHỐI</b>\n- Yêu cầu ID: ${txId}\n- Người từ chối: ${profile?.full_name || 'Admin'}`);
         showToast("Đã hủy yêu cầu", "info");
         fetchDatabaseData();
       } catch (e) {
