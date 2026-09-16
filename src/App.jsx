@@ -7454,7 +7454,7 @@ export default function App() {
       {/* DETAIL SLOT MODAL (Visually displaying columns inside slot) */}
       {selectedSlot && (
         <div className="modal-overlay" onClick={() => setSelectedSlot(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-content" style={{ maxWidth: '1200px', width: '95%' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 style={{ fontSize: '18px', fontWeight: 'bold' }}>Chi tiết: Kệ {selectedSlot.shelf} — Ô {selectedSlot.slot}</h3>
               <button className="close-btn" onClick={() => setSelectedSlot(null)}><X size={18} /></button>
