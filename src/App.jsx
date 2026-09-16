@@ -90,10 +90,14 @@ const generateDeviceId = async () => {
 };
 
 // Telegram Integration
-const TELEGRAM_TOKEN = '8968519387:AAGS_g2ZLOO2oN1f4PCz-Lz5GTYIlDswrnU';
-const TELEGRAM_CHAT_ID = '-5527417385';
+const TELEGRAM_TOKEN = import.meta.env.VITE_TELEGRAM_TOKEN || '';
+const TELEGRAM_CHAT_ID = import.meta.env.VITE_TELEGRAM_CHAT_ID || '';
 
 export const sendTelegramNotification = async (message) => {
+  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.warn("Chưa cấu hình Telegram Token hoặc Chat ID trong biến môi trường.");
+    return;
+  }
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
     await fetch(url, {
