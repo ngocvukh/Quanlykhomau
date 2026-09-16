@@ -7932,10 +7932,12 @@ export default function App() {
                                       onClick={() => {
                                         setHighlightedSampleId(isHighlighted ? null : s.id);
                                         if (!isHighlighted) {
+                                          // Expand the column accordion so the row renders in DOM
+                                          setExpandedSlotCols(prev => ({ ...prev, [col]: true }));
                                           setTimeout(() => {
                                             const el = document.getElementById(`sample-row-${s.id}`);
                                             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                          }, 60);
+                                          }, 100);
                                         }
                                       }}
                                       style={{  
