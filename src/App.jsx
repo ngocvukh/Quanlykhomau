@@ -636,6 +636,7 @@ export default function App() {
 
   // Modal / Detail States
   const [selectedSlot, setSelectedSlot] = useState(null); // { shelf, slot }
+  const [expandedSlotCols, setExpandedSlotCols] = useState({}); // { [col]: boolean }
   const [qrCodeModal, setQrCodeModal] = useState(null); // sample object
   const [movingSample, setMovingSample] = useState(null); // sample object to move
 
@@ -7815,9 +7816,15 @@ export default function App() {
                         const maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
                         const totalCartons = colSamples.reduce((sum, s) => sum + Math.ceil(s.available_qty / 10), 0);
 
+                        const isExpanded = expandedSlotCols[col];
+
                         return (
                           <div key={col} style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', marginBottom: '10px' }}>
+                            <div 
+                              onClick={() => setExpandedSlotCols(prev => ({ ...prev, [col]: !prev[col] }))}
+                              style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.05)' : 'none', paddingBottom: isExpanded ? '8px' : '0', marginBottom: isExpanded ? '10px' : '0', cursor: 'pointer', userSelect: 'none' }}
+                              title="Nhấn để thu gọn / mở rộng"
+                            >
                               <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>Cột {col}</span>
                               <strong style={{ fontSize: '14px' }}>{firstSample.products?.product_name || firstSample.product_name}</strong>
                               {firstSample.products?.warning_code && (
@@ -7825,13 +7832,17 @@ export default function App() {
                                   {firstSample.products.warning_code}
                                 </span>
                               )}
-                              <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text-muted)' }}>
-                                Chiều cao: <strong>{totalCartons}/{maxHeight} cây</strong>
+                              <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>Chiều cao: <strong>{totalCartons}/{maxHeight} cây</strong></span>
+                                <span style={{ fontSize: '10px', color: 'var(--accent-blue)', background: 'rgba(56,189,248,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                                  {isExpanded ? '▲ Thu gọn' : '▼ Chi tiết'}
+                                </span>
                               </span>
                             </div>
 
                             {/* Render each stacked batch in this column (sorted newest first, which sits on top) */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {isExpanded && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                               {(() => {
                                 const sortedColSamples = [...colSamples].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
                                 return sortedColSamples.map((sample, sIdx) => {
@@ -7954,7 +7965,8 @@ export default function App() {
                                   );
                                 });
                               })()}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         );
                       });
