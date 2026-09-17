@@ -1427,7 +1427,7 @@ export default function App() {
       showToast(`Đã dồn ${consolidationProposals.length} vị trí thành công! Đã đưa vào Hàng chờ In tem.`, "success");
       setShowConsolidationModal(false);
       setConsolidationProposals(null);
-      await fetchSamples();
+      await fetchDatabaseData();
     } catch (e) {
       console.error(e);
       showToast("Có lỗi khi gộp kho!", "error");
