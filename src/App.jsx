@@ -116,11 +116,11 @@ export const sendTelegramNotification = async (message) => {
 
 // Format capacity mapping
 const FORMAT_CAPACITIES = {
-  'Kingsize': { columns: 6, height: 6, total: 36 },
-  'SuperSlim': { columns: 6, height: 10, total: 60 },
-  'Semi': { columns: 6, height: 6, total: 36 },
+  'Kingsize': { columns: 8, height: 6, total: 48 },
+  'SuperSlim': { columns: 7, height: 10, total: 70 },
+  'Semi': { columns: 7, height: 6, total: 42 },
   'Demi': { columns: 8, height: 7, total: 56 },
-  'Slim': { columns: 6, height: 10, total: 60 }
+  'Slim': { columns: 7, height: 10, total: 70 }
 };
 
 const liveFormatDate = (value, prevValue) => {
@@ -3897,7 +3897,6 @@ export default function App() {
         const movingCartons = Math.ceil(movingSample.available_qty / 10);
         const format = movingSample.products?.format || 'Kingsize';
         let maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
-        if (format === 'Kingsize') maxHeight = 6;
 
         if (totalCartonsInCol + movingCartons > maxHeight) {
           showToast(`Cột ${column_number} vượt quá chiều cao tối đa (${maxHeight} cây). Vui lòng xếp sang cột khác!`, "error");
@@ -7855,7 +7854,7 @@ export default function App() {
                         
                         const colSample = slotSamples.find(s => s.column_number === checkCol);
                         const colFormat = colSample?.products?.format || 'Kingsize';
-                        const colMaxHeight = colFormat === 'Kingsize' ? 6 : (FORMAT_CAPACITIES[colFormat]?.height || 7);
+                        const colMaxHeight = FORMAT_CAPACITIES[colFormat]?.height || 7;
                         
                         const colIsFull = colConfig?.is_full || (colHeight >= colMaxHeight);
                         
@@ -7872,9 +7871,8 @@ export default function App() {
                         const height = getColumnHeight(selectedSlot.shelf, selectedSlot.slot, col);
                         const format = sampleInCol?.products?.format || 'Kingsize';
                         
-                        // Use FORMAT_CAPACITIES, fallback to 6 for Kingsize, 10 for Slim based on user request
+                        // Use FORMAT_CAPACITIES, fallback to 7 if not found
                         let maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
-                        if (format === 'Kingsize') maxHeight = 6; // User explicit visual preference
 
                         const colConfig = slotConfigs.find(c => c.shelf === selectedSlot.shelf && c.slot === selectedSlot.slot && c.column_number === col);
                         const colIsFull = colConfig?.is_full || false;
