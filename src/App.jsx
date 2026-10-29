@@ -89,26 +89,41 @@ const generateDeviceId = async () => {
   }
 };
 
-// Telegram Integration
-const TELEGRAM_TOKEN = import.meta.env.VITE_TELEGRAM_TOKEN || '';
-const TELEGRAM_CHAT_ID = import.meta.env.VITE_TELEGRAM_CHAT_ID || '';
+// HTML Escape helper for safe document.write / innerHTML templates
+const escapeHtml = (str) => String(str ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#039;');
+
+// Telegram Integration (via Vercel Serverless Function /api/telegram to keep Bot Token server-side)
+const TELEGRAM_TOKEN = import.meta.env.DEV ? (import.meta.env.VITE_TELEGRAM_TOKEN || '') : '';
+const TELEGRAM_CHAT_ID = import.meta.env.DEV ? (import.meta.env.VITE_TELEGRAM_CHAT_ID || '') : '';
 
 export const sendTelegramNotification = async (message) => {
-  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.warn("Chưa cấu hình Telegram Token hoặc Chat ID trong biến môi trường.");
-    return;
-  }
   try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-    await fetch(url, {
+    // Ưu tiên gọi qua Serverless endpoint /api/telegram (an toàn trên Vercel Production)
+    const apiRes = await fetch('/api/telegram', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-        parse_mode: 'HTML'
-      })
+      body: JSON.stringify({ message })
     });
+    if (apiRes.ok) return;
+
+    // Fallback khi chạy local Vite dev server mà không dùng vercel dev
+    if (import.meta.env.DEV && TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
+      const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text: message,
+          parse_mode: 'HTML'
+        })
+      });
+    }
   } catch (error) {
     console.error("Lỗi gửi thông báo Telegram:", error);
   }
@@ -1139,7 +1154,8 @@ export default function App() {
       }
 
       const samplesToInsert = [];
-      for (const r of bulkRows) {
+      for (let rowIdx = 0; rowIdx < bulkRows.length; rowIdx++) {
+        const r = bulkRows[rowIdx];
         const prod = r.productObj;
         const packD = parseDMY(r.packagingDate);
         const blendD = parseDMY(r.blendDate);
@@ -1147,7 +1163,8 @@ export default function App() {
         const hourVal = parseInt(r.samplingHour, 10) || 0;
         const minuteVal = parseInt(r.samplingMinute, 10) || 0;
         sampD.setHours(hourVal, minuteVal, 0, 0);
-        const sku = `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${Math.floor(Math.random()*1000)}`;
+        const randSuffix = `${String(rowIdx + 1).padStart(2, '0')}${Math.floor(100 + Math.random() * 900)}`;
+        const sku = `QR-${prod.product_name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}-${randSuffix}`;
         samplesToInsert.push({
           sku, product_id: prod.id,
           order_number: r.orderNumber || null,
@@ -1244,12 +1261,12 @@ export default function App() {
       html += `
               <tr>
                 <td style="text-align: center;">${i + 1}</td>
-                <td><strong>${r.productObj?.product_name || ''}</strong></td>
-                <td>Mẻ ${r.blendBatch}${r.boxSeq ? ` | ${r.boxSeq}` : ''}</td>
-                <td>${r.packagingDate || ''}</td>
-                <td style="text-align: center;"><strong>${r.qty || 0}</strong></td>
-                <td class="location">${locStr}</td>
-                <td style="font-weight: bold; color: #16a34a;">${boxName}</td>
+                <td><strong>${escapeHtml(r.productObj?.product_name || '')}</strong></td>
+                <td>Mẻ ${escapeHtml(r.blendBatch)}${r.boxSeq ? ` | ${escapeHtml(r.boxSeq)}` : ''}</td>
+                <td>${escapeHtml(r.packagingDate || '')}</td>
+                <td style="text-align: center;"><strong>${escapeHtml(r.qty || 0)}</strong></td>
+                <td class="location">${escapeHtml(locStr)}</td>
+                <td style="font-weight: bold; color: #16a34a;">${escapeHtml(boxName)}</td>
               </tr>
       `;
     });
@@ -1463,11 +1480,11 @@ export default function App() {
       htmlContent += `
         <tr>
           <td style="border: 1px solid #ccc; padding: 10px;">
-            <strong>${p.product.product_name}</strong><br/>
-            <span style="font-size: 11px; color: #666;">Tổng sau khi gom: ${p.totalCartons} cây</span>
+            <strong>${escapeHtml(p.product.product_name)}</strong><br/>
+            <span style="font-size: 11px; color: #666;">Tổng sau khi gom: ${escapeHtml(p.totalCartons)} cây</span>
           </td>
           <td style="border: 1px solid #ccc; padding: 10px; color: #dc2626;">${sourceList}</td>
-          <td style="border: 1px solid #ccc; padding: 10px; color: #16a34a; font-weight: bold;">${destStr}</td>
+          <td style="border: 1px solid #ccc; padding: 10px; color: #16a34a; font-weight: bold;">${escapeHtml(destStr)}</td>
         </tr>
       `;
     });
@@ -2060,7 +2077,7 @@ export default function App() {
       id: userId,
       full_name: authFullName || user?.email?.split('@')[0] || "Người dùng",
       employee_code: authEmployeeCode || `NV-${Math.floor(Math.random() * 10000)}`,
-      role: authRole || 'staff',
+      role: 'staff', // Luôn mặc định là staff khi tự đăng ký để tránh leo thang đặc quyền
       department: 'QC'
     };
     try {
@@ -2078,35 +2095,6 @@ export default function App() {
       fetchDatabaseData();
     }
   }, [user, authMode, isDemoMode]);
-
-  // FIX SCRIPT
-  useEffect(() => {
-    const fixDB = async () => {
-      if (isDemoMode) return;
-      try {
-        const sourceBoxId = 'ec8925e8-f997-4abb-aa1a-cea929e35850'; // Thùng 9/2026
-        const targetBoxId = '924be28f-bcd9-48d1-9d33-1b77ee47d1ce'; // Thùng 10/2025
-        
-        const { data: samplesIn92026 } = await supabase
-          .from('samples')
-          .select('id')
-          .eq('box_id', sourceBoxId);
-          
-        if (samplesIn92026 && samplesIn92026.length > 0) {
-          await supabase
-            .from('samples')
-            .update({ box_id: targetBoxId })
-            .eq('box_id', sourceBoxId);
-            
-          await supabase.from('boxes').delete().eq('id', sourceBoxId);
-          fetchDatabaseData(); // Reload data
-        }
-      } catch (e) {
-        console.error('Error auto fixing db:', e);
-      }
-    };
-    fixDB();
-  }, [user]);
 
   const fetchDatabaseData = async () => {
     try {
@@ -2352,80 +2340,105 @@ export default function App() {
 
     const format = prod.format || 'Kingsize';
     const limitInfo = FORMAT_CAPACITIES[format] || FORMAT_CAPACITIES['Kingsize'];
+    const shelfRange = prod.is_export ? [1, 2, 3, 4, 5, 6] : [6, 5, 4, 3, 2, 1];
 
     // 1. Priority 1: Find a column that already has this product and is NOT full
-    const sameProductSamples = samples.filter(s => s.product_id === prodId && s.status === 'stored');
-    for (let s of sameProductSamples) {
-      if (s.shelf && s.slot && s.column_number) {
-        // Calculate current height occupied in this column by this product batch
-        const currentCartons = Math.ceil(s.available_qty / 10);
-        if (currentCartons < limitInfo.height) {
-          // Found space!
-          setSuggestedLoc({
-            shelf: s.shelf,
-            slot: s.slot,
-            column_number: s.column_number,
-            reason: `Xếp chồng tiếp vào ${formatLocation(s.shelf, s.slot, s.column_number)} (Đã có sản phẩm này, hiện cao ${currentCartons}/${limitInfo.height} cây)`
-          });
-          setImportShelf(s.shelf);
-          setImportSlot(s.slot);
-          setImportColumn(s.column_number);
-          return;
+    for (let shelf of shelfRange) {
+      for (let slot = 1; slot <= 4; slot++) {
+        const slotConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
+        if (slotConfig?.is_full) continue;
+
+        const colSamplesMap = {};
+        samples.filter(s => s.shelf === shelf && s.slot === slot && s.status === 'stored' && s.column_number).forEach(s => {
+          if (!colSamplesMap[s.column_number]) colSamplesMap[s.column_number] = [];
+          colSamplesMap[s.column_number].push(s);
+        });
+
+        for (const [colStr, colItems] of Object.entries(colSamplesMap)) {
+          const colNum = parseInt(colStr, 10);
+          const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === colNum);
+          if (colConfig?.is_full) continue;
+
+          if (colItems.some(s => s.product_id === prodId)) {
+            const totalPacksInCol = colItems.reduce((sum, item) => sum + (item.available_qty || 0), 0);
+            const currentCartons = Math.ceil(totalPacksInCol / 10);
+            if (currentCartons < limitInfo.height) {
+              setSuggestedLoc({
+                shelf,
+                slot,
+                column_number: colNum,
+                reason: `Xếp chồng tiếp vào ${formatLocation(shelf, slot, colNum)} (Đã có sản phẩm này, hiện cao ${currentCartons}/${limitInfo.height} cây)`
+              });
+              setImportShelf(shelf);
+              setImportSlot(slot);
+              setImportColumn(colNum);
+              return;
+            }
+          }
         }
       }
     }
 
     // 2. Priority 2: Find the next consecutive empty column in a slot that contains the SAME format
-    // Iterate Shelves 1-6, Slots 1-4 (excluding slot 5 which is loose packs)
-    for (let shelf = 1; shelf <= 6; shelf++) {
+    for (let shelf of shelfRange) {
       for (let slot = 1; slot <= 4; slot++) {
-        // Check what products are stored in this slot
+        const slotConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
+        if (slotConfig?.is_full) continue;
+
         const slotSamples = samples.filter(s => s.shelf === shelf && s.slot === slot && s.status === 'stored');
+        const hasSameFormat = slotSamples.length > 0 && slotSamples.every(s => (s.products?.format || products.find(p => p.id === s.product_id)?.format) === format);
         
-        // Find if this slot has any samples, and if they match the same format
-        const hasSameFormat = slotSamples.length > 0 && slotSamples.every(s => s.products?.format === format);
-        
-        if (hasSameFormat || slotSamples.length === 0) {
-          // Slot is dedicated to this format, or empty. Check for the next consecutive column.
+        if (hasSameFormat) {
           const maxCols = limitInfo.columns;
-          const occupiedCols = slotSamples.map(s => s.column_number);
-          const nextCol = occupiedCols.length > 0 ? Math.max(...occupiedCols) + 1 : 1;
+          const occupiedCols = new Set(slotSamples.map(s => s.column_number));
+          let nextCol = 1;
+          while (nextCol <= maxCols && occupiedCols.has(nextCol)) nextCol++;
           
           if (nextCol <= maxCols) {
+            const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
+            if (!colConfig?.is_full) {
+              setSuggestedLoc({
+                shelf,
+                slot,
+                column_number: nextCol,
+                reason: `Cột trống kế tiếp trong ô cùng định dạng [${format}] (${formatLocation(shelf, slot, nextCol)})`
+              });
+              setImportShelf(shelf);
+              setImportSlot(slot);
+              setImportColumn(nextCol);
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Priority 3: Find the next consecutive empty column in any slot anywhere following shelfRange
+    for (let shelf of shelfRange) {
+      for (let slot = 1; slot <= 4; slot++) {
+        const slotConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
+        if (slotConfig?.is_full) continue;
+
+        const slotSamples = samples.filter(s => s.shelf === shelf && s.slot === slot && s.status === 'stored');
+        const maxCols = limitInfo.columns;
+        const occupiedCols = new Set(slotSamples.map(s => s.column_number));
+        let nextCol = 1;
+        while (nextCol <= maxCols && occupiedCols.has(nextCol)) nextCol++;
+        
+        if (nextCol <= maxCols) {
+          const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
+          if (!colConfig?.is_full) {
             setSuggestedLoc({
               shelf,
               slot,
               column_number: nextCol,
-              reason: `Cột trống kế tiếp trong ô cùng định dạng [${format}] (${formatLocation(shelf, slot, nextCol)})`
+              reason: `Tìm thấy cột trống kế tiếp phù hợp (${formatLocation(shelf, slot, nextCol)})`
             });
             setImportShelf(shelf);
             setImportSlot(slot);
             setImportColumn(nextCol);
             return;
           }
-        }
-      }
-    }
-
-    // 3. Priority 3: Find the next consecutive empty column in any slot anywhere, starting from lower shelves (1 -> 6)
-    for (let shelf = 1; shelf <= 6; shelf++) {
-      for (let slot = 1; slot <= 4; slot++) {
-        const slotSamples = samples.filter(s => s.shelf === shelf && s.slot === slot && s.status === 'stored');
-        const maxCols = limitInfo.columns;
-        const occupiedCols = slotSamples.map(s => s.column_number);
-        const nextCol = occupiedCols.length > 0 ? Math.max(...occupiedCols) + 1 : 1;
-        
-        if (nextCol <= maxCols) {
-          setSuggestedLoc({
-            shelf,
-            slot,
-            column_number: nextCol,
-            reason: `Tìm thấy cột trống kế tiếp dưới thấp (${formatLocation(shelf, slot, nextCol)})`
-          });
-          setImportShelf(shelf);
-          setImportSlot(slot);
-          setImportColumn(nextCol);
-          return;
         }
       }
     }
@@ -2547,7 +2560,7 @@ export default function App() {
       setEditSamplingHour('08');
       setEditSamplingMinute('00');
     }
-    setEditQty(s.available_qty ? String(Math.round(s.available_qty / 10)) : '10');
+    setEditQty(s.available_qty !== undefined && s.available_qty !== null ? String(s.available_qty / 10) : '1');
     setEditNote(s.note || '');
   };
 
@@ -2600,11 +2613,12 @@ export default function App() {
       return;
     }
 
-    const qtyVal = parseInt(editQty, 10);
-    if (isNaN(qtyVal) || qtyVal < 1) {
-      showToast("Số lượng cây mẫu phải là số nguyên lớn hơn 0!", "error");
+    const qtyVal = parseFloat(editQty);
+    if (isNaN(qtyVal) || qtyVal <= 0) {
+      showToast("Số lượng cây mẫu phải lớn hơn 0!", "error");
       return;
     }
+    const newAvailablePacks = Math.round(qtyVal * 10);
 
     if (prod.is_export && !editOrderNumber) {
       showToast("Hàng xuất khẩu bắt buộc nhập số đơn hàng!", "error");
@@ -2620,8 +2634,8 @@ export default function App() {
       blend_date: formatLocalYYYYMMDD(blendD),
       packaging_date: formatLocalYYYYMMDD(packD),
       sampling_time: sampD.toISOString(),
-      total_qty: qtyVal * 10,
-      available_qty: qtyVal * 10,
+      total_qty: Math.max(editingSample.total_qty || 0, newAvailablePacks),
+      available_qty: newAvailablePacks,
       note: editNote || null,
       updated_at: new Date().toISOString()
     };
@@ -3183,7 +3197,8 @@ export default function App() {
       const searchLower = val.toLowerCase().trim();
       const matches = products.filter(p => p.product_name.toLowerCase().includes(searchLower)).slice(0, 8);
       setSearchSuggestions(matches);
-        setSearchSuggestions([]);
+    } else {
+      setSearchSuggestions([]);
     }
   };
 
@@ -3248,12 +3263,12 @@ export default function App() {
         rowsHtml += `
           <tr>
             <td style="text-align:center">${stt++}</td>
-            <td>${productName}</td>
-            <td style="text-align:center">Kệ ${s.shelf}</td>
-            <td style="text-align:center">${s.slot}</td>
-            <td style="text-align:center">${s.column_number}</td>
-            <td style="text-align:center">${packDate}</td>
-            <td style="text-align:center;font-weight:bold">${s.available_qty}</td>
+            <td>${escapeHtml(productName)}</td>
+            <td style="text-align:center">Kệ ${escapeHtml(s.shelf)}</td>
+            <td style="text-align:center">${escapeHtml(s.slot)}</td>
+            <td style="text-align:center">${escapeHtml(s.column_number)}</td>
+            <td style="text-align:center">${escapeHtml(packDate)}</td>
+            <td style="text-align:center;font-weight:bold">${escapeHtml(s.available_qty)}</td>
             <td></td>
           </tr>`;
       });
@@ -3451,8 +3466,17 @@ export default function App() {
       showToast("Số lượng lấy phải lớn hơn 0!", "error");
       return;
     }
-    if (qty > sample.available_qty) {
-      showToast(`Không đủ số lượng trong kho! Còn lại ${sample.available_qty} bao.`, "error");
+    const pendingQtyForSample = transactions
+      .filter(t => t.sample_id === sample.id && t.type === 'take_request' && t.status === 'pending')
+      .reduce((sum, t) => sum + (parseInt(t.quantity, 10) || 0), 0);
+    const effectiveAvailableQty = Math.max(0, (sample.available_qty || 0) - pendingQtyForSample);
+
+    if (qty > effectiveAvailableQty) {
+      if (pendingQtyForSample > 0) {
+        showToast(`Không đủ số lượng khả dụng! Hiện có ${sample.available_qty} bao nhưng đang có ${pendingQtyForSample} bao chờ duyệt (chỉ còn đặt thêm được tối đa ${effectiveAvailableQty} bao).`, "error");
+      } else {
+        showToast(`Không đủ số lượng trong kho! Còn lại ${sample.available_qty} bao.`, "error");
+      }
       return;
     }
 
@@ -3906,10 +3930,10 @@ export default function App() {
     }
 
     let updates = {
-      status: targetType === 'shelves' ? 'stored' : targetType === 'box' ? 'archived' : 'pending',
+      status: targetType === 'shelves' ? 'stored' : targetType === 'box' ? 'boxed' : 'pending',
       shelf: targetType === 'shelves' ? targetDetails.shelf : null,
       slot: targetType === 'shelves' ? targetDetails.slot : null,
-      column_number: (targetType === 'shelves' && targetDetails.slot !== 5) ? targetDetails.column_number : null,
+      column_number: targetType === 'shelves' ? (targetDetails.slot === 5 ? 1 : targetDetails.column_number) : null,
       box_id: targetType === 'box' ? targetDetails.box_id : null,
       tray_number: targetType === 'pending' ? targetDetails.tray_number : null,
     };
@@ -4042,14 +4066,14 @@ export default function App() {
               const sttThung = s.blend_batch && s.blend_batch.includes('|') ? s.blend_batch.split('|')[1] : (s.box_seq || '');
               return `
                 <tr>
-                  <td>${s.products?.product_name || s.product_name}</td>
-                  <td>${s.order_number || ''}</td>
-                  <td>${formatBlendBatch(s.blend_batch)}</td>
-                  <td>${blendDateStr}</td>
-                  <td>${new Date(s.packaging_date).toLocaleDateString()}</td>
-                  <td>${sttThung}</td>
-                  <td>${s.available_qty}</td>
-                  <td>${expDate}</td>
+                  <td>${escapeHtml(s.products?.product_name || s.product_name)}</td>
+                  <td>${escapeHtml(s.order_number || '')}</td>
+                  <td>${escapeHtml(formatBlendBatch(s.blend_batch))}</td>
+                  <td>${escapeHtml(blendDateStr)}</td>
+                  <td>${escapeHtml(new Date(s.packaging_date).toLocaleDateString())}</td>
+                  <td>${escapeHtml(sttThung)}</td>
+                  <td>${escapeHtml(s.available_qty)}</td>
+                  <td>${escapeHtml(expDate)}</td>
                 </tr>
               `;
             }).join('')}
@@ -4107,12 +4131,12 @@ export default function App() {
               const location = s.shelf ? formatLocation(s.shelf, s.slot, s.column_number) : `Thùng ${boxes.find(b => b.id === s.box_id)?.box_name || 'K/h'}`;
               return `
                 <tr>
-                  <td>${s.sku}</td>
-                  <td>${s.products?.product_name || s.product_name}</td>
-                  <td>${location}</td>
-                  <td>${new Date(s.packaging_date).toLocaleDateString()}</td>
-                  <td style="color:red; font-weight:bold;">${diffMonths} tháng</td>
-                  <td>${s.available_qty}</td>
+                  <td>${escapeHtml(s.sku)}</td>
+                  <td>${escapeHtml(s.products?.product_name || s.product_name)}</td>
+                  <td>${escapeHtml(location)}</td>
+                  <td>${escapeHtml(new Date(s.packaging_date).toLocaleDateString())}</td>
+                  <td style="color:red; font-weight:bold;">${escapeHtml(diffMonths)} tháng</td>
+                  <td>${escapeHtml(s.available_qty)}</td>
                 </tr>
               `;
             }).join('')}
@@ -4372,24 +4396,24 @@ export default function App() {
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
               <div class="info-row">
                 <span class="info-label">Sản phẩm:</span>
-                <span class="info-val" style="font-weight: bold; font-size: 9px; white-space: normal; word-break: break-word; line-height: 1.2;">${s.products?.product_name || s.product_name}</span>
+                <span class="info-val" style="font-weight: bold; font-size: 9px; white-space: normal; word-break: break-word; line-height: 1.2;">${escapeHtml(s.products?.product_name || s.product_name)}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Cảnh báo:</span>
-                <span class="info-val">${s.products?.warning_code || 'Không cảnh báo'}</span>
+                <span class="info-val">${escapeHtml(s.products?.warning_code || 'Không cảnh báo')}</span>
               </div>
               ${s.order_number ? `
               <div class="info-row">
                 <span class="info-label">Số đơn hàng:</span>
-                <span class="info-val">${s.order_number}</span>
+                <span class="info-val">${escapeHtml(s.order_number)}</span>
               </div>` : ''}
               <div class="info-row">
                 <span class="info-label">Mẻ sợi:</span>
-                <span class="info-val">${formatBlendBatch(s.blend_batch)}</span>
+                <span class="info-val">${escapeHtml(formatBlendBatch(s.blend_batch))}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Thùng lấy mẫu:</span>
-                <span class="info-val">${boxSeqStr}</span>
+                <span class="info-val">${escapeHtml(boxSeqStr)}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Ngày SX sợi:</span>
@@ -4602,24 +4626,24 @@ export default function App() {
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
               <div class="info-row">
                 <span class="info-label">Sản phẩm:</span>
-                <span class="info-val" style="font-weight: bold; font-size: 9px; white-space: normal; word-break: break-word; line-height: 1.2;">${s.products?.product_name || s.product_name}</span>
+                <span class="info-val" style="font-weight: bold; font-size: 9px; white-space: normal; word-break: break-word; line-height: 1.2;">${escapeHtml(s.products?.product_name || s.product_name)}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Cảnh báo:</span>
-                <span class="info-val">${s.products?.warning_code || 'Không cảnh báo'}</span>
+                <span class="info-val">${escapeHtml(s.products?.warning_code || 'Không cảnh báo')}</span>
               </div>
               ${s.order_number ? `
               <div class="info-row">
                 <span class="info-label">Số đơn hàng:</span>
-                <span class="info-val">${s.order_number}</span>
+                <span class="info-val">${escapeHtml(s.order_number)}</span>
               </div>` : ''}
               <div class="info-row">
                 <span class="info-label">Mẻ sợi:</span>
-                <span class="info-val">${formatBlendBatch(s.blend_batch)}</span>
+                <span class="info-val">${escapeHtml(formatBlendBatch(s.blend_batch))}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Thùng lấy mẫu:</span>
-                <span class="info-val">${boxSeqStr}</span>
+                <span class="info-val">${escapeHtml(boxSeqStr)}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Ngày SX sợi:</span>
@@ -4918,37 +4942,37 @@ export default function App() {
             <table class="info-table">
               <tr>
                 <td class="label">Sản phẩm:</td>
-                <td class="val"><strong>${sample.products?.product_name || sample.product_name}</strong></td>
+                <td class="val"><strong>${escapeHtml(sample.products?.product_name || sample.product_name)}</strong></td>
               </tr>
               <tr>
                 <td class="label">Cảnh báo bao:</td>
-                <td class="val">${sample.products?.warning_code || 'Không cảnh báo'}</td>
+                <td class="val">${escapeHtml(sample.products?.warning_code || 'Không cảnh báo')}</td>
               </tr>
               <tr>
                 <td class="label">Mẻ sợi:</td>
-                <td class="val">${formatBlendBatch(sample.blend_batch)}</td>
+                <td class="val">${escapeHtml(formatBlendBatch(sample.blend_batch))}</td>
               </tr>
               <tr>
                 <td class="label">Ngày SX sợi:</td>
-                <td class="val">${new Date(sample.blend_date).toLocaleDateString()}</td>
+                <td class="val">${escapeHtml(new Date(sample.blend_date).toLocaleDateString())}</td>
               </tr>
               <tr>
                 <td class="label">Ngày SX bao:</td>
-                <td class="val">${new Date(sample.packaging_date).toLocaleDateString()} ${formatSamplingBox(sample.blend_batch)}</td>
+                <td class="val">${escapeHtml(new Date(sample.packaging_date).toLocaleDateString())} ${escapeHtml(formatSamplingBox(sample.blend_batch))}</td>
               </tr>
               <tr>
                 <td class="label">Thời gian lấy:</td>
-                <td class="val">${new Date(sample.sampling_time).toLocaleString()}</td>
+                <td class="val">${escapeHtml(new Date(sample.sampling_time).toLocaleString())}</td>
               </tr>
               ${sample.order_number ? `
               <tr>
                 <td class="label">Số đơn hàng XK:</td>
-                <td class="val">${sample.order_number}</td>
+                <td class="val">${escapeHtml(sample.order_number)}</td>
               </tr>
               ` : ''}
               <tr>
                 <td class="label">Vị trí lưu kho:</td>
-                <td class="val" style="font-weight:bold;">${formatLocation(sample.shelf, sample.slot, sample.column_number)}</td>
+                <td class="val" style="font-weight:bold;">${escapeHtml(formatLocation(sample.shelf, sample.slot, sample.column_number))}</td>
               </tr>
             </table>
           </div>
@@ -5067,7 +5091,7 @@ export default function App() {
       showToast("Hủy thành công!", "success");
       setShowDestructionProcessModal(false);
       setDestructionBoxTarget(null);
-      fetchData(user, authRole);
+      fetchDatabaseData();
     } catch(e) {
       console.error(e);
       showToast("Có lỗi xảy ra", "error");
@@ -5352,13 +5376,6 @@ export default function App() {
                   <div className="form-group">
                     <label className="form-label">Mã nhân viên</label>
                     <input className="form-input" type="text" required value={authEmployeeCode} onChange={e => setAuthEmployeeCode(e.target.value)} placeholder="QC-001" />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Vai trò</label>
-                    <select className="form-select" value={authRole} onChange={e => setAuthRole(e.target.value)}>
-                      <option value="staff">Nhân viên (Chỉ Tìm kiếm & Đăng ký lấy)</option>
-                      <option value="admin">Thủ kho (Quản trị & Phê duyệt)</option>
-                    </select>
                   </div>
                 </>
               )}
@@ -5845,13 +5862,15 @@ export default function App() {
                                         <span style={{ color: '#fbbf24', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prod?.product_name || '?'}</span>
                                         <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Mẻ {blendParts[0]} • {Math.round(s.available_qty/10)} cây • SX {s.packaging_date?.split('-').reverse().join('/')}</span>
                                       </div>
-                                      <button
-                                        className="btn btn-secondary"
-                                        style={{ padding: '3px 10px', fontSize: '11px', color: 'var(--accent-blue)', whiteSpace: 'nowrap', flexShrink: 0 }}
-                                        onClick={() => setMovingSample(s)}
-                                      >
-                                        <ArrowRightLeft size={11} style={{ marginRight: '4px' }} />Di chuyển
-                                      </button>
+                                      {profile?.role === 'admin' && (
+                                        <button
+                                          className="btn btn-secondary"
+                                          style={{ padding: '3px 10px', fontSize: '11px', color: 'var(--accent-blue)', whiteSpace: 'nowrap', flexShrink: 0 }}
+                                          onClick={() => setMovingSample(s)}
+                                        >
+                                          <ArrowRightLeft size={11} style={{ marginRight: '4px' }} />Di chuyển
+                                        </button>
+                                      )}
                                     </div>
                                   );
                                 })}
@@ -8019,7 +8038,7 @@ export default function App() {
                                   ⚙️ Cấu hình
                                 </button>
                               )}
-                              {height === 0 && (
+                              {profile?.role === 'admin' && height === 0 && (
                                 <button
                                   onClick={() => handleQuickImport(selectedSlot.shelf, selectedSlot.slot, col)}
                                   style={{ padding: '2px 6px', fontSize: '9.5px', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.3)', borderRadius: '4px', cursor: 'pointer', color: 'var(--accent-blue)', marginTop: '2px', outline: 'none' }}
@@ -9302,10 +9321,10 @@ export default function App() {
                         <tbody>
                           ${targetSamples.map(s => `
                             <tr>
-                              <td>${s.products?.product_name || s.product_name || s.product_id}</td>
-                              <td>${new Date(s.packaging_date).toLocaleDateString()}</td>
-                              <td>${s.order_number || '-'}</td>
-                              <td style="text-align: right">${s.available_qty}</td>
+                              <td>${escapeHtml(s.products?.product_name || s.product_name || s.product_id)}</td>
+                              <td>${escapeHtml(new Date(s.packaging_date).toLocaleDateString())}</td>
+                              <td>${escapeHtml(s.order_number || '-')}</td>
+                              <td style="text-align: right">${escapeHtml(s.available_qty)}</td>
                             </tr>
                           `).join('')}
                         </tbody>

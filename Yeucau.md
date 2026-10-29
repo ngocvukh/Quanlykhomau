@@ -99,11 +99,11 @@ Lưu trữ thông tin các thùng chứa mẫu được đóng gói khi kệ kho
 *   **Quy tắc phân chia cột trong Ô (cho Ô 1, 2, 3, 4 chứa các Cây thuốc lá nguyên)**:
     Mỗi ô chứa một số lượng cột nhất định tùy theo định dạng điếu của sản phẩm. **Đặc biệt: Mỗi cột chỉ chứa duy nhất 1 sản phẩm (1 mã sản phẩm/lô mẫu cụ thể, không xếp chồng các sản phẩm khác nhau lên cùng một cột).**
     Chiều cao tối đa (số cây xếp chồng chồng lên nhau trong 1 cột thẳng đứng) của mỗi cột được quy định như sau:
-    *   **Kingsize**: Ô gồm **6 cột** (đánh số 1-6). Mỗi cột chứa tối đa **7 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 42 cây / 420 bao).
-    *   **SuperSlim / SSL**: Ô gồm **6 cột** (đánh số 1-6). Mỗi cột chứa tối đa **10 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 60 cây / 600 bao).
-    *   **Semi**: Ô gồm **6 cột** (đánh số 1-6). Mỗi cột chứa tối đa **7 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 42 cây / 420 bao).
+    *   **Kingsize**: Ô gồm **8 cột** (đánh số 1-8). Mỗi cột chứa tối đa **6 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 48 cây / 480 bao).
+    *   **SuperSlim / SSL**: Ô gồm **7 cột** (đánh số 1-7). Mỗi cột chứa tối đa **10 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 70 cây / 700 bao).
+    *   **Semi**: Ô gồm **7 cột** (đánh số 1-7). Mỗi cột chứa tối đa **6 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 42 cây / 420 bao).
     *   **Demi**: Ô gồm **8 cột** (đánh số 1-8). Mỗi cột chứa tối đa **7 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 56 cây / 560 bao).
-    *   **Slim**: Ô gồm **6 cột** (đánh số 1-6). Mỗi cột chứa tối đa **10 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 60 cây / 600 bao).
+    *   **Slim**: Ô gồm **7 cột** (đánh số 1-7). Mỗi cột chứa tối đa **10 cây** xếp chồng lên nhau (Tổng tối đa cả ô: 70 cây / 700 bao).
 *   **Quy tắc kiểm soát sức chứa cột**:
     Khi Thủ kho xếp một lô mẫu vào `(Kệ, Ô, Cột)`:
     1.  Hệ thống kiểm tra xem Cột đó đã có sản phẩm khác chưa. Nếu có sản phẩm khác $\rightarrow$ Báo lỗi (Mỗi cột chỉ chứa duy nhất 1 sản phẩm).

@@ -11,6 +11,6 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('your-project-id'))
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
   window.supabase = supabase;
 }
