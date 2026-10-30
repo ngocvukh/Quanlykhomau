@@ -1454,60 +1454,205 @@ export default function App() {
   };
 
   const handleScanConsolidation = () => {
-    const productColMap = {};
-    const shelfSamples = samples.filter(s => s.status === 'stored' && s.shelf && s.slot && s.slot !== 5 && s.column_number);
-    
-    // Group by product_id
-    shelfSamples.forEach(s => {
-      if (!productColMap[s.product_id]) {
-        productColMap[s.product_id] = {};
+    const shelfSamples = samples.filter(s => s.status === 'stored' && s.shelf && s.slot && s.slot !== 5 && s.column_number && s.available_qty > 0);
+    const proposals = [];
+
+    // 1. Xây dựng bản đồ trạng thái ảo của toàn bộ kho (vState[shelf][slot][col])
+    const vState = {};
+    for (let s = 1; s <= 6; s++) {
+      vState[s] = {};
+      for (let sl = 1; sl <= 4; sl++) {
+        vState[s][sl] = {};
       }
-      const colKey = `${s.shelf}-${s.slot}-${s.column_number}`;
-      if (!productColMap[s.product_id][colKey]) {
-        productColMap[s.product_id][colKey] = {
+    }
+
+    shelfSamples.forEach(s => {
+      const prod = s.products || products.find(p => p.id === s.product_id);
+      if (!vState[s.shelf][s.slot][s.column_number]) {
+        vState[s.shelf][s.slot][s.column_number] = {
           shelf: s.shelf,
           slot: s.slot,
           column_number: s.column_number,
-          samples: [],
-          totalQty: 0
+          productId: s.product_id,
+          product: prod || { product_name: s.product_name || 'Unknown' },
+          format: prod?.format || 'Kingsize',
+          packsCount: 0,
+          samples: []
         };
       }
-      productColMap[s.product_id][colKey].samples.push(s);
-      productColMap[s.product_id][colKey].totalQty += (s.available_qty / 10);
+      vState[s.shelf][s.slot][s.column_number].packsCount += s.available_qty;
+      vState[s.shelf][s.slot][s.column_number].samples.push(s);
     });
 
-    const proposals = [];
-    
-    // Check each product
-    Object.keys(productColMap).forEach(productId => {
-      const columnsObj = productColMap[productId];
-      const columnKeys = Object.keys(columnsObj);
-      
-      if (columnKeys.length >= 2) {
-        let totalCartons = 0;
-        const columns = columnKeys.map(k => {
-           totalCartons += columnsObj[k].totalQty;
-           return columnsObj[k];
+    const getVSlotWidth = (s, sl, excludeCol = null) => {
+      let w = 0;
+      for (const [cStr, cData] of Object.entries(vState[s][sl])) {
+        if (excludeCol !== null && parseInt(cStr, 10) === excludeCol) continue;
+        w += getFormatSpec(cData.format).width;
+      }
+      return w;
+    };
+
+    // 2. PHẦN A: Quét các cột bị vượt quá bề ngang 700mm của ô hoặc vượt quá số cột tối đa của định dạng
+    const excessCols = [];
+    for (let s = 1; s <= 6; s++) {
+      for (let sl = 1; sl <= 4; sl++) {
+        const colNums = Object.keys(vState[s][sl]).map(Number).sort((a, b) => a - b);
+        let usedW = 0;
+        for (const c of colNums) {
+          const colData = vState[s][sl][c];
+          const spec = getFormatSpec(colData.format);
+          if (c > spec.columns || usedW + spec.width > SLOT_MAX_WIDTH_MM) {
+            excessCols.push({ ...colData, reasonWidth: usedW + spec.width });
+            delete vState[s][sl][c];
+          } else {
+            usedW += spec.width;
+          }
+        }
+      }
+    }
+
+    // Xử lý bố trí lại từng cột dư (quá tải > 700mm)
+    for (const ec of excessCols) {
+      const fmt = ec.format;
+      const spec = getFormatSpec(fmt);
+      const cartons = Math.ceil(ec.packsCount / 10);
+      const shelfRange = ec.product?.is_export ? [1, 2, 3, 4, 5, 6] : [6, 5, 4, 3, 2, 1];
+      let placed = false;
+
+      // Ưu tiên 1: Gộp vào cột đang có sẵn cùng sản phẩm mà còn đủ chiều cao
+      for (const s of shelfRange) {
+        if (placed) break;
+        for (let sl = 1; sl <= 4; sl++) {
+          if (placed) break;
+          const slCfg = slotConfigs.find(c => c.shelf === s && c.slot === sl && (!c.column_number || c.column_number === 0));
+          if (slCfg?.is_full) continue;
+          for (const [cStr, cData] of Object.entries(vState[s][sl])) {
+            const cNum = parseInt(cStr, 10);
+            const cCfg = slotConfigs.find(c => c.shelf === s && c.slot === sl && c.column_number === cNum);
+            if (cCfg?.is_full) continue;
+            if (cData.productId === ec.productId) {
+              const curCartons = Math.ceil(cData.packsCount / 10);
+              if (curCartons + cartons <= spec.height) {
+                cData.packsCount += ec.packsCount;
+                cData.samples.push(...ec.samples);
+                proposals.push({
+                  type: 'relocate_overload',
+                  actionLabel: 'Gộp cột quá tải (>700mm) vào cột cùng SP',
+                  product: ec.product,
+                  sourceCols: [{ shelf: ec.shelf, slot: ec.slot, column_number: ec.column_number, totalQty: cartons }],
+                  destCol: { shelf: s, slot: sl, column_number: cNum },
+                  samplesToMove: ec.samples,
+                  totalCartons: curCartons + cartons
+                });
+                placed = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Ưu tiên 2: Chuyển sang cột trống ở ô khác còn đủ bề ngang <= 700mm
+      if (!placed) {
+        for (const s of shelfRange) {
+          if (placed) break;
+          for (let sl = 1; sl <= 4; sl++) {
+            if (placed) break;
+            const slCfg = slotConfigs.find(c => c.shelf === s && c.slot === sl && (!c.column_number || c.column_number === 0));
+            if (slCfg?.is_full) continue;
+            const usedW = getVSlotWidth(s, sl);
+            if (usedW + spec.width > SLOT_MAX_WIDTH_MM) continue;
+
+            let nextCol = 1;
+            while (nextCol <= spec.columns && vState[s][sl][nextCol]) nextCol++;
+            if (nextCol <= spec.columns && cartons <= spec.height) {
+              const cCfg = slotConfigs.find(c => c.shelf === s && c.slot === sl && c.column_number === nextCol);
+              if (!cCfg?.is_full) {
+                vState[s][sl][nextCol] = {
+                  shelf: s,
+                  slot: sl,
+                  column_number: nextCol,
+                  productId: ec.productId,
+                  product: ec.product,
+                  format: fmt,
+                  packsCount: ec.packsCount,
+                  samples: [...ec.samples]
+                };
+                proposals.push({
+                  type: 'relocate_overload',
+                  actionLabel: `Chuyển cột quá tải (>700mm) sang ô còn chỗ (${usedW + spec.width}/${SLOT_MAX_WIDTH_MM}mm)`,
+                  product: ec.product,
+                  sourceCols: [{ shelf: ec.shelf, slot: ec.slot, column_number: ec.column_number, totalQty: cartons }],
+                  destCol: { shelf: s, slot: sl, column_number: nextCol },
+                  samplesToMove: ec.samples,
+                  totalCartons: cartons
+                });
+                placed = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Ưu tiên 3: Nếu kệ hết sạch chỗ trống <= 700mm, chuyển vào Thùng theo tháng SX bao
+      if (!placed) {
+        const firstDateStr = ec.samples[0]?.packaging_date || '';
+        let boxMonthKey = 'Không rõ';
+        if (firstDateStr && firstDateStr.includes('-')) {
+          const parts = firstDateStr.split('-');
+          boxMonthKey = `${parts[1]}/${parts[0]}`;
+        }
+        proposals.push({
+          type: 'box_overload',
+          actionLabel: `Hết chỗ kệ (≤700mm) → Đóng vào Thùng ${boxMonthKey}`,
+          boxMonthKey,
+          product: ec.product,
+          sourceCols: [{ shelf: ec.shelf, slot: ec.slot, column_number: ec.column_number, totalQty: cartons }],
+          destCol: { isBox: true, boxName: `Thùng ${boxMonthKey}` },
+          samplesToMove: ec.samples,
+          totalCartons: cartons
         });
-        
+      }
+    }
+
+    // 3. PHẦN B: Quét các cột cùng sản phẩm bị phân mảnh có thể dồn chung vào 1 cột (trên trạng thái vState mới)
+    const productColMap = {};
+    for (let s = 1; s <= 6; s++) {
+      for (let sl = 1; sl <= 4; sl++) {
+        for (const [cStr, cData] of Object.entries(vState[s][sl])) {
+          const pid = cData.productId;
+          if (!productColMap[pid]) productColMap[pid] = [];
+          productColMap[pid].push({
+            shelf: s,
+            slot: sl,
+            column_number: parseInt(cStr, 10),
+            samples: cData.samples,
+            totalQty: cData.packsCount / 10
+          });
+        }
+      }
+    }
+
+    Object.keys(productColMap).forEach(productId => {
+      const columns = productColMap[productId];
+      if (columns.length >= 2) {
+        const totalCartons = columns.reduce((sum, c) => sum + c.totalQty, 0);
         const firstProduct = columns[0].samples[0]?.products || products.find(p => p.id === productId);
         const format = firstProduct?.format || 'Kingsize';
-        const maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
-        
-        // Need Math.ceil because it's cartons
+        const maxHeight = getFormatSpec(format).height || 7;
+
         if (Math.ceil(totalCartons) <= maxHeight) {
-          // Sort by quantity descending to pick the fullest column as destination
           columns.sort((a, b) => b.totalQty - a.totalQty);
-          
           const destCol = columns[0];
           const sourceCols = columns.slice(1);
-          
           const samplesToMove = [];
-          sourceCols.forEach(col => {
-            samplesToMove.push(...col.samples);
-          });
-          
+          sourceCols.forEach(col => samplesToMove.push(...col.samples));
+
           proposals.push({
+            type: 'consolidate',
+            actionLabel: 'Gom các cột phân mảnh cùng sản phẩm',
             product: firstProduct || { product_name: 'Unknown' },
             destCol,
             sourceCols,
@@ -1517,9 +1662,9 @@ export default function App() {
         }
       }
     });
-    
+
     if (proposals.length === 0) {
-      showToast("Kho đang tối ưu, không có cột nào cần gom!", "info");
+      showToast("Kho đang tối ưu và đúng chuẩn 700mm/ô, không có cột nào cần xử lý!", "info");
       return;
     }
 
@@ -1534,16 +1679,51 @@ export default function App() {
     try {
       const allSamplesToMove = [];
       const updates = [];
+
+      // Xử lý tạo/lấy thùng trước cho các đề xuất đóng thùng (box_overload)
+      const boxProposals = consolidationProposals.filter(p => p.destCol?.isBox);
+      const boxIdMap = {}; // { [boxName]: boxId }
+
+      for (const bp of boxProposals) {
+        const boxName = bp.destCol.boxName;
+        if (!boxIdMap[boxName]) {
+          const existingInState = boxes.find(b => b.box_name.toLowerCase() === boxName.toLowerCase() && b.status === 'stored');
+          if (existingInState) {
+            boxIdMap[boxName] = existingInState.id;
+          } else {
+            const { data: existingDb } = await supabase.from('boxes').select('id').eq('box_name', boxName).maybeSingle();
+            if (existingDb?.id) {
+              boxIdMap[boxName] = existingDb.id;
+            } else {
+              const { data: createdBox, error: createErr } = await supabase.from('boxes').insert([{ box_name: boxName, status: 'stored' }]).select().single();
+              if (createErr) throw createErr;
+              boxIdMap[boxName] = createdBox.id;
+            }
+          }
+        }
+      }
       
       consolidationProposals.forEach(p => {
-         p.samplesToMove.forEach(s => {
+        if (p.destCol?.isBox) {
+          const targetBoxId = boxIdMap[p.destCol.boxName];
+          p.samplesToMove.forEach(s => {
+            allSamplesToMove.push({ ...s, box_id: targetBoxId, shelf: null, slot: null, column_number: null, status: 'boxed' });
+            updates.push(
+              supabase.from('samples')
+                .update({ box_id: targetBoxId, shelf: null, slot: null, column_number: null, status: 'boxed' })
+                .eq('id', s.id)
+            );
+          });
+        } else {
+          p.samplesToMove.forEach(s => {
             allSamplesToMove.push({ ...s, shelf: p.destCol.shelf, slot: p.destCol.slot, column_number: p.destCol.column_number });
             updates.push(
-               supabase.from('samples')
-                 .update({ shelf: p.destCol.shelf, slot: p.destCol.slot, column_number: p.destCol.column_number })
-                 .eq('id', s.id)
+              supabase.from('samples')
+                .update({ shelf: p.destCol.shelf, slot: p.destCol.slot, column_number: p.destCol.column_number })
+                .eq('id', s.id)
             );
-         });
+          });
+        }
       });
       
       await Promise.all(updates);
@@ -1552,20 +1732,23 @@ export default function App() {
       setPrintQueue(prev => {
          const newQueue = [...prev];
          allSamplesToMove.forEach(s => {
-            if (!newQueue.find(q => q.id === s.id)) {
+            const existingIdx = newQueue.findIndex(q => q.id === s.id);
+            if (existingIdx >= 0) {
+               newQueue[existingIdx] = s;
+            } else {
                newQueue.push(s);
             }
          });
          return newQueue;
       });
 
-      showToast(`Đã dồn ${consolidationProposals.length} vị trí thành công! Đã đưa vào Hàng chờ In tem.`, "success");
+      showToast(`Đã xử lý & sắp xếp lại ${consolidationProposals.length} vị trí thành công! Đã đưa vào Hàng chờ In tem mới.`, "success");
       setShowConsolidationModal(false);
       setConsolidationProposals(null);
       await fetchDatabaseData();
     } catch (e) {
       console.error(e);
-      showToast("Có lỗi khi gộp kho!", "error");
+      showToast("Có lỗi khi sắp xếp lại kho: " + e.message, "error");
     } finally {
       setLoading(false);
     }
@@ -1576,10 +1759,10 @@ export default function App() {
     
     let htmlContent = `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
-        <h1 style="text-align: center; color: #10b981;">PHIẾU LỆNH DỒN KHO</h1>
+        <h1 style="text-align: center; color: #10b981;">PHIẾU LỆNH DỒN KHO & XỬ LÝ Ô QUÁ TẢI (>700MM)</h1>
         <p style="text-align: center; font-size: 14px; color: #666;">Ngày tạo: ${new Date().toLocaleDateString()}</p>
         <hr style="border: 1px solid #ddd; margin: 20px 0;" />
-        <p style="font-size: 14px; margin-bottom: 20px;">Vui lòng thực hiện lấy các mẫu từ [Cột Nguồn] và chuyển sang xếp vào [Cột Đích] theo danh sách dưới đây:</p>
+        <p style="font-size: 14px; margin-bottom: 20px;">Vui lòng thực hiện lấy các mẫu từ [Cột Nguồn] và chuyển sang xếp vào [Vị trí Đích] theo danh sách dưới đây:</p>
         <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
           <thead>
             <tr style="background-color: #f3f4f6;">
@@ -1591,17 +1774,18 @@ export default function App() {
           <tbody>
     `;
 
-    consolidationProposals.forEach((p, index) => {
-      const sourceList = p.sourceCols.map(c => `Kệ ${c.shelf} - Ô ${c.slot} - Cột ${c.column_number} (${Math.ceil(c.totalQty)} cây)`).join('<br/>');
-      const destStr = `Kệ ${p.destCol.shelf} - Ô ${p.destCol.slot} - Cột ${p.destCol.column_number}`;
+    consolidationProposals.forEach((p) => {
+      const sourceList = p.sourceCols.map(c => `${formatLocation(c.shelf, c.slot, c.column_number)} (${Math.ceil(c.totalQty)} cây)`).join('<br/>');
+      const destStr = p.destCol?.isBox ? p.destCol.boxName : formatLocation(p.destCol.shelf, p.destCol.slot, p.destCol.column_number);
       
       htmlContent += `
         <tr>
           <td style="border: 1px solid #ccc; padding: 10px;">
-            <strong>${escapeHtml(p.product.product_name)}</strong><br/>
-            <span style="font-size: 11px; color: #666;">Tổng sau khi gom: ${escapeHtml(p.totalCartons)} cây</span>
+            <strong>${escapeHtml(p.product.product_name)}</strong>
+            ${p.product.warning_code ? `<span style="font-size: 11px; color: #555;"> (${escapeHtml(p.product.warning_code)})</span>` : ''}<br/>
+            <span style="font-size: 11px; color: #666;">${escapeHtml(p.actionLabel || `Tổng: ${p.totalCartons} cây`)}</span>
           </td>
-          <td style="border: 1px solid #ccc; padding: 10px; color: #dc2626;">${sourceList}</td>
+          <td style="border: 1px solid #ccc; padding: 10px; color: #dc2626; font-weight: bold;">${sourceList}</td>
           <td style="border: 1px solid #ccc; padding: 10px; color: #16a34a; font-weight: bold;">${escapeHtml(destStr)}</td>
         </tr>
       `;
@@ -6225,13 +6409,63 @@ export default function App() {
                       onClick={handleScanConsolidation} 
                       style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', padding: '6px 14px' }}
                     >
-                      <Layers size={16} /> Dọn dẹp & Gom kho
+                      <Layers size={16} /> Xử lý Quá tải (700mm) & Gom kho
                     </button>
                   )}
                 </div>
                 <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '14px' }}>
                   Nhấp vào một ô để xem chi tiết cách sắp xếp cây thuốc theo cột và chiều cao xếp chồng đứng (cột * cao). Ô 5 là ô dành riêng chứa bao lẻ bóc cây.
                 </p>
+
+                {/* ── CHẨN ĐOÁN: Ô bị vượt quá chiều ngang 700mm ── */}
+                {(() => {
+                  const overloadedSlots = [];
+                  const letters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+                  for (let s = 1; s <= 6; s++) {
+                    for (let sl = 1; sl <= 4; sl++) {
+                      const { totalWidth, colFormatMap } = getSlotUsedWidthMm(s, sl);
+                      const colNums = Object.keys(colFormatMap).map(Number).sort((a, b) => a - b);
+                      const hasColExceedMax = colNums.some(c => c > getFormatSpec(colFormatMap[c]).columns);
+                      if (totalWidth > SLOT_MAX_WIDTH_MM || hasColExceedMax) {
+                        overloadedSlots.push({
+                          shelf: s,
+                          slot: sl,
+                          loc: `${letters[s]}${sl}`,
+                          totalWidth,
+                          colCount: colNums.length,
+                          colsDetail: colNums.map(c => `Cột ${c} (${colFormatMap[c]}: ${getFormatSpec(colFormatMap[c]).width}mm)`).join(', ')
+                        });
+                      }
+                    }
+                  }
+                  if (overloadedSlots.length === 0) return null;
+                  return (
+                    <div style={{ marginBottom: '24px', border: '2px solid #f59e0b', borderRadius: '12px', overflow: 'hidden', background: 'rgba(245,158,11,0.05)' }}>
+                      <div style={{ background: 'rgba(245,158,11,0.15)', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '20px' }}>📏</span>
+                          <div>
+                            <strong style={{ color: '#fcd34d', fontSize: '14px' }}>
+                              Phát hiện {overloadedSlots.length} ô đang vượt quá chiều ngang vật lý {SLOT_MAX_WIDTH_MM}mm!
+                            </strong>
+                            <div style={{ color: '#fde68a', fontSize: '12px', marginTop: '2px' }}>
+                              Các ô đang xếp 8 cột hoặc kết hợp Kingsize/Semi/Slim/SuperSlim vượt quá 700mm: {overloadedSlots.map(o => `${o.loc} (${o.totalWidth}mm)`).join(' • ')}
+                            </div>
+                          </div>
+                        </div>
+                        {profile?.role === 'admin' && (
+                          <button
+                            className="btn btn-primary"
+                            onClick={handleScanConsolidation}
+                            style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', border: 'none', padding: '7px 14px', fontSize: '12.5px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                          >
+                            ⚡ Đề xuất dồn cột & xử lý quá tải ngay
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* ── CHẨN ĐOÁN: Cột bị lẫn nhiều loại sản phẩm ── */}
                 {(() => {
@@ -9198,42 +9432,51 @@ export default function App() {
       {/* CONSOLIDATION MODAL */}
       {showConsolidationModal && (
         <div className="modal-overlay" style={{ zIndex: 1000 }} onClick={() => setShowConsolidationModal(false)}>
-          <div className="modal-content glass-panel" style={{ width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-content glass-panel" style={{ width: '90%', maxWidth: '820px', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Layers size={22} color="var(--accent-blue)" /> Đề xuất Dọn dẹp & Gom Kho
+                <Layers size={22} color="var(--accent-blue)" /> Đề xuất Xử lý Quá Tải (700mm/Ô) & Gom Kho
               </h2>
               <button className="close-btn" onClick={() => setShowConsolidationModal(false)}><X size={18} /></button>
             </div>
             
             {consolidationProposals?.length > 0 ? (
               <>
-                <p style={{ color: 'var(--text-secondary)', marginBottom: '15px' }}>
-                  Phát hiện {consolidationProposals.length} sản phẩm đang bị phân mảnh rải rác. Có thể dồn lại để giải phóng thêm cột.
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '15px', fontSize: '13.5px' }}>
+                  Phát hiện <strong>{consolidationProposals.length}</strong> vị trí cần điều chỉnh (di chuyển các cột vượt quá bề ngang 700mm của ô sang ô còn chỗ hoặc đóng thùng theo tháng, kết hợp gom cột cùng sản phẩm):
                 </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
                   {consolidationProposals.map((p, idx) => (
-                    <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', padding: '15px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '8px', color: 'var(--accent-blue)' }}>
-                        {p.product.product_name} <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>(Tổng sau khi gom: {p.totalCartons} cây)</span>
+                    <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', padding: '14px 16px', borderRadius: '8px', border: `1px solid ${p.destCol?.isBox ? 'rgba(245,158,11,0.4)' : 'var(--glass-border)'}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                        <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--accent-blue)' }}>
+                          {p.product.product_name}
+                          {p.product.warning_code && <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '6px' }}>({p.product.warning_code})</span>}
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>• {p.totalCartons} cây ({p.product.format || 'Kingsize'})</span>
+                        </div>
+                        {p.actionLabel && (
+                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: p.destCol?.isBox ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.12)', color: p.destCol?.isBox ? '#fbbf24' : '#34d399', fontWeight: 600 }}>
+                            {p.actionLabel}
+                          </span>
+                        )}
                       </div>
                       
-                      <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                         <div style={{ flex: 1 }}>
-                          <strong style={{ fontSize: '12px', color: 'var(--status-error)' }}>Từ (Nguồn):</strong>
-                          <ul style={{ margin: '5px 0 0 0', paddingLeft: '20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          <strong style={{ fontSize: '12px', color: 'var(--status-error)' }}>Từ (Nguồn lấy ra):</strong>
+                          <ul style={{ margin: '4px 0 0 0', paddingLeft: '18px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                             {p.sourceCols.map((c, i) => (
-                              <li key={i}>Kệ {c.shelf} - Ô {c.slot} - Cột {c.column_number} ({Math.ceil(c.totalQty)} cây)</li>
+                              <li key={i}><strong>{formatLocation(c.shelf, c.slot, c.column_number)}</strong> ({Math.ceil(c.totalQty)} cây)</li>
                             ))}
                           </ul>
                         </div>
-                        <div style={{ marginTop: '20px' }}>
+                        <div>
                           <ArrowRightLeft size={18} color="var(--accent-blue)" />
                         </div>
                         <div style={{ flex: 1 }}>
-                          <strong style={{ fontSize: '12px', color: '#10b981' }}>Đến (Đích):</strong>
-                          <div style={{ marginTop: '5px', fontSize: '13px', color: 'var(--text-primary)', fontWeight: 'bold' }}>
-                            Kệ {p.destCol.shelf} - Ô {p.destCol.slot} - Cột {p.destCol.column_number}
+                          <strong style={{ fontSize: '12px', color: p.destCol?.isBox ? '#f59e0b' : '#10b981' }}>Đến (Đích xếp vào):</strong>
+                          <div style={{ marginTop: '4px', fontSize: '13.5px', color: p.destCol?.isBox ? '#fbbf24' : 'var(--text-primary)', fontWeight: 'bold' }}>
+                            {p.destCol?.isBox ? `📦 ${p.destCol.boxName}` : `📍 ${formatLocation(p.destCol.shelf, p.destCol.slot, p.destCol.column_number)}`}
                           </div>
                         </div>
                       </div>
@@ -9244,11 +9487,11 @@ export default function App() {
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
                   <button className="btn btn-secondary" onClick={() => setShowConsolidationModal(false)}>Hủy bỏ</button>
                   <button className="btn btn-secondary" onClick={generateConsolidationPDF} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Printer size={15} /> In lệnh dồn kho
+                    <Printer size={15} /> In phiếu lệnh dồn kho
                   </button>
                   <button className="btn btn-primary" onClick={handleConfirmConsolidation} disabled={loading} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}>
                     {loading ? <Loader size={16} className="spin" /> : <Check size={16} />} 
-                    Xác nhận Gom kho & In mã mới
+                    Xác nhận Áp dụng & Đưa vào Hàng chờ In tem
                   </button>
                 </div>
               </>
