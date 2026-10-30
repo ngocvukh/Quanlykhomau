@@ -234,6 +234,51 @@ const formatLocation = (shelf, slot, column) => {
   return locStr;
 };
 
+// ── Giải mã Code 6 ký tự sản phẩm xuất khẩu (bảng mã SINGAPOREZ) thành ngày sản xuất ──
+const decodeExportProductionCode = (rawInput) => {
+  if (!rawInput) return null;
+  const code = rawInput.trim().toUpperCase();
+  if (!/^[SINGAPOREZ]{6}$/.test(code)) return null;
+
+  const dayMap = { S: 1, I: 2, N: 3, G: 4, A: 5, P: 6, O: 7 };
+  const dayNameMap = { S: 'Thứ Hai', I: 'Thứ Ba', N: 'Thứ Tư', G: 'Thứ Năm', A: 'Thứ Sáu', P: 'Thứ Bảy', O: 'Chủ Nhật' };
+  const digitMap = { S: 1, I: 2, N: 3, G: 4, A: 5, P: 6, O: 7, R: 8, E: 9, Z: 0 };
+  const yearMap = { S: 2021, I: 2022, N: 2023, G: 2024, A: 2025, P: 2026, O: 2027, R: 2028, E: 2029, Z: 2030 };
+
+  const isoDayOfWeek = dayMap[code[0]]; // 1 (Thứ Hai) -> 7 (Chủ Nhật)
+  if (!isoDayOfWeek) return null;
+
+  const d2 = digitMap[code[1]];
+  const d3 = digitMap[code[2]];
+  const year = yearMap[code[5]];
+  if (d2 === undefined || d3 === undefined || !year) return null;
+
+  const week = d2 * 10 + d3;
+  if (week < 1 || week > 53) return null;
+
+  // Tính ngày theo chuẩn ISO-8601 week date (Tuần 1 là tuần có ngày 04/01)
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = jan4.getDay() || 7; // Chủ Nhật = 7
+  const week1Monday = new Date(year, 0, 4 - (jan4Day - 1));
+
+  const targetDate = new Date(week1Monday);
+  targetDate.setDate(week1Monday.getDate() + (week - 1) * 7 + (isoDayOfWeek - 1));
+
+  const dd = String(targetDate.getDate()).padStart(2, '0');
+  const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+  const yyyy = targetDate.getFullYear();
+
+  return {
+    code,
+    dayName: dayNameMap[code[0]],
+    week,
+    year,
+    dateObj: targetDate,
+    dmy: `${dd}/${mm}/${yyyy}`,
+    ymd: `${yyyy}-${mm}-${dd}`
+  };
+};
+
 export default function App() {
   // Authentication & Profile States
   const [user, setUser] = useState(null);
@@ -3068,14 +3113,24 @@ export default function App() {
   // Staff Search Execution
   const executeSearch = async (nameVal, monthVal) => {
     if (!nameVal) {
-      showToast("Tên sản phẩm là bắt buộc!", "warning");
+      showToast("Tên sản phẩm hoặc mã code là bắt buộc!", "warning");
       return;
     }
 
     const searchLower = nameVal.toLowerCase().trim();
+    const decodedCode = decodeExportProductionCode(nameVal);
+
     let filtered = samples.filter(s => {
+      if (s.status === 'destroyed') return false;
       const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
-      return prodName.includes(searchLower) && s.status !== 'destroyed';
+      if (prodName.includes(searchLower)) return true;
+      if (decodedCode && s.packaging_date) {
+        const pDate = new Date(s.packaging_date);
+        return pDate.getFullYear() === decodedCode.dateObj.getFullYear() &&
+               pDate.getMonth() === decodedCode.dateObj.getMonth() &&
+               pDate.getDate() === decodedCode.dateObj.getDate();
+      }
+      return false;
     });
 
     if (monthVal) {
@@ -3092,7 +3147,11 @@ export default function App() {
 
     setSearchResults(filtered);
     if (filtered.length === 0) {
-      showToast("Không tìm thấy mẫu phù hợp", "info");
+      if (decodedCode) {
+        showToast(`Mã ${decodedCode.code} → Ngày SX ${decodedCode.dmy}: Không tìm thấy mẫu nào!`, "info");
+      } else {
+        showToast("Không tìm thấy mẫu phù hợp", "info");
+      }
     }
 
     // Ghi log tìm kiếm vào Supabase
@@ -3108,7 +3167,7 @@ export default function App() {
         await supabase.from('search_logs').insert({
           device_id: deviceId,
           user_name: currentName,
-          keyword: nameVal.trim(),
+          keyword: decodedCode ? `${nameVal.trim().toUpperCase()} (${decodedCode.dmy})` : nameVal.trim(),
           month_filter: monthVal || null,
           results_count: filtered.length
         });
@@ -3136,11 +3195,20 @@ export default function App() {
       }
 
       const searchLower = trimmed.toLowerCase();
+      const decodedCode = decodeExportProductionCode(trimmed);
       const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
       
       let filtered = samples.filter(s => {
+        if (s.status === 'destroyed') return false;
         const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
-        return prodName.includes(searchLower) && s.status !== 'destroyed';
+        if (prodName.includes(searchLower)) return true;
+        if (decodedCode && s.packaging_date) {
+          const pDate = new Date(s.packaging_date);
+          return pDate.getFullYear() === decodedCode.dateObj.getFullYear() &&
+                 pDate.getMonth() === decodedCode.dateObj.getMonth() &&
+                 pDate.getDate() === decodedCode.dateObj.getDate();
+        }
+        return false;
       });
 
       if (monthVal) {
@@ -3168,7 +3236,7 @@ export default function App() {
             await supabase.from('search_logs').insert({
               device_id: deviceId,
               user_name: currentName,
-              keyword: trimmed,
+              keyword: decodedCode ? `${trimmed.toUpperCase()} (${decodedCode.dmy})` : trimmed,
               month_filter: monthVal || null,
               results_count: filtered.length
             });
@@ -5568,17 +5636,26 @@ export default function App() {
             
             <form onSubmit={handleSearch} style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end', position: 'relative' }}>
               <div className="form-group" style={{ flex: 2, minWidth: '240px', marginBottom: 0, position: 'relative' }}>
-                <label className="form-label">Tên sản phẩm thuốc lá <span style={{ color: 'red' }}>*</span></label>
+                <label className="form-label">Tên sản phẩm hoặc Mã code ngày SX (6 ký tự) <span style={{ color: 'red' }}>*</span></label>
                 <input 
                   className="form-input" 
                   type="text" 
                   required 
-                  placeholder="Nhập tên sản phẩm (ví dụ: 555, Canyon...)" 
+                  placeholder="Nhập tên sản phẩm (555, Canyon...) hoặc mã code XK (ví dụ: SGZPOP)" 
                   value={searchName} 
                   onChange={e => handleSearchInputChange(e.target.value)} 
                   onBlur={() => setTimeout(() => setSearchSuggestions([]), 200)}
                   autoComplete="off"
                 />
+                {(() => {
+                  const decoded = decodeExportProductionCode(searchName);
+                  if (!decoded) return null;
+                  return (
+                    <div style={{ marginTop: '6px', fontSize: '12.5px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '5px 10px', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🔍 <strong>Mã {decoded.code}</strong> ({decoded.dayName}, Tuần {String(decoded.week).padStart(2, '0')}/{decoded.year}) → Ngày sản xuất: <strong>{decoded.dmy}</strong></span>
+                    </div>
+                  );
+                })()}
                 
                 {/* Real-time Search Suggestions Autocomplete */}
                 {searchSuggestions.length > 0 && (
@@ -5815,7 +5892,13 @@ export default function App() {
                     })}
                     {searchResults.length === 0 && (
                       <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                        Vui lòng nhập từ khóa tên sản phẩm thuốc lá và ấn Tìm kiếm.
+                        {(() => {
+                          const decoded = decodeExportProductionCode(searchName);
+                          if (decoded) {
+                            return `Không tìm thấy sản phẩm nào sản xuất vào ngày ${decoded.dmy} (Mã code: ${decoded.code} — ${decoded.dayName}, Tuần ${decoded.week}/${decoded.year}).`;
+                          }
+                          return 'Không tìm thấy mẫu phù hợp. Vui lòng nhập tên sản phẩm hoặc mã code 6 ký tự (ví dụ: SGZPOP).';
+                        })()}
                       </div>
                     )}
                   </div>
