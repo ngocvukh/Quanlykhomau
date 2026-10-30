@@ -1892,35 +1892,65 @@ export default function App() {
     if (!consolidationProposals || consolidationProposals.length === 0) return;
     
     let htmlContent = `
-      <div style="font-family: Arial, sans-serif; padding: 20px;">
-        <h1 style="text-align: center; color: #10b981;">PHIẾU LỆNH DỒN KHO & XỬ LÝ Ô QUÁ TẢI (>700MM)</h1>
-        <p style="text-align: center; font-size: 14px; color: #666;">Ngày tạo: ${new Date().toLocaleDateString()}</p>
-        <hr style="border: 1px solid #ddd; margin: 20px 0;" />
-        <p style="font-size: 14px; margin-bottom: 20px;">Vui lòng thực hiện lấy các mẫu từ [Cột Nguồn] và chuyển sang xếp vào [Vị trí Đích] theo danh sách dưới đây:</p>
-        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+      <div style="font-family: Arial, Helvetica, sans-serif; padding: 24px 28px; background-color: #ffffff !important; color: #000000 !important; line-height: 1.45; width: 100%; box-sizing: border-box;">
+        <style>
+          * { color: #000000; box-sizing: border-box; }
+        </style>
+        <div style="text-align: center; margin-bottom: 18px; border-bottom: 2px solid #059669; padding-bottom: 12px;">
+          <h1 style="color: #065f46 !important; font-size: 20px; font-weight: 800; margin: 0 0 6px 0; text-transform: uppercase; letter-spacing: 0.5px;">PHIẾU LỆNH DỒN KHO &amp; XỬ LÝ Ô QUÁ TẢI (&gt;700MM)</h1>
+          <div style="font-size: 13px; color: #374151 !important; font-weight: 500;">
+            <span style="color: #374151 !important;">Ngày tạo: <strong style="color: #111827 !important;">${new Date().toLocaleDateString('vi-VN')}</strong></span>
+            <span style="margin: 0 10px; color: #9ca3af !important;">•</span>
+            <span style="color: #374151 !important;">Tổng số lệnh điều chuyển: <strong style="color: #065f46 !important;">${consolidationProposals.length}</strong></span>
+          </div>
+        </div>
+
+        <div style="background-color: #f0fdf4 !important; border: 1px solid #86efac; border-left: 4px solid #059669; padding: 10px 14px; border-radius: 4px; margin-bottom: 18px; font-size: 13px; color: #1f2937 !important; line-height: 1.5;">
+          <strong style="color: #065f46 !important;">Hướng dẫn thủ kho:</strong> Vui lòng lấy đúng mẫu từ <strong style="color: #b91c1c !important;">[Vị trí Nguồn]</strong> và chuyển sang xếp vào <strong style="color: #047857 !important;">[Vị trí Đích]</strong> theo danh sách dưới đây. Đánh dấu <span style="font-weight: bold; color: #059669 !important;">[✓]</span> sau khi đã hoàn thành mỗi dòng.
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; color: #000000 !important; margin-bottom: 20px;">
           <thead>
-            <tr style="background-color: #f3f4f6;">
-              <th style="border: 1px solid #ccc; padding: 10px;">Sản phẩm</th>
-              <th style="border: 1px solid #ccc; padding: 10px;">Vị trí Nguồn (Lấy ra)</th>
-              <th style="border: 1px solid #ccc; padding: 10px;">Vị trí Đích (Xếp vào)</th>
+            <tr style="background-color: #1e293b !important; color: #ffffff !important;">
+              <th style="border: 1px solid #1e293b; padding: 10px 6px; text-align: center; width: 36px; color: #ffffff !important; font-weight: bold;">STT</th>
+              <th style="border: 1px solid #1e293b; padding: 10px 10px; text-align: left; color: #ffffff !important; font-weight: bold;">Sản phẩm &amp; Chi tiết thao tác</th>
+              <th style="border: 1px solid #1e293b; padding: 10px 10px; text-align: center; width: 25%; color: #ffffff !important; font-weight: bold;">Vị trí Nguồn (Lấy ra)</th>
+              <th style="border: 1px solid #1e293b; padding: 10px 10px; text-align: center; width: 25%; color: #ffffff !important; font-weight: bold;">Vị trí Đích (Xếp vào)</th>
+              <th style="border: 1px solid #1e293b; padding: 10px 6px; text-align: center; width: 44px; color: #ffffff !important; font-weight: bold;">Xong</th>
             </tr>
           </thead>
           <tbody>
     `;
 
-    consolidationProposals.forEach((p) => {
-      const sourceList = p.sourceCols.map(c => `${formatLocation(c.shelf, c.slot, c.column_number)} (${Math.ceil(c.totalQty)} cây)`).join('<br/>');
+    consolidationProposals.forEach((p, idx) => {
+      const sourceList = p.sourceCols.map(c => `<strong>${formatLocation(c.shelf, c.slot, c.column_number)}</strong> (${Math.ceil(c.totalQty)} cây)`).join('<br/>');
       const destStr = p.destCol?.isBox ? p.destCol.boxName : formatLocation(p.destCol.shelf, p.destCol.slot, p.destCol.column_number);
+      const isBoxDest = !!p.destCol?.isBox;
+      const rowBg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
       
       htmlContent += `
-        <tr>
-          <td style="border: 1px solid #ccc; padding: 10px;">
-            <strong>${escapeHtml(p.product.product_name)}</strong>
-            ${p.product.warning_code ? `<span style="font-size: 11px; color: #555;"> (${escapeHtml(p.product.warning_code)})</span>` : ''}<br/>
-            <span style="font-size: 11px; color: #666;">${escapeHtml(p.actionLabel || `Tổng: ${p.totalCartons} cây`)}</span>
+        <tr style="background-color: ${rowBg} !important;">
+          <td style="border: 1px solid #cbd5e1; padding: 8px 6px; text-align: center; font-weight: bold; color: #334155 !important;">
+            ${idx + 1}
           </td>
-          <td style="border: 1px solid #ccc; padding: 10px; color: #dc2626; font-weight: bold;">${sourceList}</td>
-          <td style="border: 1px solid #ccc; padding: 10px; color: #16a34a; font-weight: bold;">${escapeHtml(destStr)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 8px 10px; color: #000000 !important;">
+            <div style="font-weight: bold; font-size: 13.5px; color: #0f172a !important; margin-bottom: 2px;">
+              ${escapeHtml(p.product.product_name)}
+            </div>
+            ${p.product.warning_code ? `<div style="font-size: 11.5px; color: #475569 !important;">Cảnh báo: <strong>${escapeHtml(p.product.warning_code)}</strong></div>` : ''}
+            <div style="font-size: 11.5px; color: #1e293b !important; margin-top: 3px; font-weight: 500;">
+              ${escapeHtml(p.actionLabel || `Tổng: ${p.totalCartons} cây`)}
+            </div>
+          </td>
+          <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center; color: #b91c1c !important; font-weight: bold; font-size: 13px; background-color: #fef2f2 !important;">
+            ${sourceList}
+          </td>
+          <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: center; color: ${isBoxDest ? '#b45309' : '#047857'} !important; font-weight: bold; font-size: 13px; background-color: ${isBoxDest ? '#fffbeb' : '#f0fdf4'} !important;">
+            ${isBoxDest ? `📦 ${escapeHtml(destStr)}` : `📍 ${escapeHtml(destStr)}`}
+          </td>
+          <td style="border: 1px solid #cbd5e1; padding: 8px 6px; text-align: center; font-size: 16px; color: #94a3b8 !important;">
+            ☐
+          </td>
         </tr>
       `;
     });
@@ -1928,14 +1958,16 @@ export default function App() {
     htmlContent += `
           </tbody>
         </table>
-        <div style="margin-top: 40px; display: flex; justify-content: space-between;">
-          <div style="text-align: center; width: 45%;">
-            <p><strong>Người lập phiếu</strong></p>
-            <p style="margin-top: 50px;">(Ký & ghi rõ họ tên)</p>
+        <div style="margin-top: 36px; display: flex; justify-content: space-between; page-break-inside: avoid; color: #000000 !important;">
+          <div style="text-align: center; width: 42%;">
+            <p style="font-weight: bold; font-size: 13px; color: #000000 !important; margin: 0 0 4px 0;">Người lập phiếu</p>
+            <p style="font-size: 11px; color: #4b5563 !important; margin: 0 0 55px 0;">(Ký &amp; ghi rõ họ tên)</p>
+            <p style="font-weight: bold; font-size: 12px; color: #000000 !important; margin: 0;">${escapeHtml(profile?.full_name || profile?.email || '')}</p>
           </div>
-          <div style="text-align: center; width: 45%;">
-            <p><strong>Thủ kho thực hiện</strong></p>
-            <p style="margin-top: 50px;">(Ký & ghi rõ họ tên)</p>
+          <div style="text-align: center; width: 42%;">
+            <p style="font-weight: bold; font-size: 13px; color: #000000 !important; margin: 0 0 4px 0;">Thủ kho thực hiện</p>
+            <p style="font-size: 11px; color: #4b5563 !important; margin: 0 0 55px 0;">(Ký &amp; ghi rõ họ tên)</p>
+            <p style="color: #9ca3af !important; margin: 0;">................................................</p>
           </div>
         </div>
       </div>
@@ -1944,10 +1976,10 @@ export default function App() {
     const element = document.createElement('div');
     element.innerHTML = htmlContent;
     html2pdf().from(element).set({
-      margin: 10,
+      margin: [8, 10, 8, 10],
       filename: `Phieu_Don_Kho_${new Date().toISOString().slice(0,10)}.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2 },
+      html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     }).save();
   };
