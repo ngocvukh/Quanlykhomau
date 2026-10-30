@@ -1842,6 +1842,8 @@ export default function App() {
   const [editProfileCode, setEditProfileCode] = useState('');
   const [editProfileDept, setEditProfileDept] = useState('');
   const [editProfileRole, setEditProfileRole] = useState('staff');
+  const [expandedUserHistoryId, setExpandedUserHistoryId] = useState(null);
+  const [expandedVisitorHistoryId, setExpandedVisitorHistoryId] = useState(null);
 
   // Nhật ký tìm kiếm: bộ lọc khoảng ngày (mặc định 30 ngày gần nhất)
   const getOffsetDateString = (offsetDays) => {
@@ -7958,7 +7960,7 @@ export default function App() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                           <thead>
                             <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
-                              {['Họ và tên', 'Mã nhân viên', 'Phòng ban', 'Vai trò (Quyền)', 'Ngày tạo', 'Thao tác'].map((h, i) => (
+                              {['Họ và tên', 'Mã nhân viên', 'Phòng ban', 'Vai trò (Quyền)', 'Hoạt động', 'Ngày tạo', 'Thao tác'].map((h, i) => (
                                 <th key={i} style={{ padding: '10px 14px', textAlign: h === 'Thao tác' ? 'right' : 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600 }}>{h}</th>
                               ))}
                             </tr>
@@ -7966,93 +7968,200 @@ export default function App() {
                           <tbody>
                             {profilesList.map((p, idx) => {
                               const isEditing = editingProfileId === p.id;
+                              const isHistoryOpen = expandedUserHistoryId === p.id;
+                              const userTxs = transactions.filter(t => t.user_id === p.id);
+                              const userSearchItems = allVisitorLogs.filter(l => l.user_name === p.full_name && l.keyword !== '[Khai báo tên]');
+                              const totalActions = userTxs.length + userSearchItems.length;
+
                               return (
-                                <tr key={p.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                  <td style={{ padding: '10px 14px', fontWeight: 600 }}>
-                                    {isEditing ? (
-                                      <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px' }} value={editProfileName} onChange={e => setEditProfileName(e.target.value)} />
-                                    ) : (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <User size={14} color="var(--accent-blue)" />
-                                        {p.full_name}
-                                        {p.id === user?.id && <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '1px 6px', borderRadius: '4px' }}>Bạn</span>}
+                                <React.Fragment key={p.id}>
+                                  <tr style={{ borderBottom: isHistoryOpen ? 'none' : '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                    <td style={{ padding: '10px 14px', fontWeight: 600 }}>
+                                      {isEditing ? (
+                                        <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px' }} value={editProfileName} onChange={e => setEditProfileName(e.target.value)} />
+                                      ) : (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <User size={14} color="var(--accent-blue)" />
+                                          {p.full_name}
+                                          {p.id === user?.id && <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '1px 6px', borderRadius: '4px' }}>Bạn</span>}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '10px 14px' }}>
+                                      {isEditing ? (
+                                        <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px', width: '120px' }} value={editProfileCode} onChange={e => setEditProfileCode(e.target.value)} placeholder="Mã NV" />
+                                      ) : (
+                                        <code style={{ background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>{p.employee_code || '—'}</code>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '10px 14px' }}>
+                                      {isEditing ? (
+                                        <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px', width: '120px' }} value={editProfileDept} onChange={e => setEditProfileDept(e.target.value)} placeholder="Phòng ban" />
+                                      ) : (
+                                        p.department || '—'
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '10px 14px' }}>
+                                      {isEditing ? (
+                                        <select className="form-select" style={{ padding: '5px 8px', fontSize: '13px', width: '150px' }} value={editProfileRole} onChange={e => setEditProfileRole(e.target.value)}>
+                                          <option value="staff">Nhân viên (Staff)</option>
+                                          <option value="admin">Thủ kho (Admin)</option>
+                                        </select>
+                                      ) : (
+                                        <span style={{
+                                          fontSize: '11.5px',
+                                          fontWeight: 600,
+                                          padding: '3px 10px',
+                                          borderRadius: '12px',
+                                          background: p.role === 'admin' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)',
+                                          color: p.role === 'admin' ? '#f59e0b' : 'var(--accent-blue)'
+                                        }}>
+                                          {p.role === 'admin' ? '👑 Thủ kho (Admin)' : '👤 Nhân viên (Staff)'}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '10px 14px' }}>
+                                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '11.5px' }}>
+                                        <span style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+                                          {userTxs.length} giao dịch
+                                        </span>
+                                        <span style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+                                          {userSearchItems.length} tra cứu
+                                        </span>
                                       </div>
-                                    )}
-                                  </td>
-                                  <td style={{ padding: '10px 14px' }}>
-                                    {isEditing ? (
-                                      <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px', width: '120px' }} value={editProfileCode} onChange={e => setEditProfileCode(e.target.value)} placeholder="Mã NV" />
-                                    ) : (
-                                      <code style={{ background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>{p.employee_code || '—'}</code>
-                                    )}
-                                  </td>
-                                  <td style={{ padding: '10px 14px' }}>
-                                    {isEditing ? (
-                                      <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px', width: '120px' }} value={editProfileDept} onChange={e => setEditProfileDept(e.target.value)} placeholder="Phòng ban" />
-                                    ) : (
-                                      p.department || '—'
-                                    )}
-                                  </td>
-                                  <td style={{ padding: '10px 14px' }}>
-                                    {isEditing ? (
-                                      <select className="form-select" style={{ padding: '5px 8px', fontSize: '13px', width: '150px' }} value={editProfileRole} onChange={e => setEditProfileRole(e.target.value)}>
-                                        <option value="staff">Nhân viên (Staff)</option>
-                                        <option value="admin">Thủ kho (Admin)</option>
-                                      </select>
-                                    ) : (
-                                      <span style={{
-                                        fontSize: '11.5px',
-                                        fontWeight: 600,
-                                        padding: '3px 10px',
-                                        borderRadius: '12px',
-                                        background: p.role === 'admin' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)',
-                                        color: p.role === 'admin' ? '#f59e0b' : 'var(--accent-blue)'
-                                      }}>
-                                        {p.role === 'admin' ? '👑 Thủ kho (Admin)' : '👤 Nhân viên (Staff)'}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                                    {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
-                                  </td>
-                                  <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                                    {isEditing ? (
-                                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                                        <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={() => handleUpdateUserProfile(p.id)}>
-                                          Lưu
-                                        </button>
-                                        <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={() => setEditingProfileId(null)}>
-                                          Hủy
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                                        <button
-                                          className="btn btn-secondary"
-                                          style={{ padding: '4px 10px', fontSize: '12px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.3)' }}
-                                          onClick={() => {
-                                            setEditingProfileId(p.id);
-                                            setEditProfileName(p.full_name || '');
-                                            setEditProfileCode(p.employee_code || '');
-                                            setEditProfileDept(p.department || '');
-                                            setEditProfileRole(p.role || 'staff');
-                                          }}
-                                        >
-                                          ✏️ Sửa / Phân quyền
-                                        </button>
-                                        {p.id !== user?.id && (
+                                    </td>
+                                    <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                      {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
+                                    </td>
+                                    <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                                      {isEditing ? (
+                                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                          <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={() => handleUpdateUserProfile(p.id)}>
+                                            Lưu
+                                          </button>
+                                          <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={() => setEditingProfileId(null)}>
+                                            Hủy
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                                           <button
                                             className="btn btn-secondary"
-                                            style={{ padding: '4px 10px', fontSize: '12px', color: 'var(--status-error)', borderColor: 'rgba(239,68,68,0.3)' }}
-                                            onClick={() => handleDeleteUserProfile(p)}
+                                            style={{
+                                              padding: '4px 10px',
+                                              fontSize: '12px',
+                                              color: isHistoryOpen ? '#fff' : 'var(--accent-blue)',
+                                              background: isHistoryOpen ? 'var(--accent-blue)' : 'transparent',
+                                              borderColor: 'var(--accent-blue)'
+                                            }}
+                                            onClick={() => setExpandedUserHistoryId(isHistoryOpen ? null : p.id)}
                                           >
-                                            🗑️ Xóa
+                                            📜 Lịch sử ({totalActions})
                                           </button>
-                                        )}
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ padding: '4px 10px', fontSize: '12px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.3)' }}
+                                            onClick={() => {
+                                              setEditingProfileId(p.id);
+                                              setEditProfileName(p.full_name || '');
+                                              setEditProfileCode(p.employee_code || '');
+                                              setEditProfileDept(p.department || '');
+                                              setEditProfileRole(p.role || 'staff');
+                                            }}
+                                          >
+                                            ✏️ Sửa / Phân quyền
+                                          </button>
+                                          {p.id !== user?.id && (
+                                            <button
+                                              className="btn btn-secondary"
+                                              style={{ padding: '4px 10px', fontSize: '12px', color: 'var(--status-error)', borderColor: 'rgba(239,68,68,0.3)' }}
+                                              onClick={() => handleDeleteUserProfile(p)}
+                                            >
+                                              🗑️ Xóa
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                  {isHistoryOpen && (
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(15,23,42,0.5)' }}>
+                                      <td colSpan={7} style={{ padding: '14px 20px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                          <strong style={{ fontSize: '13px', color: 'var(--accent-blue)' }}>
+                                            📜 Nhật ký thao tác của tài khoản: {p.full_name} ({p.employee_code || 'Không mã NV'})
+                                          </strong>
+                                          <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => setExpandedUserHistoryId(null)}>
+                                            Đóng ×
+                                          </button>
+                                        </div>
+                                        {(() => {
+                                          const combined = [
+                                            ...userTxs.map(t => ({
+                                              id: `tx-${t.id}`,
+                                              time: t.created_at,
+                                              category: t.type === 'import' ? 'Nhập kho' : t.type === 'move' ? 'Di chuyển' : t.type === 'take_request' ? 'Đăng ký lấy mẫu' : t.type === 'take_approve' ? 'Duyệt cấp mẫu' : t.type === 'destroy' ? 'Hủy mẫu' : t.type,
+                                              badgeColor: t.type === 'import' ? '#10b981' : t.type === 'move' ? '#a855f7' : t.type === 'take_request' ? '#f59e0b' : t.type === 'take_approve' ? '#3b82f6' : '#ef4444',
+                                              product: t.samples?.products?.product_name || t.samples?.product_name || '—',
+                                              qty: `${t.quantity || 0} bao`,
+                                              detail: t.note || (t.status === 'pending' ? 'Đang chờ duyệt' : t.status === 'approved' ? 'Đã duyệt' : '')
+                                            })),
+                                            ...userSearchItems.map(s => ({
+                                              id: `sr-${s.id}`,
+                                              time: s.searched_at,
+                                              category: 'Tra cứu',
+                                              badgeColor: '#0ea5e9',
+                                              product: `Từ khóa: "${s.keyword}"`,
+                                              qty: `${s.results_count} kết quả`,
+                                              detail: s.month_filter ? `Lọc tháng: ${s.month_filter} • Thiết bị: ${getDisplayDeviceName(s.device_id)}` : `Thiết bị: ${getDisplayDeviceName(s.device_id)}`
+                                            }))
+                                          ].sort((a, b) => new Date(b.time) - new Date(a.time));
+
+                                          if (combined.length === 0) {
+                                            return (
+                                              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12.5px' }}>
+                                                Tài khoản này chưa có lịch sử thao tác hoặc tra cứu nào.
+                                              </div>
+                                            );
+                                          }
+
+                                          return (
+                                            <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
+                                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                                <thead>
+                                                  <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
+                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Thời gian</th>
+                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Loại thao tác</th>
+                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Sản phẩm / Từ khóa</th>
+                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Số lượng / KQ</th>
+                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Chi tiết / Ghi chú</th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {combined.slice(0, 100).map(item => (
+                                                    <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                                      <td style={{ padding: '6px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                                        {item.time ? new Date(item.time).toLocaleString() : '—'}
+                                                      </td>
+                                                      <td style={{ padding: '6px 12px' }}>
+                                                        <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: `${item.badgeColor}22`, color: item.badgeColor }}>
+                                                          {item.category}
+                                                        </span>
+                                                      </td>
+                                                      <td style={{ padding: '6px 12px', fontWeight: 500 }}>{item.product}</td>
+                                                      <td style={{ padding: '6px 12px', fontWeight: 600 }}>{item.qty}</td>
+                                                      <td style={{ padding: '6px 12px', color: 'var(--text-secondary)' }}>{item.detail}</td>
+                                                    </tr>
+                                                  ))}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          );
+                                        })()}
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
                               );
                             })}
                           </tbody>
@@ -8119,75 +8228,181 @@ export default function App() {
                             <tbody>
                               {visitorsList.map((v, idx) => {
                                 const status = resetDevices.find(d => d.device_id === v.device_id);
+                                const isVHistoryOpen = expandedVisitorHistoryId === v.device_id;
+                                const vLogs = allVisitorLogs.filter(l => l.device_id === v.device_id && l.keyword !== '[Khai báo tên]');
+                                const vTxs = transactions.filter(t => !t.user_id && t.note && t.note.includes(`[Khách: ${v.user_name}]`));
+                                const totalVActions = vLogs.length + vTxs.length;
+
                                 return (
-                                  <tr key={v.device_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                    <td style={{ padding: '10px 14px', fontWeight: 600 }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <User size={14} color="#10b981" />
-                                        {v.user_name}
-                                      </div>
-                                    </td>
-                                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }} title={v.device_id}>
-                                      <code style={{ background: 'rgba(255,255,255,0.06)', padding: '3px 8px', borderRadius: '6px', fontSize: '11.5px' }}>
-                                        {getDisplayDeviceName(v.device_id)}
-                                      </code>
-                                      <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px' }}>{v.device_id}</div>
-                                    </td>
-                                    <td style={{ padding: '10px 14px' }}>
-                                      <span style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600 }}>
-                                        {v.search_count} lượt
-                                      </span>
-                                    </td>
-                                    <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                                      {v.last_active ? new Date(v.last_active).toLocaleString() : '—'}
-                                    </td>
-                                    <td style={{ padding: '10px 14px' }}>
-                                      {status ? (
-                                        status.is_blocked ? (
-                                          <span style={{ fontSize: '11px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>🚫 Đang bị chặn</span>
+                                  <React.Fragment key={v.device_id}>
+                                    <tr style={{ borderBottom: isVHistoryOpen ? 'none' : '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <User size={14} color="#10b981" />
+                                          {v.user_name}
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }} title={v.device_id}>
+                                        <code style={{ background: 'rgba(255,255,255,0.06)', padding: '3px 8px', borderRadius: '6px', fontSize: '11.5px' }}>
+                                          {getDisplayDeviceName(v.device_id)}
+                                        </code>
+                                        <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px' }}>{v.device_id}</div>
+                                      </td>
+                                      <td style={{ padding: '10px 14px' }}>
+                                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                          <span style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '10px', fontSize: '11.5px', fontWeight: 600 }}>
+                                            {v.search_count} tra cứu
+                                          </span>
+                                          {vTxs.length > 0 && (
+                                            <span style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', padding: '2px 8px', borderRadius: '10px', fontSize: '11.5px', fontWeight: 600 }}>
+                                              {vTxs.length} lấy mẫu
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                        {v.last_active ? new Date(v.last_active).toLocaleString() : '—'}
+                                      </td>
+                                      <td style={{ padding: '10px 14px' }}>
+                                        {status ? (
+                                          status.is_blocked ? (
+                                            <span style={{ fontSize: '11px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>🚫 Đang bị chặn</span>
+                                          ) : (
+                                            <span style={{ fontSize: '11px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>⏳ Chờ khai lại tên</span>
+                                          )
                                         ) : (
-                                          <span style={{ fontSize: '11px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>⏳ Chờ khai lại tên</span>
-                                        )
-                                      ) : (
-                                        <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>✓ Hoạt động</span>
-                                      )}
-                                    </td>
-                                    <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                                        {status && status.is_blocked ? (
-                                          <button
-                                            onClick={() => handleUnblockVisitor(v.device_id, v.user_name)}
-                                            style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: 'var(--status-success)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: 'pointer', fontWeight: 600 }}
-                                          >
-                                            🟢 Gỡ chặn
-                                          </button>
-                                        ) : (
-                                          <>
-                                            <button
-                                              onClick={() => handleResetVisitor(v.device_id, v.user_name)}
-                                              disabled={!!status}
-                                              style={{ background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)', color: status ? 'var(--text-muted)' : 'var(--status-warning)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: status ? 'not-allowed' : 'pointer', fontWeight: 600 }}
-                                            >
-                                              🔄 {status ? 'Đang chờ nhập' : 'Đổi / Khai lại tên'}
-                                            </button>
-                                            <button
-                                              onClick={() => handleBlockVisitor(v.device_id, v.user_name)}
-                                              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-error)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: 'pointer', fontWeight: 600 }}
-                                            >
-                                              🚫 Chặn
-                                            </button>
-                                          </>
+                                          <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>✓ Hoạt động</span>
                                         )}
-                                        <button
-                                          onClick={() => handleDeleteSavedVisitor(v.device_id, v.user_name)}
-                                          title="Xóa khách này khỏi danh sách đã lưu"
-                                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', borderRadius: '8px', padding: '4px 8px', fontSize: '11.5px', cursor: 'pointer' }}
-                                        >
-                                          🗑️ Xóa
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
+                                      </td>
+                                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                          <button
+                                            onClick={() => setExpandedVisitorHistoryId(isVHistoryOpen ? null : v.device_id)}
+                                            style={{
+                                              background: isVHistoryOpen ? 'var(--accent-blue)' : 'rgba(59,130,246,0.12)',
+                                              border: '1px solid var(--accent-blue)',
+                                              color: isVHistoryOpen ? '#fff' : 'var(--accent-blue)',
+                                              borderRadius: '8px',
+                                              padding: '4px 10px',
+                                              fontSize: '11.5px',
+                                              cursor: 'pointer',
+                                              fontWeight: 600
+                                            }}
+                                          >
+                                            📜 Lịch sử ({totalVActions})
+                                          </button>
+                                          {status && status.is_blocked ? (
+                                            <button
+                                              onClick={() => handleUnblockVisitor(v.device_id, v.user_name)}
+                                              style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: 'var(--status-success)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: 'pointer', fontWeight: 600 }}
+                                            >
+                                              🟢 Gỡ chặn
+                                            </button>
+                                          ) : (
+                                            <>
+                                              <button
+                                                onClick={() => handleResetVisitor(v.device_id, v.user_name)}
+                                                disabled={!!status}
+                                                style={{ background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)', color: status ? 'var(--text-muted)' : 'var(--status-warning)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: status ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                                              >
+                                                🔄 {status ? 'Đang chờ nhập' : 'Đổi / Khai lại tên'}
+                                              </button>
+                                              <button
+                                                onClick={() => handleBlockVisitor(v.device_id, v.user_name)}
+                                                style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-error)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: 'pointer', fontWeight: 600 }}
+                                              >
+                                                🚫 Chặn
+                                              </button>
+                                            </>
+                                          )}
+                                          <button
+                                            onClick={() => handleDeleteSavedVisitor(v.device_id, v.user_name)}
+                                            title="Xóa khách này khỏi danh sách đã lưu"
+                                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', borderRadius: '8px', padding: '4px 8px', fontSize: '11.5px', cursor: 'pointer' }}
+                                          >
+                                            🗑️ Xóa
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                    {isVHistoryOpen && (
+                                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(15,23,42,0.5)' }}>
+                                        <td colSpan={6} style={{ padding: '14px 20px' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                            <strong style={{ fontSize: '13px', color: '#10b981' }}>
+                                              📜 Lịch sử tra cứu & đăng ký lấy mẫu của khách: {v.user_name} ({getDisplayDeviceName(v.device_id)})
+                                            </strong>
+                                            <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => setExpandedVisitorHistoryId(null)}>
+                                              Đóng ×
+                                            </button>
+                                          </div>
+                                          {(() => {
+                                            const combinedV = [
+                                              ...vTxs.map(t => ({
+                                                id: `vtx-${t.id}`,
+                                                time: t.created_at,
+                                                category: 'Đăng ký lấy mẫu',
+                                                badgeColor: '#f59e0b',
+                                                target: t.samples?.products?.product_name || t.samples?.product_name || '—',
+                                                qty: `${t.quantity || 0} bao`,
+                                                detail: `${t.status === 'pending' ? '⏳ Chờ duyệt' : t.status === 'approved' ? '✅ Đã cấp' : t.status} • ${t.note || ''}`
+                                              })),
+                                              ...vLogs.map(l => ({
+                                                id: `vl-${l.id}`,
+                                                time: l.searched_at,
+                                                category: l.keyword === '[Truy cập bị chặn]' ? 'Bị chặn truy cập' : 'Tra cứu',
+                                                badgeColor: l.keyword === '[Truy cập bị chặn]' ? '#ef4444' : '#0ea5e9',
+                                                target: `Từ khóa: "${l.keyword}"`,
+                                                qty: `${l.results_count} kết quả`,
+                                                detail: l.month_filter ? `Lọc tháng: ${l.month_filter}` : 'Tất cả các tháng'
+                                              }))
+                                            ].sort((a, b) => new Date(b.time) - new Date(a.time));
+
+                                            if (combinedV.length === 0) {
+                                              return (
+                                                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12.5px' }}>
+                                                  Thiết bị này mới khai báo tên, chưa thực hiện lượt tra cứu hoặc đăng ký lấy mẫu nào.
+                                                </div>
+                                              );
+                                            }
+
+                                            return (
+                                              <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
+                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                                  <thead>
+                                                    <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
+                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Thời gian</th>
+                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Loại thao tác</th>
+                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Sản phẩm / Từ khóa</th>
+                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Số lượng / KQ</th>
+                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Chi tiết</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {combinedV.slice(0, 100).map(item => (
+                                                      <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                                        <td style={{ padding: '6px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                                          {item.time ? new Date(item.time).toLocaleString() : '—'}
+                                                        </td>
+                                                        <td style={{ padding: '6px 12px' }}>
+                                                          <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: `${item.badgeColor}22`, color: item.badgeColor }}>
+                                                            {item.category}
+                                                          </span>
+                                                        </td>
+                                                        <td style={{ padding: '6px 12px', fontWeight: 500 }}>{item.target}</td>
+                                                        <td style={{ padding: '6px 12px', fontWeight: 600 }}>{item.qty}</td>
+                                                        <td style={{ padding: '6px 12px', color: 'var(--text-secondary)' }}>{item.detail}</td>
+                                                      </tr>
+                                                    ))}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            );
+                                          })()}
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </React.Fragment>
                                 );
                               })}
                             </tbody>
