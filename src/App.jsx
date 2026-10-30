@@ -298,14 +298,27 @@ export default function App() {
   const [authMode, setAuthMode] = useState('login'); // 'login', 'signup', or 'guest'
   const [loading, setLoading] = useState(false);
 
-  // Undo States — persisted to localStorage so undo works after page refresh
+  // Undo States — persisted to localStorage and Supabase so undo works across devices
   const [lastAssignedIds, setLastAssignedIdsState] = useState(() => {
     try { const saved = localStorage.getItem('last_assigned_ids'); return saved ? JSON.parse(saved) : null; } catch { return null; }
   });
   const setLastAssignedIds = (ids) => {
     setLastAssignedIdsState(ids);
-    if (ids) localStorage.setItem('last_assigned_ids', JSON.stringify(ids));
-    else localStorage.removeItem('last_assigned_ids');
+    if (ids && ids.length > 0) {
+      localStorage.setItem('last_assigned_ids', JSON.stringify(ids));
+      if (!isDemoMode) {
+        supabase.from('bulk_import_drafts').upsert({
+          id: 'global-last-assigned-ids',
+          rows_data: ids,
+          updated_at: new Date().toISOString()
+        }).then(() => {});
+      }
+    } else {
+      localStorage.removeItem('last_assigned_ids');
+      if (!isDemoMode) {
+        supabase.from('bulk_import_drafts').delete().eq('id', 'global-last-assigned-ids').then(() => {});
+      }
+    }
   };
   const [isUndoing, setIsUndoing] = useState(false);
 
@@ -380,7 +393,21 @@ export default function App() {
   const [bulkRows, setBulkRows] = useState([createEmptyBulkRow(1)]);
   const [bulkTrayNumber, setBulkTrayNumber] = useState('1');
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
-  const [pendingPrintSamples, setPendingPrintSamples] = useState(null);
+  const [pendingPrintSamples, setPendingPrintSamplesState] = useState(null);
+  const setPendingPrintSamples = (val) => {
+    setPendingPrintSamplesState(val);
+    if (!isDemoMode) {
+      if (val && val.length > 0) {
+        supabase.from('bulk_import_drafts').upsert({
+          id: 'global-pending-print-samples',
+          rows_data: val,
+          updated_at: new Date().toISOString()
+        }).then(() => {});
+      } else {
+        supabase.from('bulk_import_drafts').delete().eq('id', 'global-pending-print-samples').then(() => {});
+      }
+    }
+  };
 
   const bulkSyncTimeoutRef = useRef(null);
 
@@ -1828,15 +1855,33 @@ export default function App() {
   // Bộ lọc tìm kiếm cho Danh mục gốc
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
 
-  // Batch Print Label Queue (persisted in LocalStorage)
-  const [printQueue, setPrintQueue] = useState(() => {
-    const saved = localStorage.getItem('print_queue');
-    return saved ? JSON.parse(saved) : [];
+  // Batch Print Label Queue (persisted in LocalStorage and synced globally via Supabase)
+  const [printQueue, setPrintQueueState] = useState(() => {
+    try {
+      const saved = localStorage.getItem('print_queue');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
   });
 
-  useEffect(() => {
-    localStorage.setItem('print_queue', JSON.stringify(printQueue));
-  }, [printQueue]);
+  const setPrintQueue = (updater) => {
+    setPrintQueueState(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const arr = Array.isArray(next) ? next : [];
+      try { localStorage.setItem('print_queue', JSON.stringify(arr)); } catch { /* ignore */ }
+      if (!isDemoMode) {
+        if (arr.length > 0) {
+          supabase.from('bulk_import_drafts').upsert({
+            id: 'global-print-queue',
+            rows_data: arr,
+            updated_at: new Date().toISOString()
+          }).then(() => {});
+        } else {
+          supabase.from('bulk_import_drafts').delete().eq('id', 'global-print-queue').then(() => {});
+        }
+      }
+      return arr;
+    });
+  };
 
   // Init Device Fingerprint
   useEffect(() => {
@@ -2141,6 +2186,14 @@ export default function App() {
     }
   }, [user, authMode, isDemoMode]);
 
+  // Tự động đồng bộ lại hàng đợi in & đề xuất khi chuyển sang tab In Nhãn hoặc Nhập Hàng Loạt
+  useEffect(() => {
+    if (isDemoMode) return;
+    if ((user || authMode === 'guest') && (activeTab === 'labels' || activeTab === 'bulk_import')) {
+      fetchDatabaseData();
+    }
+  }, [activeTab]);
+
   const fetchDatabaseData = async () => {
     try {
       setLoading(true);
@@ -2156,11 +2209,64 @@ export default function App() {
       setTransactions(t || []);
       setDestructionLogs(dl || []);
 
-      // Tải lại tiến trình scanPreview
+      // Tải lại tiến trình scanPreview, printQueue, pendingPrintSamples, lastAssignedIds đồng bộ giữa các máy
       try {
-        const { data: sp } = await supabase.from('bulk_import_drafts').select('rows_data').eq('id', 'global-scan-preview').single();
-        if (sp && sp.rows_data) {
-          setScanPreview(sp.rows_data);
+        const { data: globalStates } = await supabase
+          .from('bulk_import_drafts')
+          .select('id, rows_data')
+          .in('id', ['global-scan-preview', 'global-print-queue', 'global-pending-print-samples', 'global-last-assigned-ids']);
+
+        if (globalStates) {
+          const spRow = globalStates.find(r => r.id === 'global-scan-preview');
+          if (spRow && spRow.rows_data) {
+            setScanPreview(spRow.rows_data);
+          } else {
+            setScanPreview(null);
+          }
+
+          const sampleMap = new Map((s || []).map(item => [item.id, item]));
+
+          const pqRow = globalStates.find(r => r.id === 'global-print-queue');
+          if (pqRow && Array.isArray(pqRow.rows_data) && pqRow.rows_data.length > 0) {
+            // Làm mới thông tin mẫu từ bảng samples mới nhất
+            const refreshedQueue = pqRow.rows_data.map(qItem => sampleMap.get(qItem.id) || qItem);
+            setPrintQueueState(refreshedQueue);
+            try { localStorage.setItem('print_queue', JSON.stringify(refreshedQueue)); } catch { /* ignore */ }
+          } else {
+            // Nếu máy hiện tại đang có hàng đợi trong localStorage mà trên DB chưa có thì đẩy lên DB để các máy khác thấy
+            try {
+              const localSaved = localStorage.getItem('print_queue');
+              const localParsed = localSaved ? JSON.parse(localSaved) : [];
+              if (Array.isArray(localParsed) && localParsed.length > 0) {
+                const refreshedLocal = localParsed.map(qItem => sampleMap.get(qItem.id) || qItem);
+                setPrintQueueState(refreshedLocal);
+                supabase.from('bulk_import_drafts').upsert({
+                  id: 'global-print-queue',
+                  rows_data: refreshedLocal,
+                  updated_at: new Date().toISOString()
+                }).then(() => {});
+              } else {
+                setPrintQueueState([]);
+              }
+            } catch { /* ignore */ }
+          }
+
+          const ppsRow = globalStates.find(r => r.id === 'global-pending-print-samples');
+          if (ppsRow && Array.isArray(ppsRow.rows_data) && ppsRow.rows_data.length > 0) {
+            const refreshedPending = ppsRow.rows_data.map(pItem => sampleMap.get(pItem.id) || pItem);
+            setPendingPrintSamplesState(refreshedPending);
+          } else {
+            setPendingPrintSamplesState(null);
+          }
+
+          const laiRow = globalStates.find(r => r.id === 'global-last-assigned-ids');
+          if (laiRow && Array.isArray(laiRow.rows_data) && laiRow.rows_data.length > 0) {
+            setLastAssignedIdsState(laiRow.rows_data);
+            try { localStorage.setItem('last_assigned_ids', JSON.stringify(laiRow.rows_data)); } catch { /* ignore */ }
+          } else {
+            setLastAssignedIdsState(null);
+            localStorage.removeItem('last_assigned_ids');
+          }
         }
       } catch (e) { /* ignore */ }
 
@@ -7209,7 +7315,12 @@ export default function App() {
                             </button>
                           )}
                           {scanPreview && (
-                            <button className="btn btn-secondary" onClick={() => setScanPreview(null)}>
+                            <button className="btn btn-secondary" onClick={async () => {
+                              setScanPreview(null);
+                              if (!isDemoMode) {
+                                try { await supabase.from('bulk_import_drafts').delete().eq('id', 'global-scan-preview'); } catch { /* ignore */ }
+                              }
+                            }}>
                               × Hủy đề xuất
                             </button>
                           )}
