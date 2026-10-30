@@ -3338,21 +3338,25 @@ export default function App() {
     const month = parseInt(packMonth, 10);
     const year = parseInt(packYear, 10);
 
-    if (!window.confirm(`Bạn đã thu gom đủ ${samplesToPack.length} mẫu của tháng ${month}/${year} từ các kệ và muốn đóng chúng vào thùng mới?`)) return;
+    if (!window.confirm(`Bạn đã thu gom đủ ${samplesToPack.length} mẫu của tháng ${month}/${year} từ các kệ và muốn đóng chúng vào thùng?`)) return;
 
     const samplesToBox = samplesToPack;
-
-    const boxName = `Thùng ${month}/${year}`;
-    const boxId = `b-${Date.now()}`;
-    const newBox = {
-      id: boxId,
-      box_name: boxName,
-      created_at: new Date().toISOString(),
-      status: 'stored'
-    };
+    const paddedMonth = String(month).padStart(2, '0');
+    const boxName = `Thùng ${paddedMonth}/${year}`;
+    const altBoxName = `Thùng ${month}/${year}`;
 
     if (isDemoMode) {
-      setBoxes(prev => [newBox, ...prev]);
+      let existingBox = boxes.find(b => b.box_name === boxName || b.box_name === altBoxName);
+      let targetBox = existingBox;
+      if (!targetBox) {
+        targetBox = {
+          id: `b-${Date.now()}`,
+          box_name: boxName,
+          created_at: new Date().toISOString(),
+          status: 'stored'
+        };
+        setBoxes(prev => [targetBox, ...prev]);
+      }
       
       setSamples(prev => prev.map(s => {
         if (samplesToBox.some(x => x.id === s.id)) {
@@ -3361,28 +3365,43 @@ export default function App() {
             shelf: null,
             slot: null,
             column_number: null,
-            box_id: boxId,
+            box_id: targetBox.id,
             status: 'boxed'
           };
         }
         return s;
       }));
 
-      showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${boxName}`, "success");
-      setManifestModal({ ...newBox, samples: samplesToBox });
+      showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${targetBox.box_name}`, "success");
+      setManifestModal({ ...targetBox, samples: samplesToBox });
       setShowPackByMonthModal(false);
-      // Giữ nguyên tháng năm để tiện đóng tiếp nếu cần
+      setSamplesToPack(null);
     } else {
       try {
         setLoading(true);
-        // Create box
-        const { data: savedBox, error: bError } = await supabase
-          .from('boxes')
-          .insert({ box_name: boxName })
-          .select()
-          .single();
+        // Find existing box or create new one
+        let savedBox = boxes.find(b => b.box_name === boxName || b.box_name === altBoxName);
+        if (!savedBox) {
+          const { data: existingInDb } = await supabase
+            .from('boxes')
+            .select('*')
+            .in('box_name', [boxName, altBoxName])
+            .limit(1)
+            .maybeSingle();
 
-        if (bError) throw bError;
+          if (existingInDb) {
+            savedBox = existingInDb;
+          } else {
+            const { data: createdBox, error: bError } = await supabase
+              .from('boxes')
+              .insert({ box_name: boxName })
+              .select()
+              .single();
+
+            if (bError) throw bError;
+            savedBox = createdBox;
+          }
+        }
 
         // Update samples
         const ids = samplesToBox.map(s => s.id);
@@ -3399,7 +3418,7 @@ export default function App() {
 
         if (sError) throw sError;
 
-        setBoxes(prev => [savedBox, ...prev]);
+        setBoxes(prev => prev.some(b => b.id === savedBox.id) ? prev : [savedBox, ...prev]);
         setSamples(prev => prev.map(s => {
           if (ids.includes(s.id)) {
             return {
@@ -3414,13 +3433,13 @@ export default function App() {
           return s;
         }));
 
-        showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${boxName}`, "success");
+        showToast(`Đã đóng gói ${samplesToBox.length} mẫu vào ${savedBox.box_name}`, "success");
         setManifestModal({ ...savedBox, samples: samplesToBox });
         setShowPackByMonthModal(false);
         setSamplesToPack(null);
       } catch (e) {
         console.error("Error packing by month:", e);
-        showToast("Có lỗi xảy ra khi đóng thùng!", "error");
+        showToast("Có lỗi xảy ra khi đóng thùng: " + (e.message || ""), "error");
       } finally {
         setLoading(false);
       }
@@ -3739,6 +3758,7 @@ export default function App() {
     const oldestMonth = oldestDate.getMonth() + 1;
     const oldestYear = oldestDate.getFullYear();
     const boxName = `Thùng ${String(oldestMonth).padStart(2, '0')}/${oldestYear}`;
+    const altBoxName = `Thùng ${oldestMonth}/${oldestYear}`;
 
     // Select up to 10 samples from this oldest month to box (to make room)
     const samplesToBox = sorted.filter(s => {
@@ -3746,16 +3766,17 @@ export default function App() {
       return d.getMonth() + 1 === oldestMonth && d.getFullYear() === oldestYear;
     }).slice(0, 10);
     
-    const boxId = `b-${Date.now()}`;
-    const newBox = {
-      id: boxId,
-      box_name: boxName,
-      created_at: new Date().toISOString(),
-      status: 'stored'
-    };
-
     if (isDemoMode) {
-      setBoxes(prev => [newBox, ...prev]);
+      let targetBox = boxes.find(b => b.box_name === boxName || b.box_name === altBoxName);
+      if (!targetBox) {
+        targetBox = {
+          id: `b-${Date.now()}`,
+          box_name: boxName,
+          created_at: new Date().toISOString(),
+          status: 'stored'
+        };
+        setBoxes(prev => [targetBox, ...prev]);
+      }
       
       // Update samples state
       setSamples(prev => prev.map(s => {
@@ -3765,26 +3786,41 @@ export default function App() {
             shelf: null,
             slot: null,
             column_number: null,
-            box_id: boxId,
+            box_id: targetBox.id,
             status: 'boxed'
           };
         }
         return s;
       }));
 
-      showToast(`Đã đóng gói ${samplesToBox.length} mẫu cũ nhất vào ${boxName}`, "success");
-      setManifestModal({ ...newBox, samples: samplesToBox });
+      showToast(`Đã đóng gói ${samplesToBox.length} mẫu cũ nhất vào ${targetBox.box_name}`, "success");
+      setManifestModal({ ...targetBox, samples: samplesToBox });
     } else {
       try {
         setLoading(true);
-        // Create box
-        const { data: savedBox, error: bError } = await supabase
-          .from('boxes')
-          .insert({ box_name: boxName })
-          .select()
-          .single();
+        // Find existing box or create new one
+        let savedBox = boxes.find(b => b.box_name === boxName || b.box_name === altBoxName);
+        if (!savedBox) {
+          const { data: existingInDb } = await supabase
+            .from('boxes')
+            .select('*')
+            .in('box_name', [boxName, altBoxName])
+            .limit(1)
+            .maybeSingle();
 
-        if (bError) throw bError;
+          if (existingInDb) {
+            savedBox = existingInDb;
+          } else {
+            const { data: createdBox, error: bError } = await supabase
+              .from('boxes')
+              .insert({ box_name: boxName })
+              .select()
+              .single();
+
+            if (bError) throw bError;
+            savedBox = createdBox;
+          }
+        }
 
         // Update samples
         for (let s of samplesToBox) {
@@ -3802,7 +3838,7 @@ export default function App() {
           if (sError) throw sError;
         }
 
-        showToast(`Đóng thùng thành công vào ${boxName}!`, "success");
+        showToast(`Đóng thùng thành công vào ${savedBox.box_name}!`, "success");
         setManifestModal({ ...savedBox, samples: samplesToBox });
         fetchDatabaseData();
       } catch (e) {
