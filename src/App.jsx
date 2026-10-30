@@ -1834,6 +1834,14 @@ export default function App() {
   const [searchLogs, setSearchLogs] = useState([]);
   const [searchLogsLoading, setSearchLogsLoading] = useState(false);
   const [resetDevices, setResetDevices] = useState([]); // danh sách device_id đã reset/chặn
+  const [allVisitorLogs, setAllVisitorLogs] = useState([]); // toàn bộ lịch sử để tổng hợp danh sách khách
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userMgmtSubTab, setUserMgmtSubTab] = useState('accounts'); // 'accounts' | 'visitors'
+  const [editingProfileId, setEditingProfileId] = useState(null);
+  const [editProfileName, setEditProfileName] = useState('');
+  const [editProfileCode, setEditProfileCode] = useState('');
+  const [editProfileDept, setEditProfileDept] = useState('');
+  const [editProfileRole, setEditProfileRole] = useState('staff');
 
   // Nhật ký tìm kiếm: bộ lọc khoảng ngày (mặc định 30 ngày gần nhất)
   const getOffsetDateString = (offsetDays) => {
@@ -1959,7 +1967,7 @@ export default function App() {
     }
   }, [authMode, profile, user]);
 
-  const saveVisitorName = () => {
+  const saveVisitorName = async () => {
     const trimmed = nameInput.trim();
     if (!trimmed) {
       window.location.href = 'https://www.google.com.vn';
@@ -1969,6 +1977,16 @@ export default function App() {
     setVisitorName(trimmed);
     setShowNamePrompt(false);
     showToast(`Xin chào ${trimmed}! Hệ thống đã ghi nhận.`, 'success');
+    if (!isDemoMode && deviceId) {
+      try {
+        await supabase.from('search_logs').insert({
+          device_id: deviceId,
+          user_name: trimmed,
+          keyword: '[Khai báo tên]',
+          results_count: 0
+        });
+      } catch { /* ignore */ }
+    }
   };
 
   // Supabase Realtime — lắng nghe thông báo cho Admin
@@ -2029,6 +2047,7 @@ export default function App() {
       await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: false, reset_by: 'admin' });
       showToast(`Đã reset thiết bị của "${userName}". Họ sẽ phải nhập lại tên lần sau!`, 'success');
       fetchSearchLogs();
+      fetchUsersAndVisitors();
     } catch (e) {
       showToast('Lỗi khi reset. Thử lại.', 'error');
     }
@@ -2041,6 +2060,7 @@ export default function App() {
       await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: true, reset_by: 'admin' });
       showToast(`Đã chặn vĩnh viễn thiết bị của "${userName}"!`, 'success');
       fetchSearchLogs();
+      fetchUsersAndVisitors();
     } catch (e) {
       showToast('Lỗi khi chặn. Thử lại.', 'error');
     }
@@ -2052,8 +2072,103 @@ export default function App() {
       await supabase.from('visitor_resets').delete().eq('device_id', devId);
       showToast(`Đã gỡ chặn thiết bị của "${userName}".`, 'success');
       fetchSearchLogs();
+      fetchUsersAndVisitors();
     } catch (e) {
       showToast('Lỗi khi gỡ chặn.', 'error');
+    }
+  };
+
+  // Tải danh sách tài khoản hệ thống (profiles) và toàn bộ khách đã lưu (visitors)
+  const fetchUsersAndVisitors = async () => {
+    if (isDemoMode) return;
+    setUsersLoading(true);
+    try {
+      const [{ data: profs }, { data: vLogs }, { data: resets }] = await Promise.all([
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+        supabase.from('search_logs').select('*').order('searched_at', { ascending: false }).limit(2000),
+        supabase.from('visitor_resets').select('device_id, is_blocked')
+      ]);
+      setProfilesList(profs || []);
+      setAllVisitorLogs(vLogs || []);
+      setResetDevices(resets || []);
+    } catch (e) {
+      console.error('Error fetching users and visitors:', e);
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  // Cập nhật thông tin & phân quyền tài khoản
+  const handleUpdateUserProfile = async (targetId) => {
+    if (!editProfileName.trim()) {
+      showToast('Họ và tên không được để trống!', 'warning');
+      return;
+    }
+    try {
+      setUsersLoading(true);
+      const updates = {
+        full_name: editProfileName.trim(),
+        employee_code: editProfileCode.trim() || null,
+        department: editProfileDept.trim() || null,
+        role: editProfileRole
+      };
+      if (isDemoMode) {
+        setProfilesList(prev => prev.map(p => p.id === targetId ? { ...p, ...updates } : p));
+      } else {
+        const { error } = await supabase.from('profiles').update(updates).eq('id', targetId);
+        if (error) throw error;
+        setProfilesList(prev => prev.map(p => p.id === targetId ? { ...p, ...updates } : p));
+        if (profile && profile.id === targetId) {
+          setProfile(prev => ({ ...prev, ...updates }));
+        }
+      }
+      setEditingProfileId(null);
+      showToast('Đã cập nhật thông tin tài khoản!', 'success');
+    } catch (e) {
+      showToast('Lỗi cập nhật tài khoản: ' + e.message, 'error');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  // Xóa hồ sơ tài khoản
+  const handleDeleteUserProfile = async (prof) => {
+    if (prof.id === user?.id) {
+      showToast('Không thể tự xóa tài khoản đang đăng nhập!', 'warning');
+      return;
+    }
+    if (!window.confirm(`Xác nhận xóa tài khoản "${prof.full_name}" (${prof.employee_code || 'Không mã NV'})?`)) return;
+    try {
+      setUsersLoading(true);
+      if (!isDemoMode) {
+        const { error } = await supabase.from('profiles').delete().eq('id', prof.id);
+        if (error) throw error;
+      }
+      setProfilesList(prev => prev.filter(p => p.id !== prof.id));
+      showToast(`Đã xóa tài khoản "${prof.full_name}"!`, 'success');
+    } catch (e) {
+      showToast('Không thể xóa tài khoản (có thể đang gắn với lịch sử giao dịch): ' + e.message, 'error');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  // Xóa khách khỏi danh sách đã lưu (xóa lịch sử thiết bị và đặt lệnh reset tên)
+  const handleDeleteSavedVisitor = async (devId, userName) => {
+    if (!window.confirm(`Xóa khách "${userName}" khỏi danh sách đã lưu và yêu cầu thiết bị này khai báo lại tên khi truy cập lần sau?`)) return;
+    try {
+      setUsersLoading(true);
+      if (!isDemoMode) {
+        await supabase.from('search_logs').delete().eq('device_id', devId);
+        await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: false, reset_by: 'admin' });
+      }
+      showToast(`Đã xóa khách "${userName}" và đặt yêu cầu khai lại tên!`, 'success');
+      fetchUsersAndVisitors();
+      fetchSearchLogs();
+    } catch (e) {
+      showToast('Lỗi khi xóa khách: ' + e.message, 'error');
+    } finally {
+      setUsersLoading(false);
     }
   };
 
@@ -2202,12 +2317,14 @@ export default function App() {
       const { data: b } = await supabase.from('boxes').select('*').order('created_at', { ascending: false });
       const { data: t } = await supabase.from('transactions').select('*, samples(*, products(*)), profiles(*)').order('created_at', { ascending: false });
       const { data: dl } = await supabase.from('destruction_logs').select('*').order('created_at', { ascending: false });
+      const { data: profs } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       
       setProducts(p || []);
       setSamples(s || []);
       setBoxes(b || []);
       setTransactions(t || []);
       setDestructionLogs(dl || []);
+      setProfilesList(profs || []);
 
       // Tải lại tiến trình scanPreview, printQueue, pendingPrintSamples, lastAssignedIds đồng bộ giữa các máy
       try {
@@ -5721,6 +5838,9 @@ export default function App() {
                     <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }} style={{ background: activeTab === 'search_logs' ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : undefined, borderColor: activeTab === 'search_logs' ? '#0ea5e9' : undefined }}>
                       <FileText size={16} /> Nhật Ký Tìm Kiếm
                     </button>
+                    <button className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('users'); fetchUsersAndVisitors(); }} style={{ background: activeTab === 'users' ? 'linear-gradient(135deg,#10b981,#059669)' : undefined, borderColor: activeTab === 'users' ? '#10b981' : undefined }}>
+                      <User size={16} /> Tài Khoản & Khách
+                    </button>
                   </div>
                 </>
               )}
@@ -7786,6 +7906,296 @@ export default function App() {
                       </table>
                     </div>
                   </>
+                )}
+              </div>
+            )}
+
+            {/* USERS & SAVED VISITORS MANAGEMENT PAGE (Admin only) */}
+            {activeTab === 'users' && (
+              <div className="glass-panel">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                  <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <User size={22} color="#10b981" /> Quản Lý Tài Khoản & Khách Đã Lưu
+                  </h2>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      className={`btn ${userMgmtSubTab === 'accounts' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setUserMgmtSubTab('accounts')}
+                      style={{ padding: '7px 16px', fontSize: '13px' }}
+                    >
+                      👤 Tài khoản hệ thống ({profilesList.length})
+                    </button>
+                    <button
+                      className={`btn ${userMgmtSubTab === 'visitors' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setUserMgmtSubTab('visitors')}
+                      style={{ padding: '7px 16px', fontSize: '13px' }}
+                    >
+                      📱 Khách & Thiết bị đã lưu ({(() => {
+                        const map = new Map();
+                        allVisitorLogs.forEach(l => { if (l.device_id && !map.has(l.device_id)) map.set(l.device_id, l); });
+                        resetDevices.forEach(r => { if (r.device_id && !map.has(r.device_id)) map.set(r.device_id, { device_id: r.device_id, user_name: 'Thiết bị chưa rõ tên', searched_at: null }); });
+                        return map.size;
+                      })()})
+                    </button>
+                    <button className="btn btn-secondary" onClick={fetchUsersAndVisitors} disabled={usersLoading} style={{ padding: '7px 14px', fontSize: '13px' }}>
+                      {usersLoading ? <Loader size={14} className="spin" /> : '🔄 Làm mới'}
+                    </button>
+                  </div>
+                </div>
+
+                {userMgmtSubTab === 'accounts' ? (
+                  <div>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                      Danh sách các tài khoản đã đăng ký trong hệ thống (bảng <code>profiles</code>). Bạn có thể chỉnh sửa tên, mã nhân viên, phòng ban và phân quyền <strong>Thủ kho (Admin)</strong> hoặc <strong>Nhân viên (Staff)</strong>.
+                    </p>
+                    {profilesList.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                        Chưa có tài khoản nào được lưu trong bảng profiles.
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                              {['Họ và tên', 'Mã nhân viên', 'Phòng ban', 'Vai trò (Quyền)', 'Ngày tạo', 'Thao tác'].map((h, i) => (
+                                <th key={i} style={{ padding: '10px 14px', textAlign: h === 'Thao tác' ? 'right' : 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600 }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {profilesList.map((p, idx) => {
+                              const isEditing = editingProfileId === p.id;
+                              return (
+                                <tr key={p.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                  <td style={{ padding: '10px 14px', fontWeight: 600 }}>
+                                    {isEditing ? (
+                                      <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px' }} value={editProfileName} onChange={e => setEditProfileName(e.target.value)} />
+                                    ) : (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <User size={14} color="var(--accent-blue)" />
+                                        {p.full_name}
+                                        {p.id === user?.id && <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '1px 6px', borderRadius: '4px' }}>Bạn</span>}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '10px 14px' }}>
+                                    {isEditing ? (
+                                      <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px', width: '120px' }} value={editProfileCode} onChange={e => setEditProfileCode(e.target.value)} placeholder="Mã NV" />
+                                    ) : (
+                                      <code style={{ background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>{p.employee_code || '—'}</code>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '10px 14px' }}>
+                                    {isEditing ? (
+                                      <input className="form-input" style={{ padding: '5px 8px', fontSize: '13px', width: '120px' }} value={editProfileDept} onChange={e => setEditProfileDept(e.target.value)} placeholder="Phòng ban" />
+                                    ) : (
+                                      p.department || '—'
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '10px 14px' }}>
+                                    {isEditing ? (
+                                      <select className="form-select" style={{ padding: '5px 8px', fontSize: '13px', width: '150px' }} value={editProfileRole} onChange={e => setEditProfileRole(e.target.value)}>
+                                        <option value="staff">Nhân viên (Staff)</option>
+                                        <option value="admin">Thủ kho (Admin)</option>
+                                      </select>
+                                    ) : (
+                                      <span style={{
+                                        fontSize: '11.5px',
+                                        fontWeight: 600,
+                                        padding: '3px 10px',
+                                        borderRadius: '12px',
+                                        background: p.role === 'admin' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)',
+                                        color: p.role === 'admin' ? '#f59e0b' : 'var(--accent-blue)'
+                                      }}>
+                                        {p.role === 'admin' ? '👑 Thủ kho (Admin)' : '👤 Nhân viên (Staff)'}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                    {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
+                                  </td>
+                                  <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                                    {isEditing ? (
+                                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                        <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={() => handleUpdateUserProfile(p.id)}>
+                                          Lưu
+                                        </button>
+                                        <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={() => setEditingProfileId(null)}>
+                                          Hủy
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                        <button
+                                          className="btn btn-secondary"
+                                          style={{ padding: '4px 10px', fontSize: '12px', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.3)' }}
+                                          onClick={() => {
+                                            setEditingProfileId(p.id);
+                                            setEditProfileName(p.full_name || '');
+                                            setEditProfileCode(p.employee_code || '');
+                                            setEditProfileDept(p.department || '');
+                                            setEditProfileRole(p.role || 'staff');
+                                          }}
+                                        >
+                                          ✏️ Sửa / Phân quyền
+                                        </button>
+                                        {p.id !== user?.id && (
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ padding: '4px 10px', fontSize: '12px', color: 'var(--status-error)', borderColor: 'rgba(239,68,68,0.3)' }}
+                                            onClick={() => handleDeleteUserProfile(p)}
+                                          >
+                                            🗑️ Xóa
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                      Danh sách các khách truy cập & thiết bị đã khai báo tên trên hệ thống. Bạn có thể yêu cầu khách khai báo lại tên, chặn truy cập thiết bị hoặc xóa khỏi danh sách.
+                    </p>
+                    {(() => {
+                      const visitorMap = new Map();
+                      allVisitorLogs.forEach(log => {
+                        if (!log.device_id) return;
+                        if (!visitorMap.has(log.device_id)) {
+                          visitorMap.set(log.device_id, {
+                            device_id: log.device_id,
+                            user_name: log.user_name || 'Khách ẩn danh',
+                            last_active: log.searched_at,
+                            search_count: log.keyword === '[Khai báo tên]' ? 0 : 1,
+                            last_keyword: log.keyword
+                          });
+                        } else {
+                          const entry = visitorMap.get(log.device_id);
+                          if (log.keyword !== '[Khai báo tên]') entry.search_count += 1;
+                          if ((entry.user_name === 'Khách ẩn danh' || entry.user_name === 'Thiết bị bị chặn') && log.user_name && log.user_name !== 'Khách ẩn danh') {
+                            entry.user_name = log.user_name;
+                          }
+                        }
+                      });
+                      resetDevices.forEach(r => {
+                        if (r.device_id && !visitorMap.has(r.device_id)) {
+                          visitorMap.set(r.device_id, {
+                            device_id: r.device_id,
+                            user_name: 'Thiết bị chưa có lịch sử',
+                            last_active: null,
+                            search_count: 0,
+                            last_keyword: '—'
+                          });
+                        }
+                      });
+                      const visitorsList = Array.from(visitorMap.values());
+
+                      if (visitorsList.length === 0) {
+                        return (
+                          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                            Chưa có khách hoặc thiết bị nào được lưu.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                            <thead>
+                              <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
+                                {['Tên khách đã khai báo', 'Thiết bị (Device ID)', 'Số lượt tra cứu', 'Hoạt động gần nhất', 'Trạng thái', 'Thao tác quản lý'].map((h, i) => (
+                                  <th key={i} style={{ padding: '10px 14px', textAlign: h === 'Thao tác quản lý' ? 'right' : 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600 }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {visitorsList.map((v, idx) => {
+                                const status = resetDevices.find(d => d.device_id === v.device_id);
+                                return (
+                                  <tr key={v.device_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                    <td style={{ padding: '10px 14px', fontWeight: 600 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <User size={14} color="#10b981" />
+                                        {v.user_name}
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }} title={v.device_id}>
+                                      <code style={{ background: 'rgba(255,255,255,0.06)', padding: '3px 8px', borderRadius: '6px', fontSize: '11.5px' }}>
+                                        {getDisplayDeviceName(v.device_id)}
+                                      </code>
+                                      <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px' }}>{v.device_id}</div>
+                                    </td>
+                                    <td style={{ padding: '10px 14px' }}>
+                                      <span style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600 }}>
+                                        {v.search_count} lượt
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                      {v.last_active ? new Date(v.last_active).toLocaleString() : '—'}
+                                    </td>
+                                    <td style={{ padding: '10px 14px' }}>
+                                      {status ? (
+                                        status.is_blocked ? (
+                                          <span style={{ fontSize: '11px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>🚫 Đang bị chặn</span>
+                                        ) : (
+                                          <span style={{ fontSize: '11px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>⏳ Chờ khai lại tên</span>
+                                        )
+                                      ) : (
+                                        <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>✓ Hoạt động</span>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                        {status && status.is_blocked ? (
+                                          <button
+                                            onClick={() => handleUnblockVisitor(v.device_id, v.user_name)}
+                                            style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: 'var(--status-success)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: 'pointer', fontWeight: 600 }}
+                                          >
+                                            🟢 Gỡ chặn
+                                          </button>
+                                        ) : (
+                                          <>
+                                            <button
+                                              onClick={() => handleResetVisitor(v.device_id, v.user_name)}
+                                              disabled={!!status}
+                                              style={{ background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)', color: status ? 'var(--text-muted)' : 'var(--status-warning)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: status ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                                            >
+                                              🔄 {status ? 'Đang chờ nhập' : 'Đổi / Khai lại tên'}
+                                            </button>
+                                            <button
+                                              onClick={() => handleBlockVisitor(v.device_id, v.user_name)}
+                                              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-error)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: 'pointer', fontWeight: 600 }}
+                                            >
+                                              🚫 Chặn
+                                            </button>
+                                          </>
+                                        )}
+                                        <button
+                                          onClick={() => handleDeleteSavedVisitor(v.device_id, v.user_name)}
+                                          title="Xóa khách này khỏi danh sách đã lưu"
+                                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', borderRadius: '8px', padding: '4px 8px', fontSize: '11.5px', cursor: 'pointer' }}
+                                        >
+                                          🗑️ Xóa
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
             )}
