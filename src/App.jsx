@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import html2pdf from 'html2pdf.js';
+import QRCode from 'qrcode';
 import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
@@ -129,13 +130,39 @@ export const sendTelegramNotification = async (message) => {
   }
 };
 
-// Format capacity mapping
+// Format capacity mapping (Mỗi ô kệ rộng tối đa 700mm)
+const SLOT_MAX_WIDTH_MM = 700;
 const FORMAT_CAPACITIES = {
-  'Kingsize': { columns: 8, height: 6, total: 48 },
-  'SuperSlim': { columns: 7, height: 10, total: 70 },
-  'Semi': { columns: 7, height: 6, total: 42 },
-  'Demi': { columns: 8, height: 7, total: 56 },
-  'Slim': { columns: 7, height: 10, total: 70 }
+  'Kingsize': { width: 90, columns: 7, height: 6, total: 42 },
+  'SuperSlim': { width: 105, columns: 6, height: 10, total: 60 },
+  'Semi': { width: 98, columns: 7, height: 6, total: 42 },
+  'Demi': { width: 90, columns: 7, height: 7, total: 49 },
+  'Slim': { width: 105, columns: 6, height: 10, total: 60 }
+};
+
+const getFormatSpec = (fmt) => FORMAT_CAPACITIES[fmt] || FORMAT_CAPACITIES['Kingsize'];
+
+// Tạo mã QR dạng SVG nội tuyến (Offline 100%, không bao giờ mất mã QR khi in)
+const generateQrSvgMarkup = (text) => {
+  try {
+    const qr = QRCode.create(text || 'N/A', { errorCorrectionLevel: 'M' });
+    const size = qr.modules.size;
+    const data = qr.modules.data;
+    const margin = 1;
+    const total = size + margin * 2;
+    let path = '';
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (data[r * size + c]) {
+          path += `M${c + margin},${r + margin}h1v1h-1z`;
+        }
+      }
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges" style="width:100%;height:auto;display:block;aspect-ratio:1/1;"><rect width="100%" height="100%" fill="#ffffff"/><path d="${path}" fill="#000000"/></svg>`;
+  } catch (e) {
+    console.error('QR generation error:', e);
+    return '';
+  }
 };
 
 const liveFormatDate = (value, prevValue) => {
@@ -958,6 +985,18 @@ export default function App() {
 
     const toShelf = [], toEvict = [], toBox = [];
 
+    // Tính tổng bề ngang (mm) đã sử dụng trong 1 ô ảo (trừ đi 1 cột nếu đang xét thay thế)
+    const getVirtualSlotUsedWidth = (shelf, slot, excludeCol = null) => {
+      const slotCols = vState[shelf][slot];
+      let usedWidth = 0;
+      for (const [cStr, cData] of Object.entries(slotCols)) {
+        if (excludeCol !== null && parseInt(cStr, 10) === excludeCol) continue;
+        const cSpec = getFormatSpec(cData.format);
+        usedWidth += cSpec.width;
+      }
+      return usedWidth;
+    };
+
     const assignToCol = (row, shelf, slot, col, qtyPacks) => {
       const prod = row.productObj;
       if (!vState[shelf][slot][col]) {
@@ -982,7 +1021,7 @@ export default function App() {
       if (!prod || !row.qty) { toBox.push(row); continue; }
       const qtyPacks = parseInt(row.qty) * 10;
       const fmt = prod.format || 'Kingsize';
-      const lim = FORMAT_CAPACITIES[fmt] || FORMAT_CAPACITIES['Kingsize'];
+      const lim = getFormatSpec(fmt);
       const newCartons = Math.ceil(qtyPacks / 10);
       
       // Export: Top-down (1->6). Domestic: Bottom-up (6->1)
@@ -990,7 +1029,7 @@ export default function App() {
 
       let assigned = false;
 
-      // PASS 1: Cùng sản phẩm, chưa đầy
+      // PASS 1: Cùng sản phẩm, chưa đầy (xếp chồng thêm lên cột đã có sẵn nên không tốn thêm bề ngang)
       for (const shelf of shelfRange) {
         if (assigned) break;
         for (let slot = 1; slot <= 4; slot++) {
@@ -1015,7 +1054,7 @@ export default function App() {
         }
       }
 
-      // PASS 2: Ô chứa cùng định dạng điếu, còn cột trống
+      // PASS 2: Ô chứa cùng định dạng điếu, còn đủ bề ngang 700mm cho cột mới
       if (!assigned) {
         for (const shelf of shelfRange) {
           if (assigned) break;
@@ -1028,12 +1067,13 @@ export default function App() {
             const occupiedCols = Object.keys(slotCols).map(Number);
             if (occupiedCols.length === 0) continue; // Bỏ qua ô trống hoàn toàn (dành cho Pass 3)
 
-            // Lấy định dạng của ô (từ cột đầu tiên theo thứ tự số)
-            const sortedOccupied = [...occupiedCols].sort((a, b) => a - b);
-            const slotFormat = slotCols[sortedOccupied[0]].format;
-            if (slotFormat === fmt) {
-              // [FIX] Tìm cột trống ĐẦU TIÊN trong phạm vi, không chỉ max+1
-              // Điều này giải quyết trường hợp có gap giữa các cột
+            // Kiểm tra tổng bề ngang 700mm khi thêm cột mới
+            const usedWidth = getVirtualSlotUsedWidth(shelf, slot);
+            if (usedWidth + lim.width > SLOT_MAX_WIDTH_MM) continue;
+
+            // Kiểm tra tất cả cột trong ô có cùng định dạng điếu không
+            const allSameFormat = occupiedCols.every(c => slotCols[c].format === fmt);
+            if (allSameFormat) {
               let nextCol = 1;
               while (nextCol <= lim.columns && vState[shelf][slot][nextCol]) nextCol++;
               if (nextCol <= lim.columns && newCartons <= lim.height) {
@@ -1049,7 +1089,7 @@ export default function App() {
         }
       }
 
-      // PASS 3: Cột trống bất kỳ
+      // PASS 3: Cột trống bất kỳ miễn tổng bề ngang các cột trong ô <= 700mm
       if (!assigned) {
         for (const shelf of shelfRange) {
           if (assigned) break;
@@ -1058,10 +1098,11 @@ export default function App() {
             const config = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
             if (config?.is_full) continue;
 
-            // [FIX] Tìm cột trống ĐẦU TIÊN trong phạm vi lim.columns, không chỉ max+1
-            // Giải quyết trường hợp có gap (ô có cột 1, 3 nhưng cột 2 trống → trước đây bỏ qua cột 2)
+            const usedWidth = getVirtualSlotUsedWidth(shelf, slot);
+            if (usedWidth + lim.width > SLOT_MAX_WIDTH_MM) continue;
+
             let nextCol = 1;
-            while (nextCol <= lim.columns && vState[shelf][slot][nextCol]) nextCol++;
+            while (nextCol <= 7 && vState[shelf][slot][nextCol]) nextCol++;
 
             if (nextCol <= lim.columns && newCartons <= lim.height) {
               const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
@@ -1075,7 +1116,7 @@ export default function App() {
         }
       }
 
-      // PASS 4: Hết chỗ, thử tìm hàng cũ đẩy ra (Evict)
+      // PASS 4: Hết chỗ, thử tìm hàng cũ đẩy ra (Evict) - phải đảm bảo sau khi đẩy cột cũ ra thì bề ngang ô + cột mới <= 700mm
       if (!assigned) {
         let oldestColInfo = null;
         let oldestDateObj = null;
@@ -1083,11 +1124,16 @@ export default function App() {
 
         for (let s = 1; s <= 6; s++) {
           for (let sl = 1; sl <= 4; sl++) {
-            // [FIX] Bỏ qua slot đã bị admin đánh dấu is_full
             const slotFullConfig = slotConfigs.find(c => c.shelf === s && c.slot === sl && (c.column_number === 0 || !c.column_number));
             if (slotFullConfig?.is_full) continue;
             const slotCols = vState[s][sl];
             for (const [colStr, colData] of Object.entries(slotCols)) {
+              const colNum = parseInt(colStr, 10);
+              if (colNum > lim.columns) continue;
+              // Kiểm tra nếu đẩy cột này ra và thay bằng cột định dạng mới thì tổng bề ngang có <= 700mm không
+              const widthWithoutThisCol = getVirtualSlotUsedWidth(s, sl, colNum);
+              if (widthWithoutThisCol + lim.width > SLOT_MAX_WIDTH_MM) continue;
+
               // Bỏ qua cột nếu có chứa mẫu vừa xếp vào (mẫu mới)
               if (colData.items.some(item => item.isNew)) continue;
 
@@ -1109,7 +1155,7 @@ export default function App() {
               if (newestInCol && rowDateObj && newestInCol < rowDateObj) {
                 if (!oldestDateObj || newestInCol < oldestDateObj) {
                   oldestDateObj = newestInCol;
-                  oldestColInfo = { shelf: s, slot: sl, col: parseInt(colStr), data: colData };
+                  oldestColInfo = { shelf: s, slot: sl, col: colNum, data: colData };
                 }
               }
             }
@@ -2599,6 +2645,23 @@ export default function App() {
     handleProductSelectForImport(p.id);
   };
 
+  // Tính bề ngang (mm) đang sử dụng của 1 ô dựa trên các cột đang có mẫu stored
+  const getSlotUsedWidthMm = (shelf, slot, excludeSampleId = null) => {
+    const slotSamples = samples.filter(s => s.shelf === shelf && s.slot === slot && s.status === 'stored' && s.column_number && s.available_qty > 0 && s.id !== excludeSampleId);
+    const colFormatMap = {};
+    slotSamples.forEach(s => {
+      if (!colFormatMap[s.column_number]) {
+        const p = s.products || products.find(pr => pr.id === s.product_id);
+        colFormatMap[s.column_number] = p?.format || 'Kingsize';
+      }
+    });
+    let totalWidth = 0;
+    Object.values(colFormatMap).forEach(fmt => {
+      totalWidth += getFormatSpec(fmt).width;
+    });
+    return { totalWidth, colFormatMap };
+  };
+
   // Auto-location suggestion logic (3 Priorities)
   const handleProductSelectForImport = (prodId) => {
     setImportProductId(prodId);
@@ -2609,7 +2672,7 @@ export default function App() {
     setSuggestedLoc(null);
 
     const format = prod.format || 'Kingsize';
-    const limitInfo = FORMAT_CAPACITIES[format] || FORMAT_CAPACITIES['Kingsize'];
+    const limitInfo = getFormatSpec(format);
     const shelfRange = prod.is_export ? [1, 2, 3, 4, 5, 6] : [6, 5, 4, 3, 2, 1];
 
     // 1. Priority 1: Find a column that already has this product and is NOT full
@@ -2649,7 +2712,7 @@ export default function App() {
       }
     }
 
-    // 2. Priority 2: Find the next consecutive empty column in a slot that contains the SAME format
+    // 2. Priority 2: Find the next consecutive empty column in a slot that contains the SAME format and fits 700mm
     for (let shelf of shelfRange) {
       for (let slot = 1; slot <= 4; slot++) {
         const slotConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
@@ -2659,6 +2722,9 @@ export default function App() {
         const hasSameFormat = slotSamples.length > 0 && slotSamples.every(s => (s.products?.format || products.find(p => p.id === s.product_id)?.format) === format);
         
         if (hasSameFormat) {
+          const { totalWidth } = getSlotUsedWidthMm(shelf, slot);
+          if (totalWidth + limitInfo.width > SLOT_MAX_WIDTH_MM) continue;
+
           const maxCols = limitInfo.columns;
           const occupiedCols = new Set(slotSamples.map(s => s.column_number));
           let nextCol = 1;
@@ -2671,7 +2737,7 @@ export default function App() {
                 shelf,
                 slot,
                 column_number: nextCol,
-                reason: `Cột trống kế tiếp trong ô cùng định dạng [${format}] (${formatLocation(shelf, slot, nextCol)})`
+                reason: `Cột trống kế tiếp trong ô cùng định dạng [${format} - ${limitInfo.width}mm] (${formatLocation(shelf, slot, nextCol)}, bề ngang sau xếp: ${totalWidth + limitInfo.width}/${SLOT_MAX_WIDTH_MM}mm)`
               });
               setImportShelf(shelf);
               setImportSlot(slot);
@@ -2683,11 +2749,14 @@ export default function App() {
       }
     }
 
-    // 3. Priority 3: Find the next consecutive empty column in any slot anywhere following shelfRange
+    // 3. Priority 3: Find the next consecutive empty column in any slot anywhere following shelfRange (fitting 700mm)
     for (let shelf of shelfRange) {
       for (let slot = 1; slot <= 4; slot++) {
         const slotConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && (c.column_number === 0 || !c.column_number));
         if (slotConfig?.is_full) continue;
+
+        const { totalWidth } = getSlotUsedWidthMm(shelf, slot);
+        if (totalWidth + limitInfo.width > SLOT_MAX_WIDTH_MM) continue;
 
         const slotSamples = samples.filter(s => s.shelf === shelf && s.slot === slot && s.status === 'stored');
         const maxCols = limitInfo.columns;
@@ -2702,7 +2771,7 @@ export default function App() {
               shelf,
               slot,
               column_number: nextCol,
-              reason: `Tìm thấy cột trống kế tiếp phù hợp (${formatLocation(shelf, slot, nextCol)})`
+              reason: `Tìm thấy cột trống kế tiếp phù hợp (${formatLocation(shelf, slot, nextCol)}, bề ngang sau xếp: ${totalWidth + limitInfo.width}/${SLOT_MAX_WIDTH_MM}mm)`
             });
             setImportShelf(shelf);
             setImportSlot(slot);
@@ -3037,20 +3106,14 @@ export default function App() {
       return;
     }
 
-    // Check consecutive column and max columns limit
+    // Check consecutive column and max columns limit (700mm width rule)
     const correctNextCol = getNextColInSlot(shelfNum, slotNum);
     const format = prod?.format || 'Kingsize';
-    const limitInfo = FORMAT_CAPACITIES[format] || FORMAT_CAPACITIES['Kingsize'];
+    const limitInfo = getFormatSpec(format);
     const maxCols = limitInfo.columns;
 
-    // Removed strict consecutive column check to allow manual placement
-    // if (colNum !== correctNextCol) {
-    //   showToast(`Không đúng thứ tự xếp cột! Cột tiếp theo phải xếp vào là Cột ${correctNextCol}.`, "error");
-    //   return;
-    // }
-
     if (colNum > maxCols) {
-      showToast(`Ô này đã đạt giới hạn số cột tối đa cho định dạng ${format} (${maxCols} cột)! Vui lòng chọn Kệ/Ô khác.`, "error");
+      showToast(`Ô này đã đạt giới hạn số cột tối đa cho định dạng ${format} (${maxCols} cột, ${limitInfo.width}mm/cột trên bề ngang 700mm)! Vui lòng chọn Kệ/Ô khác.`, "error");
       return;
     }
 
@@ -3063,12 +3126,19 @@ export default function App() {
       return;
     }
 
-    // Check height limit
-    
     // Sum current quantity in packs for the same column
     const existingSamplesInCol = samples.filter(
       s => s.shelf === shelfNum && s.slot === slotNum && s.column_number === colNum && s.status === 'stored'
     );
+    // Nếu cột này đang trống (tạo cột mới trong ô), phải kiểm tra tổng bề ngang các cột trong ô <= 700mm
+    if (existingSamplesInCol.length === 0) {
+      const { totalWidth } = getSlotUsedWidthMm(shelfNum, slotNum);
+      if (totalWidth + limitInfo.width > SLOT_MAX_WIDTH_MM) {
+        showToast(`Không đủ bề ngang 700mm! Ô này đã dùng ${totalWidth}mm, thêm 1 cột ${format} (${limitInfo.width}mm) sẽ thành ${totalWidth + limitInfo.width}mm > ${SLOT_MAX_WIDTH_MM}mm.`, "error");
+        return;
+      }
+    }
+
     const currentPacksInCol = existingSamplesInCol.reduce((sum, s) => sum + s.available_qty, 0);
     const currentCartonsInCol = Math.ceil(currentPacksInCol / 10);
     const newCartonsToAdd = Math.ceil(qtyPacks / 10);
@@ -4248,8 +4318,22 @@ export default function App() {
           .reduce((sum, s) => sum + Math.ceil(s.available_qty / 10), 0);
         
         const movingCartons = Math.ceil(movingSample.available_qty / 10);
-        const format = movingSample.products?.format || 'Kingsize';
-        let maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
+        const format = movingSample.products?.format || products.find(p => p.id === movingSample.product_id)?.format || 'Kingsize';
+        const limitInfo = getFormatSpec(format);
+        let maxHeight = limitInfo.height || 7;
+
+        if (column_number > limitInfo.columns) {
+          showToast(`Định dạng ${format} (${limitInfo.width}mm) chỉ xếp tối đa ${limitInfo.columns} cột trong ô 700mm!`, "error");
+          return;
+        }
+
+        if (samplesInCol.length === 0) {
+          const { totalWidth } = getSlotUsedWidthMm(shelf, slot, sampleId);
+          if (totalWidth + limitInfo.width > SLOT_MAX_WIDTH_MM) {
+            showToast(`Không đủ bề ngang 700mm! Ô này đang dùng ${totalWidth}mm, thêm 1 cột ${format} (${limitInfo.width}mm) sẽ thành ${totalWidth + limitInfo.width}mm > ${SLOT_MAX_WIDTH_MM}mm.`, "error");
+            return;
+          }
+        }
 
         if (totalCartonsInCol + movingCartons > maxHeight) {
           showToast(`Cột ${column_number} vượt quá chiều cao tối đa (${maxHeight} cây). Vui lòng xếp sang cột khác!`, "error");
@@ -4674,14 +4758,6 @@ export default function App() {
       </html>
     `);
     printWindow.document.close();
-
-    // Hỏi người dùng có muốn xóa khỏi hàng đợi sau khi đã in không (đợi 1s để cửa sổ in bật lên trước)
-    setTimeout(() => {
-      if (window.confirm(`Đã mở cửa sổ in tem cho ${groupName}. Bạn có muốn XÓA các mẫu này khỏi Hàng đợi in không? (Nên xóa để tránh in nhầm vào lần sau)`)) {
-        const printedIds = new Set(samplesInGroup.map(s => s.id));
-        setPrintQueue(prev => prev.filter(s => !printedIds.has(s.id)));
-      }
-    }, 1000);
   };
 
   // Batch print helper for multiple sticker labels
@@ -4716,6 +4792,7 @@ export default function App() {
         : formatLocation(s.shelf, s.slot, s.column_number);
       const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
       const trayBadge = s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '';
+      const qrSvg = generateQrSvgMarkup(makeStickerQrUrl(s.sku));
 
       for (let i = 0; i < numLabels; i++) {
         allStickers.push(`
@@ -4762,7 +4839,7 @@ export default function App() {
               </div>
             </div>
             <div class="qr-section">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=2&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" alt="${s.sku}" style="width:100%;height:auto;display:block;" />
+              ${qrSvg}
               <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
@@ -4902,13 +4979,24 @@ export default function App() {
         ${pagesHtml.join('')}
         <script>
           window.onload = function() {
-            window.print();
-            window.close();
+            setTimeout(function() {
+              window.print();
+              window.close();
+            }, 150);
           };
         </script>
       </body>
       </html>
     `);
+    printWindow.document.close();
+
+    // Hỏi người dùng có muốn xóa khỏi hàng đợi sau khi đã in không (đợi 1s để cửa sổ in bật lên trước)
+    setTimeout(() => {
+      if (window.confirm(`Đã mở cửa sổ in tem cho ${groupName}. Bạn có muốn XÓA các mẫu này khỏi Hàng đợi in không? (Nên xóa để tránh in nhầm vào lần sau)`)) {
+        const printedIds = new Set(samplesInGroup.map(s => s.id));
+        setPrintQueue(prev => prev.filter(s => !printedIds.has(s.id)));
+      }
+    }, 1000);
   };
 
   const printAllReadyLabels = () => {
@@ -4946,6 +5034,7 @@ export default function App() {
         : formatLocation(s.shelf, s.slot, s.column_number);
       const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
       const trayBadge = s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '';
+      const qrSvg = generateQrSvgMarkup(makeStickerQrUrl(s.sku));
 
       for (let i = 0; i < numLabels; i++) {
         allStickers.push(`
@@ -4992,7 +5081,7 @@ export default function App() {
               </div>
             </div>
             <div class="qr-section">
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=2&data=${encodeURIComponent(makeStickerQrUrl(s.sku))}" alt="${s.sku}" style="width:100%;height:auto;display:block;" />
+              ${qrSvg}
               <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
@@ -5131,8 +5220,10 @@ export default function App() {
         ${pagesHtml.join('')}
         <script>
           window.onload = function() {
-            window.print();
-            window.close();
+            setTimeout(function() {
+              window.print();
+              window.close();
+            }, 150);
           };
         </script>
       </body>
@@ -5169,20 +5260,7 @@ export default function App() {
   // Generate Print View for QR Sticker Label
   const printQrSticker = (sample) => {
     const printWindow = window.open('', '_blank');
-    const qrData = JSON.stringify({
-      sku: sample.sku,
-      product: sample.products?.product_name || sample.product_name,
-      warning: sample.products?.warning_code || 'Không',
-      order: sample.order_number || 'N/A',
-      blend_batch: sample.blend_batch,
-      blend_date: sample.blend_date,
-      packaging_date: sample.packaging_date,
-      sampling_time: sample.sampling_time,
-      location: formatLocation(sample.shelf, sample.slot, sample.column_number)
-    });
-    
-    const encodedQrData = encodeURIComponent(qrData);
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodedQrData}`;
+    const qrSvg = generateQrSvgMarkup(makeStickerQrUrl(sample.sku));
     
     printWindow.document.write(`
       <html>
@@ -5263,7 +5341,7 @@ export default function App() {
       <body>
         <div class="sticker-container">
           <div class="left-side">
-            <img class="qr-img" src="${qrUrl}" alt="QR" />
+            <div class="qr-img">${qrSvg}</div>
             <div class="sku-code">${sample.sku}</div>
           </div>
           <div class="right-side">
@@ -6251,13 +6329,16 @@ export default function App() {
                             // Calculate slot fullness/utilization
                             let totalItems = 0;
                             let utilization = 0;
+                            let slotUsedMm = 0;
 
                             if (!isLooseSlot && slotSamples.length > 0) {
+                              const { totalWidth } = getSlotUsedWidthMm(shelf, slot);
+                              slotUsedMm = totalWidth;
                               slotSamples.forEach(s => {
                                 const format = s.products?.format || 'Kingsize';
-                                const cap = FORMAT_CAPACITIES[format]?.total || 42;
+                                const spec = getFormatSpec(format);
                                 totalItems += s.available_qty / 10; // in cartons (cây)
-                                utilization += (s.available_qty / 10) / cap;
+                                utilization += ((s.available_qty / 10) / spec.height) * (spec.width / SLOT_MAX_WIDTH_MM);
                               });
                             } else if (isLooseSlot) {
                               totalItems = slotSamples.reduce((sum, s) => sum + s.available_qty, 0); // packs (bao)
@@ -6304,7 +6385,7 @@ export default function App() {
                                   isLooseSlot ? (
                                     <span>Đang chứa: <strong>{totalItems} bao</strong></span>
                                   ) : (
-                                    <span>Đang xếp: <strong>{Math.ceil(totalItems)} cây</strong></span>
+                                    <span>Đang xếp: <strong>{Math.ceil(totalItems)} cây</strong> ({slotUsedMm}/{SLOT_MAX_WIDTH_MM}mm)</span>
                                   )
                                 ) : (
                                   <span style={{ color: 'var(--text-muted)' }}>{slotIsMarkedFull ? 'Báo đầy (Trống)' : 'Trống'}</span>
@@ -8661,7 +8742,19 @@ export default function App() {
               ) : (
                 // Columns layout for Slot 1-4
                 <div>
-                  <h4 style={{ fontSize: '15px', color: 'var(--accent-blue)', marginBottom: '12px', fontWeight: 'bold' }}>Sơ đồ các Cột xếp chồng đứng</h4>
+                  {(() => {
+                    const { totalWidth, colFormatMap } = getSlotUsedWidthMm(selectedSlot.shelf, selectedSlot.slot);
+                    const remainingWidth = SLOT_MAX_WIDTH_MM - totalWidth;
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                        <h4 style={{ fontSize: '15px', color: 'var(--accent-blue)', margin: 0, fontWeight: 'bold' }}>Sơ đồ các Cột xếp chồng đứng</h4>
+                        <div style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '6px', background: totalWidth > SLOT_MAX_WIDTH_MM ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.1)', border: `1px solid ${totalWidth > SLOT_MAX_WIDTH_MM ? 'rgba(239,68,68,0.4)' : 'rgba(59,130,246,0.25)'}`, color: totalWidth > SLOT_MAX_WIDTH_MM ? '#fca5a5' : 'var(--text-primary)' }}>
+                          📏 Bề ngang ô: <strong>{totalWidth} / {SLOT_MAX_WIDTH_MM}mm</strong>
+                          {remainingWidth >= 90 ? ` (Còn trống ${remainingWidth}mm)` : remainingWidth >= 0 ? ` (Đầy chiều ngang - còn ${remainingWidth}mm)` : ` (⚠️ Vượt quá ${Math.abs(remainingWidth)}mm!)`}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   
                   {/* Column Settings Editor Panel */}
                   {editingCol && (
@@ -8718,11 +8811,14 @@ export default function App() {
                         .map(c => c.column_number);
                       const allCols = [...occupiedCols, ...configCols];
                       const maxActiveCol = allCols.length > 0 ? Math.max(...allCols) : 0;
+                      const { totalWidth } = getSlotUsedWidthMm(selectedSlot.shelf, selectedSlot.slot);
+                      const canFitMoreWidth = (SLOT_MAX_WIDTH_MM - totalWidth) >= 90;
+                      const maxPossibleCols = Math.max(maxActiveCol, 7);
                       
-                      let maxColToShow = maxActiveCol + 1;
+                      let maxColToShow = canFitMoreWidth ? Math.min(maxActiveCol + 1, 7) : Math.max(maxActiveCol, 1);
                       
                       let checkCol = 1;
-                      while (checkCol <= maxColToShow && maxColToShow < 8) {
+                      while (checkCol <= maxColToShow && maxColToShow < maxPossibleCols && canFitMoreWidth) {
                         const colHeight = getColumnHeight(selectedSlot.shelf, selectedSlot.slot, checkCol);
                         const colConfig = slotConfigs.find(c => c.shelf === selectedSlot.shelf && c.slot === selectedSlot.slot && c.column_number === checkCol);
                         
@@ -8738,12 +8834,13 @@ export default function App() {
                         checkCol++;
                       }
                       
-                      const colsToRender = Array.from({ length: Math.min(maxColToShow, 8) }, (_, i) => i + 1);
+                      const colsToRender = Array.from({ length: Math.min(maxColToShow, maxPossibleCols) }, (_, i) => i + 1);
 
                       return colsToRender.map(col => {
                         const sampleInCol = getColumnProduct(selectedSlot.shelf, selectedSlot.slot, col);
                         const height = getColumnHeight(selectedSlot.shelf, selectedSlot.slot, col);
                         const format = sampleInCol?.products?.format || 'Kingsize';
+                        const colWidthMm = getFormatSpec(format).width;
                         
                         // Use FORMAT_CAPACITIES, fallback to 7 if not found
                         let maxHeight = FORMAT_CAPACITIES[format]?.height || 7;
@@ -8754,7 +8851,9 @@ export default function App() {
 
                         return (
                           <div key={col} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', minWidth: '110px' }}>
-                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 'bold' }}>Cột {col}</span>
+                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 'bold' }}>
+                              Cột {col} {height > 0 && <span style={{ fontSize: '10px', fontWeight: 'normal', color: 'var(--text-muted)' }}>({colWidthMm}mm)</span>}
+                            </span>
                             
                             {/* Vertical Column with stacked rectangles */}
                             <div style={{ 
@@ -9537,22 +9636,7 @@ export default function App() {
             
             <div className="modal-body" style={{ textAlign: 'center', padding: '24px 20px' }}>
               <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', display: 'inline-block', border: '1px solid #ddd', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', marginBottom: '20px' }}>
-                {/* Real QR image dynamically generated */}
-                <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(JSON.stringify({
-                    sku: qrCodeModal.sku,
-                    product: qrCodeModal.products?.product_name || qrCodeModal.product_name,
-                    warning: qrCodeModal.products?.warning_code || 'Không',
-                    order: qrCodeModal.order_number || 'N/A',
-                    blend_batch: qrCodeModal.blend_batch,
-                    blend_date: qrCodeModal.blend_date,
-                    packaging_date: qrCodeModal.packaging_date,
-                    sampling_time: qrCodeModal.sampling_time,
-                    location: formatLocation(qrCodeModal.shelf, qrCodeModal.slot, qrCodeModal.column_number)
-                  }))}`}
-                  alt={qrCodeModal.sku} 
-                  style={{ width: '160px', height: '160px', display: 'block' }}
-                />
+                <div style={{ width: '160px', height: '160px', margin: '0 auto' }} dangerouslySetInnerHTML={{ __html: generateQrSvgMarkup(makeStickerQrUrl(qrCodeModal.sku)) }} />
                 <div style={{ color: '#000', fontSize: '13px', fontWeight: 'bold', marginTop: '8px' }}>{qrCodeModal.sku}</div>
               </div>
 
