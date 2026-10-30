@@ -997,6 +997,20 @@ export default function App() {
       return usedWidth;
     };
 
+    const getVirtualSlotMaxCols = (shelf, slot, extraFormat = null, excludeCol = null) => {
+      let maxC = 7;
+      for (const [cStr, cData] of Object.entries(vState[shelf][slot])) {
+        if (excludeCol !== null && parseInt(cStr, 10) === excludeCol) continue;
+        const sp = getFormatSpec(cData.format);
+        if (sp.columns < maxC) maxC = sp.columns;
+      }
+      if (extraFormat) {
+        const sp = getFormatSpec(extraFormat);
+        if (sp.columns < maxC) maxC = sp.columns;
+      }
+      return maxC;
+    };
+
     const assignToCol = (row, shelf, slot, col, qtyPacks) => {
       const prod = row.productObj;
       if (!vState[shelf][slot][col]) {
@@ -1089,7 +1103,7 @@ export default function App() {
         }
       }
 
-      // PASS 3: Cột trống bất kỳ miễn tổng bề ngang các cột trong ô <= 700mm
+      // PASS 3: Cột trống bất kỳ miễn tổng bề ngang các cột trong ô <= 700mm và hợp lệ số cột của ô
       if (!assigned) {
         for (const shelf of shelfRange) {
           if (assigned) break;
@@ -1101,10 +1115,14 @@ export default function App() {
             const usedWidth = getVirtualSlotUsedWidth(shelf, slot);
             if (usedWidth + lim.width > SLOT_MAX_WIDTH_MM) continue;
 
-            let nextCol = 1;
-            while (nextCol <= 7 && vState[shelf][slot][nextCol]) nextCol++;
+            const maxC = getVirtualSlotMaxCols(shelf, slot, fmt);
+            const existingColNums = Object.keys(vState[shelf][slot]).map(Number);
+            if (existingColNums.some(x => x > maxC)) continue;
 
-            if (nextCol <= lim.columns && newCartons <= lim.height) {
+            let nextCol = 1;
+            while (nextCol <= maxC && vState[shelf][slot][nextCol]) nextCol++;
+
+            if (nextCol <= maxC && newCartons <= lim.height) {
               const colConfig = slotConfigs.find(c => c.shelf === shelf && c.slot === slot && c.column_number === nextCol);
               if (!colConfig?.is_full) {
                 assignToCol(row, shelf, slot, nextCol, qtyPacks);
@@ -1129,7 +1147,11 @@ export default function App() {
             const slotCols = vState[s][sl];
             for (const [colStr, colData] of Object.entries(slotCols)) {
               const colNum = parseInt(colStr, 10);
-              if (colNum > lim.columns) continue;
+              const maxC = getVirtualSlotMaxCols(s, sl, fmt, colNum);
+              if (colNum > maxC) continue;
+              const otherColNums = Object.keys(slotCols).map(Number).filter(x => x !== colNum);
+              if (otherColNums.some(x => x > maxC)) continue;
+
               // Kiểm tra nếu đẩy cột này ra và thay bằng cột định dạng mới thì tổng bề ngang có <= 700mm không
               const widthWithoutThisCol = getVirtualSlotUsedWidth(s, sl, colNum);
               if (widthWithoutThisCol + lim.width > SLOT_MAX_WIDTH_MM) continue;
@@ -1493,26 +1515,67 @@ export default function App() {
       return w;
     };
 
+    const getVSlotMaxCols = (s, sl, extraFormat = null, excludeCol = null) => {
+      let maxC = 7;
+      for (const [cStr, cData] of Object.entries(vState[s][sl])) {
+        if (excludeCol !== null && parseInt(cStr, 10) === excludeCol) continue;
+        const sp = getFormatSpec(cData.format);
+        if (sp.columns < maxC) maxC = sp.columns;
+      }
+      if (extraFormat) {
+        const sp = getFormatSpec(extraFormat);
+        if (sp.columns < maxC) maxC = sp.columns;
+      }
+      return maxC;
+    };
+
+    const getColNewestDateStr = (colData) => {
+      let maxD = '';
+      for (const s of colData.samples) {
+        if (s.packaging_date && s.packaging_date > maxD) maxD = s.packaging_date;
+      }
+      return maxD || '1970-01-01';
+    };
+
+    const getBoxMonthFromSamples = (sampleList) => {
+      const firstDateStr = sampleList[0]?.packaging_date || '';
+      if (firstDateStr && firstDateStr.includes('-')) {
+        const parts = firstDateStr.split('-');
+        return `${parts[1]}/${parts[0]}`;
+      }
+      return 'Không rõ';
+    };
+
     // 2. PHẦN A: Quét các cột bị vượt quá bề ngang 700mm của ô hoặc vượt quá số cột tối đa của định dạng
     const excessCols = [];
     for (let s = 1; s <= 6; s++) {
       for (let sl = 1; sl <= 4; sl++) {
         const colNums = Object.keys(vState[s][sl]).map(Number).sort((a, b) => a - b);
         let usedW = 0;
+        let allowedMaxCol = 7;
         for (const c of colNums) {
           const colData = vState[s][sl][c];
           const spec = getFormatSpec(colData.format);
-          if (c > spec.columns || usedW + spec.width > SLOT_MAX_WIDTH_MM) {
-            excessCols.push({ ...colData, reasonWidth: usedW + spec.width });
+          const nextAllowedMaxCol = Math.min(allowedMaxCol, spec.columns);
+          if (c > nextAllowedMaxCol || usedW + spec.width > SLOT_MAX_WIDTH_MM) {
+            excessCols.push({
+              ...colData,
+              newestDate: getColNewestDateStr(colData),
+              reasonWidth: usedW + spec.width
+            });
             delete vState[s][sl][c];
           } else {
             usedW += spec.width;
+            allowedMaxCol = nextAllowedMaxCol;
           }
         }
       }
     }
 
-    // Xử lý bố trí lại từng cột dư (quá tải > 700mm)
+    // Sắp xếp các cột dôi ra theo ngày SX bao MỚI NHẤT trước để ưu tiên lấy cột trống trước
+    excessCols.sort((a, b) => b.newestDate.localeCompare(a.newestDate));
+
+    // Xử lý bố trí lại từng cột dư (quá tải > 700mm) — Quy tắc tiên quyết: MẪU MỚI KHÔNG ĐƯỢC XẾP VÀO THÙNG!
     for (const ec of excessCols) {
       const fmt = ec.format;
       const spec = getFormatSpec(fmt);
@@ -1553,7 +1616,7 @@ export default function App() {
         }
       }
 
-      // Ưu tiên 2: Chuyển sang cột trống ở ô khác còn đủ bề ngang <= 700mm
+      // Ưu tiên 2: Chuyển sang cột trống ở ô khác còn đủ bề ngang <= 700mm và hợp lệ số cột
       if (!placed) {
         for (const s of shelfRange) {
           if (placed) break;
@@ -1563,10 +1626,13 @@ export default function App() {
             if (slCfg?.is_full) continue;
             const usedW = getVSlotWidth(s, sl);
             if (usedW + spec.width > SLOT_MAX_WIDTH_MM) continue;
+            const maxC = getVSlotMaxCols(s, sl, fmt);
+            const existingColNums = Object.keys(vState[s][sl]).map(Number);
+            if (existingColNums.some(x => x > maxC)) continue;
 
             let nextCol = 1;
-            while (nextCol <= spec.columns && vState[s][sl][nextCol]) nextCol++;
-            if (nextCol <= spec.columns && cartons <= spec.height) {
+            while (nextCol <= maxC && vState[s][sl][nextCol]) nextCol++;
+            if (nextCol <= maxC && cartons <= spec.height) {
               const cCfg = slotConfigs.find(c => c.shelf === s && c.slot === sl && c.column_number === nextCol);
               if (!cCfg?.is_full) {
                 vState[s][sl][nextCol] = {
@@ -1577,7 +1643,8 @@ export default function App() {
                   product: ec.product,
                   format: fmt,
                   packsCount: ec.packsCount,
-                  samples: [...ec.samples]
+                  samples: [...ec.samples],
+                  isRelocatedNew: true
                 };
                 proposals.push({
                   type: 'relocate_overload',
@@ -1596,17 +1663,84 @@ export default function App() {
         }
       }
 
-      // Ưu tiên 3: Nếu kệ hết sạch chỗ trống <= 700mm, chuyển vào Thùng theo tháng SX bao
+      // Ưu tiên 3 (QUY TẮC TIÊN QUYẾT): Khi kệ hết chỗ trống <= 700mm, tìm cột CŨ NHẤT trên kệ (cũ hơn mẫu ec) để đóng thùng và nhường vị trí kệ cho mẫu mới ec!
       if (!placed) {
-        const firstDateStr = ec.samples[0]?.packaging_date || '';
-        let boxMonthKey = 'Không rõ';
-        if (firstDateStr && firstDateStr.includes('-')) {
-          const parts = firstDateStr.split('-');
-          boxMonthKey = `${parts[1]}/${parts[0]}`;
+        let oldestCandidate = null;
+        for (let s = 1; s <= 6; s++) {
+          for (let sl = 1; sl <= 4; sl++) {
+            const slCfg = slotConfigs.find(c => c.shelf === s && c.slot === sl && (!c.column_number || c.column_number === 0));
+            if (slCfg?.is_full) continue;
+            for (const [cStr, cData] of Object.entries(vState[s][sl])) {
+              const cNum = parseInt(cStr, 10);
+              if (cData.isRelocatedNew) continue;
+              const maxC = getVSlotMaxCols(s, sl, fmt, cNum);
+              if (cNum > maxC) continue;
+              const otherColNums = Object.keys(vState[s][sl]).map(Number).filter(x => x !== cNum);
+              if (otherColNums.some(x => x > maxC)) continue;
+
+              const wWithout = getVSlotWidth(s, sl, cNum);
+              if (wWithout + spec.width > SLOT_MAX_WIDTH_MM) continue;
+
+              const cNewest = getColNewestDateStr(cData);
+              if (cNewest < ec.newestDate) {
+                if (!oldestCandidate || cNewest < oldestCandidate.newestDate) {
+                  oldestCandidate = { shelf: s, slot: sl, col: cNum, newestDate: cNewest, data: cData, newSlotW: wWithout + spec.width };
+                }
+              }
+            }
+          }
         }
+
+        if (oldestCandidate && cartons <= spec.height) {
+          const { shelf: s, slot: sl, col: cNum, data: oldData, newestDate: oldDate, newSlotW } = oldestCandidate;
+          const oldCartons = Math.ceil(oldData.packsCount / 10);
+          const oldBoxMonth = getBoxMonthFromSamples(oldData.samples);
+          const oldDateFormatted = oldDate.split('-').reverse().join('/');
+          const newDateFormatted = ec.newestDate.split('-').reverse().join('/');
+
+          // Bước 3a: Đóng thùng cột cũ nhất trên kệ
+          proposals.push({
+            type: 'evict_oldest_to_box',
+            actionLabel: `Mẫu cũ nhất trên kệ (SX ${oldDateFormatted}) → Đóng vào Thùng ${oldBoxMonth} để nhường chỗ`,
+            boxMonthKey: oldBoxMonth,
+            product: oldData.product,
+            sourceCols: [{ shelf: s, slot: sl, column_number: cNum, totalQty: oldCartons }],
+            destCol: { isBox: true, boxName: `Thùng ${oldBoxMonth}` },
+            samplesToMove: oldData.samples,
+            totalCartons: oldCartons
+          });
+
+          // Bước 3b: Đưa cột mẫu mới (từ ô quá tải) vào vị trí vừa giải phóng
+          vState[s][sl][cNum] = {
+            shelf: s,
+            slot: sl,
+            column_number: cNum,
+            productId: ec.productId,
+            product: ec.product,
+            format: fmt,
+            packsCount: ec.packsCount,
+            samples: [...ec.samples],
+            isRelocatedNew: true
+          };
+          proposals.push({
+            type: 'relocate_overload',
+            actionLabel: `Mẫu mới (SX ${newDateFormatted}) thế chỗ cột cũ vừa dọn (${newSlotW}/${SLOT_MAX_WIDTH_MM}mm)`,
+            product: ec.product,
+            sourceCols: [{ shelf: ec.shelf, slot: ec.slot, column_number: ec.column_number, totalQty: cartons }],
+            destCol: { shelf: s, slot: sl, column_number: cNum },
+            samplesToMove: ec.samples,
+            totalCartons: cartons
+          });
+          placed = true;
+        }
+      }
+
+      // Trường hợp duy nhất mẫu ec tự vào thùng là khi bản thân nó đã là mẫu cũ nhất toàn kho (không có cột nào cũ hơn nó)
+      if (!placed) {
+        const boxMonthKey = getBoxMonthFromSamples(ec.samples);
         proposals.push({
           type: 'box_overload',
-          actionLabel: `Hết chỗ kệ (≤700mm) → Đóng vào Thùng ${boxMonthKey}`,
+          actionLabel: `Mẫu cũ nhất (${ec.newestDate.split('-').reverse().join('/')}) → Đóng vào Thùng ${boxMonthKey}`,
           boxMonthKey,
           product: ec.product,
           sourceCols: [{ shelf: ec.shelf, slot: ec.slot, column_number: ec.column_number, totalQty: cartons }],
@@ -6425,7 +6559,8 @@ export default function App() {
                     for (let sl = 1; sl <= 4; sl++) {
                       const { totalWidth, colFormatMap } = getSlotUsedWidthMm(s, sl);
                       const colNums = Object.keys(colFormatMap).map(Number).sort((a, b) => a - b);
-                      const hasColExceedMax = colNums.some(c => c > getFormatSpec(colFormatMap[c]).columns);
+                      const minAllowedColsInSlot = colNums.reduce((minC, c) => Math.min(minC, getFormatSpec(colFormatMap[c]).columns), 7);
+                      const hasColExceedMax = colNums.some(c => c > minAllowedColsInSlot);
                       if (totalWidth > SLOT_MAX_WIDTH_MM || hasColExceedMax) {
                         overloadedSlots.push({
                           shelf: s,
