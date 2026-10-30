@@ -1140,7 +1140,7 @@ export default function App() {
         let oldestDateObj = null;
         const rowDateObj = parseDMY(row.packagingDate);
 
-        for (let s = 1; s <= 6; s++) {
+        for (const s of shelfRange) {
           for (let sl = 1; sl <= 4; sl++) {
             const slotFullConfig = slotConfigs.find(c => c.shelf === s && c.slot === sl && (c.column_number === 0 || !c.column_number));
             if (slotFullConfig?.is_full) continue;
@@ -1224,6 +1224,67 @@ export default function App() {
       // Nếu vẫn không xếp được (kho đầy toàn mẫu mới hơn), cho vào thùng
       if (!assigned) {
         toBox.push({ ...row, qtyPacks: parseInt(row.qty || 0) * 10 });
+      }
+    }
+
+    // TỐI ƯU HƯỚNG KỆ CHO CÁC CỘT MỚI TRONG LÔ NHẬP (Xuất khẩu: A -> F [1..6], Nội địa: F -> A [6..1])
+    const newPureCols = [];
+    for (let s = 1; s <= 6; s++) {
+      for (let sl = 1; sl <= 4; sl++) {
+        for (const [cStr, cData] of Object.entries(vState[s][sl])) {
+          const cNum = parseInt(cStr, 10);
+          if (cData.items.length > 0 && cData.items.every(it => it.isNew)) {
+            const pObj = products.find(p => p.id === cData.productId);
+            newPureCols.push({ shelf: s, slot: sl, col: cNum, data: cData, isExport: !!pObj?.is_export });
+          }
+        }
+      }
+    }
+    let bulkSwapped = true;
+    while (bulkSwapped) {
+      bulkSwapped = false;
+      for (let i = 0; i < newPureCols.length; i++) {
+        for (let j = i + 1; j < newPureCols.length; j++) {
+          const c1 = newPureCols[i];
+          const c2 = newPureCols[j];
+          if (c1.isExport === c2.isExport) continue;
+          const needSwap = (c1.isExport && !c2.isExport && c1.shelf > c2.shelf) || (!c1.isExport && c2.isExport && c2.shelf > c1.shelf);
+          if (!needSwap) continue;
+
+          const sp1 = getFormatSpec(c1.data.format);
+          const sp2 = getFormatSpec(c2.data.format);
+          const w1Without = getVirtualSlotUsedWidth(c1.shelf, c1.slot, c1.col);
+          const w2Without = getVirtualSlotUsedWidth(c2.shelf, c2.slot, c2.col);
+          if (w1Without + sp2.width > SLOT_MAX_WIDTH_MM || w2Without + sp1.width > SLOT_MAX_WIDTH_MM) continue;
+
+          const maxC1 = getVirtualSlotMaxCols(c1.shelf, c1.slot, c2.data.format, c1.col);
+          const maxC2 = getVirtualSlotMaxCols(c2.shelf, c2.slot, c1.data.format, c2.col);
+          const other1 = Object.keys(vState[c1.shelf][c1.slot]).map(Number).filter(x => x !== c1.col);
+          const other2 = Object.keys(vState[c2.shelf][c2.slot]).map(Number).filter(x => x !== c2.col);
+          if (c1.col > maxC1 || other1.some(x => x > maxC1)) continue;
+          if (c2.col > maxC2 || other2.some(x => x > maxC2)) continue;
+          if (Math.ceil(c1.data.packsCount / 10) > sp1.height || Math.ceil(c2.data.packsCount / 10) > sp2.height) continue;
+
+          // Hoán đổi vị trí kệ/ô/cột giữa c1 và c2 trong vState và toShelf
+          vState[c1.shelf][c1.slot][c1.col] = c2.data;
+          vState[c2.shelf][c2.slot][c2.col] = c1.data;
+          for (const item of toShelf) {
+            if (item.shelf === c1.shelf && item.slot === c1.slot && item.column === c1.col) {
+              item.shelf = -c2.shelf; item.slot = -c2.slot; item.column = -c2.col;
+            } else if (item.shelf === c2.shelf && item.slot === c2.slot && item.column === c2.col) {
+              item.shelf = c1.shelf; item.slot = c1.slot; item.column = c1.col;
+            }
+          }
+          for (const item of toShelf) {
+            if (item.shelf < 0) {
+              item.shelf = -item.shelf; item.slot = -item.slot; item.column = -item.column;
+            }
+          }
+          const tmpLoc = { shelf: c1.shelf, slot: c1.slot, col: c1.col };
+          c1.shelf = c2.shelf; c1.slot = c2.slot; c1.col = c2.col;
+          c2.shelf = tmpLoc.shelf; c2.slot = tmpLoc.slot; c2.col = tmpLoc.col;
+          bulkSwapped = true;
+        }
       }
     }
 
@@ -1666,7 +1727,7 @@ export default function App() {
       // Ưu tiên 3 (QUY TẮC TIÊN QUYẾT): Khi kệ hết chỗ trống <= 700mm, tìm cột CŨ NHẤT trên kệ (cũ hơn mẫu ec) để đóng thùng và nhường vị trí kệ cho mẫu mới ec!
       if (!placed) {
         let oldestCandidate = null;
-        for (let s = 1; s <= 6; s++) {
+        for (const s of shelfRange) {
           for (let sl = 1; sl <= 4; sl++) {
             const slCfg = slotConfigs.find(c => c.shelf === s && c.slot === sl && (!c.column_number || c.column_number === 0));
             if (slCfg?.is_full) continue;
@@ -1724,6 +1785,8 @@ export default function App() {
           };
           proposals.push({
             type: 'relocate_overload',
+            isWholeColRelocate: true,
+            newDateFormatted,
             actionLabel: `Mẫu mới (SX ${newDateFormatted}) thế chỗ cột cũ vừa dọn (${newSlotW}/${SLOT_MAX_WIDTH_MM}mm)`,
             product: ec.product,
             sourceCols: [{ shelf: ec.shelf, slot: ec.slot, column_number: ec.column_number, totalQty: cartons }],
@@ -1748,6 +1811,55 @@ export default function App() {
           samplesToMove: ec.samples,
           totalCartons: cartons
         });
+      }
+    }
+
+    // TỐI ƯU HƯỚNG KỆ (Xuất khẩu: A -> F [1..6], Nội địa: F -> A [6..1]) cho các cột vừa dời sang cột mới
+    const relocatedProposals = proposals.filter(p => p.type === 'relocate_overload' && !p.destCol?.isBox && p.actionLabel !== 'Gộp cột quá tải (>700mm) vào cột cùng SP');
+    let swapped = true;
+    while (swapped) {
+      swapped = false;
+      for (let i = 0; i < relocatedProposals.length; i++) {
+        for (let j = i + 1; j < relocatedProposals.length; j++) {
+          const p1 = relocatedProposals[i];
+          const p2 = relocatedProposals[j];
+          const exp1 = !!p1.product?.is_export;
+          const exp2 = !!p2.product?.is_export;
+          if (exp1 === exp2) continue;
+
+          // Kiểm tra nếu hàng Xuất khẩu đang bị xếp ở kệ lớn hơn (gần F hơn) hàng Nội địa
+          const needSwap = (exp1 && !exp2 && p1.destCol.shelf > p2.destCol.shelf) || (!exp1 && exp2 && p2.destCol.shelf > p1.destCol.shelf);
+          if (!needSwap) continue;
+
+          const d1 = p1.destCol;
+          const d2 = p2.destCol;
+          const fmt1 = p1.product?.format || 'Kingsize';
+          const fmt2 = p2.product?.format || 'Kingsize';
+          const sp1 = getFormatSpec(fmt1);
+          const sp2 = getFormatSpec(fmt2);
+
+          // Kiểm tra nếu hoán đổi vị trí đích d1 <-> d2 có thỏa mãn bề ngang <= 700mm và số cột tối đa không
+          const w1Without = getVSlotWidth(d1.shelf, d1.slot, d1.column_number);
+          const w2Without = getVSlotWidth(d2.shelf, d2.slot, d2.column_number);
+          if (w1Without + sp2.width > SLOT_MAX_WIDTH_MM || w2Without + sp1.width > SLOT_MAX_WIDTH_MM) continue;
+
+          const maxC1 = getVSlotMaxCols(d1.shelf, d1.slot, fmt2, d1.column_number);
+          const maxC2 = getVSlotMaxCols(d2.shelf, d2.slot, fmt1, d2.column_number);
+          const otherCols1 = Object.keys(vState[d1.shelf][d1.slot]).map(Number).filter(x => x !== d1.column_number);
+          const otherCols2 = Object.keys(vState[d2.shelf][d2.slot]).map(Number).filter(x => x !== d2.column_number);
+          if (d1.column_number > maxC1 || otherCols1.some(x => x > maxC1)) continue;
+          if (d2.column_number > maxC2 || otherCols2.some(x => x > maxC2)) continue;
+          if (p1.totalCartons > sp1.height || p2.totalCartons > sp2.height) continue;
+
+          // Thực hiện hoán đổi đích giữa p1 và p2
+          const colState1 = vState[d1.shelf][d1.slot][d1.column_number];
+          const colState2 = vState[d2.shelf][d2.slot][d2.column_number];
+          vState[d1.shelf][d1.slot][d1.column_number] = { ...colState2, shelf: d1.shelf, slot: d1.slot, column_number: d1.column_number };
+          vState[d2.shelf][d2.slot][d2.column_number] = { ...colState1, shelf: d2.shelf, slot: d2.slot, column_number: d2.column_number };
+          p1.destCol = { ...d2 };
+          p2.destCol = { ...d1 };
+          swapped = true;
+        }
       }
     }
 
@@ -1776,9 +1888,13 @@ export default function App() {
         const firstProduct = columns[0].samples[0]?.products || products.find(p => p.id === productId);
         const format = firstProduct?.format || 'Kingsize';
         const maxHeight = getFormatSpec(format).height || 7;
+        const isExport = !!firstProduct?.is_export;
 
         if (Math.ceil(totalCartons) <= maxHeight) {
-          columns.sort((a, b) => b.totalQty - a.totalQty);
+          columns.sort((a, b) => {
+            if (b.totalQty !== a.totalQty) return b.totalQty - a.totalQty;
+            return isExport ? (a.shelf - b.shelf) : (b.shelf - a.shelf);
+          });
           const destCol = columns[0];
           const sourceCols = columns.slice(1);
           const samplesToMove = [];
