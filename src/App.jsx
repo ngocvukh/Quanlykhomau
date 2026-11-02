@@ -6441,9 +6441,9 @@ export default function App() {
               <Search size={20} color="var(--accent-blue)" /> Tra Cứu Và Tìm Kiếm Thuốc Lá Mẫu
             </h2>
             
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end', position: 'relative' }}>
-              <div className="form-group" style={{ flex: 2, minWidth: '240px', marginBottom: 0, position: 'relative' }}>
-                <label className="form-label">Tên sản phẩm hoặc Mã code ngày SX (6 ký tự)</label>
+            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end', position: 'relative' }}>
+              <div className="form-group" style={{ flex: 2, minWidth: '220px', marginBottom: 0, position: 'relative' }}>
+                <label className="form-label" style={{ fontSize: '13px', fontWeight: 600, height: '20px', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>Tên sản phẩm hoặc Mã code XK</label>
                 <input 
                   className="form-input" 
                   type="text" 
@@ -6510,40 +6510,39 @@ export default function App() {
                 )}
               </div>
 
-              <div className="form-group" style={{ flex: 0.9, minWidth: '160px', marginBottom: 0 }}>
-                <label className="form-label">Số đơn hàng</label>
+              <div className="form-group" style={{ flex: 1, minWidth: '130px', marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '13px', fontWeight: 600, height: '20px', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>Số đơn hàng</label>
                 <input
                   className="form-input"
                   type="text"
-                  placeholder="Nhập số đơn hàng (VD: 383)..."
+                  placeholder="Số ĐH (VD: 383)..."
                   value={searchOrderNumber}
                   onChange={e => setSearchOrderNumber(e.target.value)}
                   autoComplete="off"
                 />
               </div>
               
-              <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '220px', marginBottom: 0 }}>
-                <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                  <label className="form-label">Tháng sản xuất (Tháng)</label>
-                  <select className="form-select" value={searchSelMonth} onChange={e => setSearchSelMonth(e.target.value)}>
-                    <option value="">Tất cả</option>
-                    {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                      <option key={m} value={String(m).padStart(2, '0')}>Tháng {m}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-                  <label className="form-label">Tháng sản xuất (Năm)</label>
-                  <select className="form-select" value={searchSelYear} onChange={e => setSearchSelYear(e.target.value)}>
-                    <option value="">Tất cả</option>
-                    {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
-                      <option key={y} value={String(y)}>{y}</option>
-                    ))}
-                  </select>
-                </div>
+              <div className="form-group" style={{ width: '120px', minWidth: '110px', marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '13px', fontWeight: 600, height: '20px', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>Tháng SX</label>
+                <select className="form-select" value={searchSelMonth} onChange={e => setSearchSelMonth(e.target.value)}>
+                  <option value="">Tất cả</option>
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                    <option key={m} value={String(m).padStart(2, '0')}>Tháng {m}</option>
+                  ))}
+                </select>
               </div>
 
-              <button className="btn btn-primary" type="submit" style={{ height: '45px', padding: '0 24px' }}>
+              <div className="form-group" style={{ width: '110px', minWidth: '100px', marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '13px', fontWeight: 600, height: '20px', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>Năm SX</label>
+                <select className="form-select" value={searchSelYear} onChange={e => setSearchSelYear(e.target.value)}>
+                  <option value="">Tất cả</option>
+                  {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
+                    <option key={y} value={String(y)}>{y}</option>
+                  ))}
+                </select>
+              </div>
+
+              <button className="btn btn-primary" type="submit" style={{ height: '45px', padding: '0 20px', display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap', marginBottom: 0 }}>
                 <Search size={16} /> Tìm kiếm
               </button>
             </form>
