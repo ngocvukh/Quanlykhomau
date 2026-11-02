@@ -377,6 +377,11 @@ export default function App() {
   const [print128BlankQty, setPrint128BlankQty] = useState(8);
   const [print128BlankStartIndex, setPrint128BlankStartIndex] = useState(1);
 
+  // Location-based reprint states (Labels tab)
+  const [printLocShelf, setPrintLocShelf] = useState('');
+  const [printLocSlot, setPrintLocSlot] = useState('');
+  const [printLocCol, setPrintLocCol] = useState('');
+
   // Edit Sample States
   const [editingSample, setEditingSample] = useState(null);
   const [editSearchQuery, setEditSearchQuery] = useState('');
@@ -7337,6 +7342,123 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* LOCATION-BASED REPRINT TOOL */}
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '10px', padding: '16px 20px', marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                    <h4 style={{ fontSize: '15px', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                      <Layers size={18} color="var(--accent-blue)" /> In lại tem theo Vị trí (Kệ — Ô — Cột)
+                    </h4>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      Chọn Kệ, Ô hoặc Cột để in lại toàn bộ nhãn tem của vị trí đó hoặc nạp riêng vào hàng chờ
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div style={{ width: '130px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Chọn Kệ:</label>
+                      <select 
+                        className="form-select" 
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                        value={printLocShelf} 
+                        onChange={e => { setPrintLocShelf(e.target.value); setPrintLocCol(''); }}
+                      >
+                        <option value="">-- Chọn Kệ --</option>
+                        {[1,2,3,4,5,6].map(s => (
+                          <option key={s} value={s}>Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][s]}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ width: '140px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Chọn Ô:</label>
+                      <select 
+                        className="form-select" 
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                        value={printLocSlot} 
+                        onChange={e => { setPrintLocSlot(e.target.value); setPrintLocCol(''); }}
+                        disabled={!printLocShelf}
+                      >
+                        <option value="">Tất cả các ô</option>
+                        {[1,2,3,4].map(sl => (
+                          <option key={sl} value={sl}>Ô {sl}</option>
+                        ))}
+                        <option value="5">Ô 5 (Hàng lẻ)</option>
+                      </select>
+                    </div>
+
+                    <div style={{ width: '150px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Chọn Cột:</label>
+                      <select 
+                        className="form-select" 
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                        value={printLocCol} 
+                        onChange={e => setPrintLocCol(e.target.value)}
+                        disabled={!printLocShelf || !printLocSlot || printLocSlot === '5'}
+                      >
+                        <option value="">Tất cả các cột</option>
+                        {[1,2,3,4,5,6,7,8].map(c => (
+                          <option key={c} value={c}>Cột {c}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {(() => {
+                      if (!printLocShelf) return (
+                        <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', fontStyle: 'italic', paddingBottom: '8px' }}>
+                          👉 Vui lòng chọn Kệ để lọc vị trí cần in lại tem.
+                        </div>
+                      );
+
+                      const sNum = parseInt(printLocShelf, 10);
+                      const slNum = printLocSlot ? parseInt(printLocSlot, 10) : null;
+                      const cNum = printLocCol ? parseInt(printLocCol, 10) : null;
+                      const sLetter = ['', 'A', 'B', 'C', 'D', 'E', 'F'][sNum];
+
+                      const matchedSamples = samples.filter(s => {
+                        if (s.status !== 'stored') return false;
+                        if (s.shelf !== sNum) return false;
+                        if (slNum && s.slot !== slNum) return false;
+                        if (cNum && s.column_number !== cNum) return false;
+                        return true;
+                      });
+
+                      const totalStickers = matchedSamples.reduce((sum, s) => sum + Math.max(1, Math.floor(s.available_qty / 10)), 0);
+                      const locLabel = `Kệ ${sLetter}${slNum ? ` - Ô ${slNum}` : ''}${cNum ? ` - Cột ${cNum}` : ''}`;
+
+                      return (
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginLeft: 'auto' }}>
+                          <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                            {locLabel}: <strong style={{ color: matchedSamples.length > 0 ? '#10b981' : 'var(--status-error)' }}>{matchedSamples.length} lô ({totalStickers} tem)</strong>
+                          </div>
+                          <button 
+                            className="btn btn-primary"
+                            style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', fontWeight: 600 }}
+                            disabled={matchedSamples.length === 0}
+                            onClick={() => printTommyStickersForGroup(locLabel, matchedSamples)}
+                          >
+                            <Printer size={15} /> In Ngay ({totalStickers} tem)
+                          </button>
+                          <button 
+                            className="btn btn-secondary"
+                            style={{ padding: '8px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
+                            disabled={matchedSamples.length === 0}
+                            onClick={() => {
+                              setPrintQueue(prev => {
+                                const existingIds = new Set(prev.map(p => p.id));
+                                const toAdd = matchedSamples.filter(s => !existingIds.has(s.id));
+                                return [...prev, ...toAdd];
+                              });
+                              showToast(`Đã thêm ${matchedSamples.length} mẫu tại ${locLabel} vào hàng chờ in!`, 'success');
+                            }}
+                          >
+                            <Plus size={14} /> Nạp vào hàng chờ in
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
                 {printQueue.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     {getGroupedPrintQueue().map(group => {
@@ -9216,9 +9338,53 @@ export default function App() {
       {selectedSlot && (
         <div className="modal-overlay" onClick={() => setSelectedSlot(null)}>
           <div className="modal-content" style={{ maxWidth: '1200px', width: '95%' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 style={{ fontSize: '18px', fontWeight: 'bold' }}>Chi tiết: Kệ {selectedSlot.shelf} — Ô {selectedSlot.slot}</h3>
-              <button className="close-btn" onClick={() => setSelectedSlot(null)}><X size={18} /></button>
+            <div className="modal-header" style={{ display: 'block' }}>
+              {(() => {
+                const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+                const shelfLetter = shelfLetters[selectedSlot.shelf] || `Kệ ${selectedSlot.shelf}`;
+                const slotSamples = samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === selectedSlot.slot && s.status === 'stored');
+                const totalSlotStickers = slotSamples.reduce((sum, s) => sum + Math.max(1, Math.floor(s.available_qty / 10)), 0);
+
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '10px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Database size={20} color="var(--accent-blue)" />
+                      Chi tiết: Kệ {shelfLetter} — Ô {selectedSlot.slot} {selectedSlot.slot === 5 ? '(Ô Lẻ)' : ''}
+                    </h3>
+                    
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      {slotSamples.length > 0 && (
+                        <>
+                          <button 
+                            className="btn btn-primary"
+                            style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}
+                            onClick={() => printTommyStickersForGroup(`Kệ ${shelfLetter}${selectedSlot.slot}`, slotSamples)}
+                            title="In lại toàn bộ nhãn tem của cả Ô này"
+                          >
+                            <Printer size={14} /> In lại nhãn cả Ô ({totalSlotStickers} tem)
+                          </button>
+                          <button 
+                            className="btn btn-secondary"
+                            style={{ fontSize: '12px', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
+                            onClick={() => {
+                              setPrintQueue(prev => {
+                                const existingIds = new Set(prev.map(p => p.id));
+                                const toAdd = slotSamples.filter(s => !existingIds.has(s.id));
+                                return [...prev, ...toAdd];
+                              });
+                              showToast(`Đã thêm ${slotSamples.length} mẫu của Ô ${shelfLetter}${selectedSlot.slot} vào hàng chờ in!`, 'success');
+                            }}
+                            title="Nạp tất cả mẫu trong ô này vào hàng chờ in để gom đầy trang A4"
+                          >
+                            <Plus size={13} /> Nạp Ô vào hàng chờ
+                          </button>
+                        </>
+                      )}
+                      <button className="close-btn" onClick={() => setSelectedSlot(null)}><X size={18} /></button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
             
             <div className="modal-body">
@@ -9278,7 +9444,24 @@ export default function App() {
               {selectedSlot.slot === 5 ? (
                 // Loose packs slot 5 layout
                 <div>
-                  <h4 style={{ fontSize: '15px', color: 'var(--accent-purple)', marginBottom: '12px', fontWeight: 'bold' }}>Ô lẻ Kệ {selectedSlot.shelf} (Loose items)</h4>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                    <h4 style={{ fontSize: '15px', color: 'var(--accent-purple)', margin: 0, fontWeight: 'bold' }}>
+                      Ô lẻ Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf} (Loose items)
+                    </h4>
+                    {samples.some(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored') && (
+                      <button 
+                        className="btn btn-primary"
+                        style={{ padding: '5px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}
+                        onClick={() => {
+                          const looseSamples = samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored');
+                          const sL = ['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf;
+                          printTommyStickersForGroup(`Kệ ${sL}5 (Hàng lẻ)`, looseSamples);
+                        }}
+                      >
+                        <Printer size={13} /> In tem hàng lẻ ô này
+                      </button>
+                    )}
+                  </div>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
                     Nơi lưu giữ các bao thuốc lá lẻ được bóc ra từ cây thuốc nguyên.
                   </p>
@@ -9611,12 +9794,45 @@ export default function App() {
                                   {firstSample.products.warning_code}
                                 </span>
                               )}
-                              <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span>Chiều cao: <strong>{totalCartons}/{maxHeight} cây</strong></span>
+                              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                  Chiều cao: <strong>{totalCartons}/{maxHeight} cây</strong>
+                                </span>
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ padding: '3px 8px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981', borderColor: 'rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.08)' }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+                                    const sL = shelfLetters[selectedSlot.shelf] || selectedSlot.shelf;
+                                    printTommyStickersForGroup(`Kệ ${sL}${selectedSlot.slot} - Cột ${col}`, colSamples);
+                                  }}
+                                  title="In lại toàn bộ tem nhãn của riêng Cột này"
+                                >
+                                  <Printer size={12} /> In Cột ({totalCartons} tem)
+                                </button>
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ padding: '3px 6px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,0.3)' }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPrintQueue(prev => {
+                                      const existingIds = new Set(prev.map(p => p.id));
+                                      const toAdd = colSamples.filter(s => !existingIds.has(s.id));
+                                      return [...prev, ...toAdd];
+                                    });
+                                    const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+                                    const sL = shelfLetters[selectedSlot.shelf] || selectedSlot.shelf;
+                                    showToast(`Đã thêm ${colSamples.length} mẫu của Cột ${col} (${sL}${selectedSlot.slot}) vào hàng chờ in!`, 'success');
+                                  }}
+                                  title="Thêm các mẫu cột này vào hàng chờ in gom đầy trang A4"
+                                >
+                                  <Plus size={12} /> Hàng chờ
+                                </button>
                                 <span style={{ fontSize: '10px', color: 'var(--accent-blue)', background: 'rgba(56,189,248,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
                                   {isExpanded ? '▲ Thu gọn' : '▼ Chi tiết'}
                                 </span>
-                              </span>
+                              </div>
                             </div>
 
                             {/* Render each stacked batch in this column (sorted newest first, which sits on top) */}
