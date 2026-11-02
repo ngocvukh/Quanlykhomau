@@ -2335,6 +2335,7 @@ export default function App() {
 
   // Staff Search Form
   const [searchName, setSearchName] = useState('');
+  const [searchOrderNumber, setSearchOrderNumber] = useState('');
   const [searchSelMonth, setSearchSelMonth] = useState('');
   const [searchSelYear, setSearchSelYear] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -3872,26 +3873,40 @@ export default function App() {
   };
 
   // Staff Search Execution
-  const executeSearch = async (nameVal, monthVal) => {
-    if (!nameVal) {
-      showToast("Tên sản phẩm hoặc mã code là bắt buộc!", "warning");
+  const executeSearch = async (nameVal, monthVal, orderVal = searchOrderNumber) => {
+    const trimmedName = (nameVal || '').trim();
+    const trimmedOrder = (orderVal || '').trim();
+    if (!trimmedName && !trimmedOrder) {
+      showToast("Vui lòng nhập Tên sản phẩm, Số đơn hàng hoặc Mã code!", "warning");
       return;
     }
 
-    const searchLower = nameVal.toLowerCase().trim();
-    const decodedCode = decodeExportProductionCode(nameVal);
+    const searchLower = trimmedName.toLowerCase();
+    const orderLower = trimmedOrder.toLowerCase();
+    const decodedCode = trimmedName ? decodeExportProductionCode(trimmedName) : null;
 
     let filtered = samples.filter(s => {
       if (s.status === 'destroyed') return false;
       const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
-      if (prodName.includes(searchLower)) return true;
-      if (decodedCode && s.packaging_date) {
-        const pDate = new Date(s.packaging_date);
-        return pDate.getFullYear() === decodedCode.dateObj.getFullYear() &&
-               pDate.getMonth() === decodedCode.dateObj.getMonth() &&
-               pDate.getDate() === decodedCode.dateObj.getDate();
+      const sOrder = String(s.order_number || '').toLowerCase();
+
+      let matchMain = true;
+      if (trimmedName) {
+        matchMain = prodName.includes(searchLower) || sOrder.includes(searchLower);
+        if (!matchMain && decodedCode && s.packaging_date) {
+          const pDate = new Date(s.packaging_date);
+          matchMain = pDate.getFullYear() === decodedCode.dateObj.getFullYear() &&
+                      pDate.getMonth() === decodedCode.dateObj.getMonth() &&
+                      pDate.getDate() === decodedCode.dateObj.getDate();
+        }
       }
-      return false;
+
+      let matchOrder = true;
+      if (trimmedOrder) {
+        matchOrder = sOrder.includes(orderLower);
+      }
+
+      return matchMain && matchOrder;
     });
 
     if (monthVal) {
@@ -3903,7 +3918,7 @@ export default function App() {
       });
     }
 
-    const matchedConfigs = slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower));
+    const matchedConfigs = trimmedName ? slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower)) : [];
     setSearchResultSlots(matchedConfigs);
 
     setSearchResults(filtered);
@@ -3924,11 +3939,15 @@ export default function App() {
         currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
       }
       
+      const logParts = [];
+      if (trimmedName) logParts.push(decodedCode ? `${trimmedName.toUpperCase()} (${decodedCode.dmy})` : trimmedName);
+      if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
+
       try {
         await supabase.from('search_logs').insert({
           device_id: deviceId,
           user_name: currentName,
-          keyword: decodedCode ? `${nameVal.trim().toUpperCase()} (${decodedCode.dmy})` : nameVal.trim(),
+          keyword: logParts.join(' | '),
           month_filter: monthVal || null,
           results_count: filtered.length
         });
@@ -3941,14 +3960,15 @@ export default function App() {
   const handleSearch = (e) => {
     if (e) e.preventDefault();
     const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
-    executeSearch(searchName, monthVal);
+    executeSearch(searchName, monthVal, searchOrderNumber);
   };
 
   // Phục vụ tính năng tìm kiếm động / thời gian thực khi gõ bất kỳ kí tự nào
   useEffect(() => {
     let timer;
     const trimmed = searchName.trim();
-    if (trimmed.length >= 1) {
+    const trimmedOrder = searchOrderNumber.trim();
+    if (trimmed.length >= 1 || trimmedOrder.length >= 1) {
       // Lưu lại tab nghiệp vụ trước đó (nếu không phải search) và chuyển ngay sang tab search
       if (activeTab !== 'search') {
         setPreviousTabBeforeSearch(activeTab);
@@ -3956,20 +3976,32 @@ export default function App() {
       }
 
       const searchLower = trimmed.toLowerCase();
-      const decodedCode = decodeExportProductionCode(trimmed);
+      const orderLower = trimmedOrder.toLowerCase();
+      const decodedCode = trimmed ? decodeExportProductionCode(trimmed) : null;
       const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
       
       let filtered = samples.filter(s => {
         if (s.status === 'destroyed') return false;
         const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
-        if (prodName.includes(searchLower)) return true;
-        if (decodedCode && s.packaging_date) {
-          const pDate = new Date(s.packaging_date);
-          return pDate.getFullYear() === decodedCode.dateObj.getFullYear() &&
-                 pDate.getMonth() === decodedCode.dateObj.getMonth() &&
-                 pDate.getDate() === decodedCode.dateObj.getDate();
+        const sOrder = String(s.order_number || '').toLowerCase();
+
+        let matchMain = true;
+        if (trimmed) {
+          matchMain = prodName.includes(searchLower) || sOrder.includes(searchLower);
+          if (!matchMain && decodedCode && s.packaging_date) {
+            const pDate = new Date(s.packaging_date);
+            matchMain = pDate.getFullYear() === decodedCode.dateObj.getFullYear() &&
+                        pDate.getMonth() === decodedCode.dateObj.getMonth() &&
+                        pDate.getDate() === decodedCode.dateObj.getDate();
+          }
         }
-        return false;
+
+        let matchOrder = true;
+        if (trimmedOrder) {
+          matchOrder = sOrder.includes(orderLower);
+        }
+
+        return matchMain && matchOrder;
       });
 
       if (monthVal) {
@@ -3981,7 +4013,7 @@ export default function App() {
         });
       }
       
-      const matchedConfigs = slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower));
+      const matchedConfigs = trimmed ? slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower)) : [];
       setSearchResultSlots(matchedConfigs);
       setSearchResults(filtered);
 
@@ -3993,11 +4025,14 @@ export default function App() {
           } else {
             currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
           }
+          const logParts = [];
+          if (trimmed) logParts.push(decodedCode ? `${trimmed.toUpperCase()} (${decodedCode.dmy})` : trimmed);
+          if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
           try {
             await supabase.from('search_logs').insert({
               device_id: deviceId,
               user_name: currentName,
-              keyword: decodedCode ? `${trimmed.toUpperCase()} (${decodedCode.dmy})` : trimmed,
+              keyword: logParts.join(' | '),
               month_filter: monthVal || null,
               results_count: filtered.length
             });
@@ -4018,7 +4053,7 @@ export default function App() {
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [searchName, searchSelMonth, searchSelYear]);
+  }, [searchName, searchOrderNumber, searchSelMonth, searchSelYear]);
 
   const handleSearchInputChange = (val) => {
     setSearchName(val);
@@ -6408,11 +6443,10 @@ export default function App() {
             
             <form onSubmit={handleSearch} style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end', position: 'relative' }}>
               <div className="form-group" style={{ flex: 2, minWidth: '240px', marginBottom: 0, position: 'relative' }}>
-                <label className="form-label">Tên sản phẩm hoặc Mã code ngày SX (6 ký tự) <span style={{ color: 'red' }}>*</span></label>
+                <label className="form-label">Tên sản phẩm hoặc Mã code ngày SX (6 ký tự)</label>
                 <input 
                   className="form-input" 
                   type="text" 
-                  required 
                   placeholder="Nhập tên sản phẩm (555, Canyon...) hoặc mã code XK (ví dụ: SGZPOP)" 
                   value={searchName} 
                   onChange={e => handleSearchInputChange(e.target.value)} 
@@ -6464,7 +6498,7 @@ export default function App() {
                           setSearchName(p.product_name);
                           setSearchSuggestions([]);
                           const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
-                          executeSearch(p.product_name, monthVal);
+                          executeSearch(p.product_name, monthVal, searchOrderNumber);
                         }}
                         className="suggestion-item"
                       >
@@ -6474,6 +6508,18 @@ export default function App() {
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="form-group" style={{ flex: 0.9, minWidth: '160px', marginBottom: 0 }}>
+                <label className="form-label">Số đơn hàng</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Nhập số đơn hàng (VD: 383)..."
+                  value={searchOrderNumber}
+                  onChange={e => setSearchOrderNumber(e.target.value)}
+                  autoComplete="off"
+                />
               </div>
               
               <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '220px', marginBottom: 0 }}>
@@ -6669,7 +6715,7 @@ export default function App() {
                           if (decoded) {
                             return `Không tìm thấy sản phẩm nào sản xuất vào ngày ${decoded.dmy} (Mã code: ${decoded.code} — ${decoded.dayName}, Tuần ${decoded.week}/${decoded.year}).`;
                           }
-                          return 'Không tìm thấy mẫu phù hợp. Vui lòng nhập tên sản phẩm hoặc mã code 6 ký tự (ví dụ: SGZPOP).';
+                          return 'Không tìm thấy mẫu phù hợp. Vui lòng nhập tên sản phẩm, số đơn hàng hoặc mã code 6 ký tự (ví dụ: SGZPOP).';
                         })()}
                       </div>
                     )}
