@@ -3,10 +3,11 @@ import { supabase } from './supabaseClient';
 import html2pdf from 'html2pdf.js';
 import QRCode from 'qrcode';
 import {
-  Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database,
-  FileText, Check, X, ShieldAlert, Archive, QrCode, Save,
+  Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database, Warehouse, LayoutGrid,
+  FileText, Check, X, ShieldAlert, Archive, QrCode, Save, Tags, Tag, Barcode,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
-  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar
+  UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar,
+  PackageMinus, Ruler
 } from 'lucide-react';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
@@ -783,6 +784,7 @@ export default function App() {
 
   // Modal / Detail States
   const [selectedSlot, setSelectedSlot] = useState(null); // { shelf, slot }
+  const [mobileShelfFilter, setMobileShelfFilter] = useState(0); // 0 = all, 1..6 = A..F (cho mobile view)
   const [expandedSlotCols, setExpandedSlotCols] = useState({}); // { [col]: boolean }
   const [qrCodeModal, setQrCodeModal] = useState(null); // sample object
   const [movingSample, setMovingSample] = useState(null); // sample object to move
@@ -2340,6 +2342,7 @@ export default function App() {
 
   // Staff Search Form
   const [searchName, setSearchName] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState(null); // Lưu sản phẩm cụ thể được chọn từ gợi ý kèm mã cảnh báo
   const [searchOrderNumber, setSearchOrderNumber] = useState('');
   const [searchSelMonth, setSearchSelMonth] = useState('');
   const [searchSelYear, setSearchSelYear] = useState('');
@@ -3883,27 +3886,50 @@ export default function App() {
     }
   };
 
-  // Staff Search Execution
-  const executeSearch = async (nameVal, monthVal, orderVal = searchOrderNumber) => {
+  // Helper: lọc danh sách mẫu theo tiêu chí tìm kiếm (hỗ trợ chọn đích danh sp có mã cảnh báo)
+  const filterSamplesList = (sampleList, nameVal, orderVal, monthVal, activeProd = null) => {
     const trimmedName = (nameVal || '').trim();
     const trimmedOrder = (orderVal || '').trim();
-    if (!trimmedName && !trimmedOrder) {
-      showToast("Vui lòng nhập Tên sản phẩm, Số đơn hàng hoặc Mã code!", "warning");
-      return;
-    }
+    if (!trimmedName && !trimmedOrder && !activeProd) return [];
 
     const searchLower = trimmedName.toLowerCase();
     const orderLower = trimmedOrder.toLowerCase();
+    const searchClean = searchLower.replace(/[\[\]\(\)]/g, ' ').replace(/\s+/g, ' ').trim();
+    const searchTokens = searchClean.split(' ').filter(Boolean);
     const decodedCode = trimmedName ? decodeExportProductionCode(trimmedName) : null;
 
-    let filtered = samples.filter(s => {
+    return sampleList.filter(s => {
       if (s.status === 'destroyed') return false;
-      const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
-      const sOrder = String(s.order_number || '').toLowerCase();
 
       let matchMain = true;
-      if (trimmedName) {
-        matchMain = prodName.includes(searchLower) || sOrder.includes(searchLower);
+      if (activeProd) {
+        // Khi người dùng đã click chọn chính xác 1 sản phẩm (kèm mã cảnh báo)
+        const matchesId = (s.product_id && s.product_id === activeProd.id) || (s.products?.id && s.products.id === activeProd.id);
+        const sName = (s.products?.product_name || s.product_name || '').toLowerCase().trim();
+        const sWarn = (s.products?.warning_code || '').toLowerCase().trim();
+        const pName = (activeProd.product_name || '').toLowerCase().trim();
+        const pWarn = (activeProd.warning_code || '').toLowerCase().trim();
+        const matchesNameAndWarn = sName === pName && sWarn === pWarn;
+        matchMain = matchesId || matchesNameAndWarn;
+      } else if (trimmedName) {
+        const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
+        const warnCode = (s.products?.warning_code || '').toLowerCase();
+        const sOrder = String(s.order_number || '').toLowerCase();
+        const combined = `${prodName} ${warnCode}`.trim();
+
+        // Khớp trực tiếp cả cụm (tên sp, mã cảnh báo, hoặc số ĐH)
+        const directMatch = prodName.includes(searchLower) ||
+                            warnCode.includes(searchLower) ||
+                            combined.includes(searchClean) ||
+                            sOrder.includes(searchLower);
+
+        // Khớp đa từ khóa (vd gõ "American EEC" thì cả 2 từ đều phải có trong chuỗi kết hợp)
+        const tokenMatch = searchTokens.length > 1 && searchTokens.every(tok =>
+          combined.includes(tok) || sOrder.includes(tok)
+        );
+
+        matchMain = directMatch || tokenMatch;
+
         if (!matchMain && decodedCode && s.packaging_date) {
           const pDate = new Date(s.packaging_date);
           matchMain = pDate.getFullYear() === decodedCode.dateObj.getFullYear() &&
@@ -3914,26 +3940,46 @@ export default function App() {
 
       let matchOrder = true;
       if (trimmedOrder) {
-        matchOrder = sOrder.includes(orderLower);
+        matchOrder = String(s.order_number || '').toLowerCase().includes(orderLower);
       }
 
-      return matchMain && matchOrder;
-    });
+      if (!matchMain || !matchOrder) return false;
 
-    if (monthVal) {
-      filtered = filtered.filter(s => {
+      if (monthVal) {
         const pDate = new Date(s.packaging_date);
-        const sYear = parseInt(monthVal.split('-')[0]);
-        const sMonth = parseInt(monthVal.split('-')[1]);
-        return pDate.getFullYear() === sYear && (pDate.getMonth() + 1) === sMonth;
-      });
+        const [sYearStr, sMonthStr] = monthVal.split('-');
+        const sYear = parseInt(sYearStr, 10);
+        const sMonth = parseInt(sMonthStr, 10);
+        if (pDate.getFullYear() !== sYear || (pDate.getMonth() + 1) !== sMonth) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  };
+
+  // Staff Search Execution
+  const executeSearch = async (nameVal, monthVal, orderVal = searchOrderNumber, explicitProduct = null) => {
+    const activeProd = explicitProduct !== null ? explicitProduct : selectedProduct;
+    const trimmedName = (nameVal || '').trim();
+    const trimmedOrder = (orderVal || '').trim();
+    if (!trimmedName && !trimmedOrder && !activeProd) {
+      showToast("Vui lòng nhập Tên sản phẩm, Số đơn hàng hoặc Mã code!", "warning");
+      return;
     }
 
-    const matchedConfigs = trimmedName ? slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower)) : [];
+    const filtered = filterSamplesList(samples, nameVal, orderVal, monthVal, activeProd);
+
+    const searchLower = trimmedName.toLowerCase();
+    const matchedConfigs = (trimmedName && !activeProd)
+      ? slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower))
+      : [];
     setSearchResultSlots(matchedConfigs);
 
     setSearchResults(filtered);
     if (filtered.length === 0) {
+      const decodedCode = trimmedName ? decodeExportProductionCode(trimmedName) : null;
       if (decodedCode) {
         showToast(`Mã ${decodedCode.code} → Ngày SX ${decodedCode.dmy}: Không tìm thấy mẫu nào!`, "info");
       } else {
@@ -3949,9 +3995,14 @@ export default function App() {
       } else {
         currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
       }
-      
+
       const logParts = [];
-      if (trimmedName) logParts.push(decodedCode ? `${trimmedName.toUpperCase()} (${decodedCode.dmy})` : trimmedName);
+      if (activeProd) {
+        logParts.push(activeProd.warning_code ? `${activeProd.product_name} [${activeProd.warning_code}]` : activeProd.product_name);
+      } else if (trimmedName) {
+        const decodedCode = decodeExportProductionCode(trimmedName);
+        logParts.push(decodedCode ? `${trimmedName.toUpperCase()} (${decodedCode.dmy})` : trimmedName);
+      }
       if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
 
       try {
@@ -3971,60 +4022,28 @@ export default function App() {
   const handleSearch = (e) => {
     if (e) e.preventDefault();
     const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
-    executeSearch(searchName, monthVal, searchOrderNumber);
+    executeSearch(searchName, monthVal, searchOrderNumber, selectedProduct);
   };
 
-  // Phục vụ tính năng tìm kiếm động / thời gian thực khi gõ bất kỳ kí tự nào
+  // Phục vụ tính năng tìm kiếm động / thời gian thực khi gõ bất kỳ kí tự nào hoặc khi chọn sản phẩm
   useEffect(() => {
     let timer;
     const trimmed = searchName.trim();
     const trimmedOrder = searchOrderNumber.trim();
-    if (trimmed.length >= 1 || trimmedOrder.length >= 1) {
+    if (trimmed.length >= 1 || trimmedOrder.length >= 1 || selectedProduct) {
       // Lưu lại tab nghiệp vụ trước đó (nếu không phải search) và chuyển ngay sang tab search
       if (activeTab !== 'search') {
         setPreviousTabBeforeSearch(activeTab);
         setActiveTab('search');
       }
 
-      const searchLower = trimmed.toLowerCase();
-      const orderLower = trimmedOrder.toLowerCase();
-      const decodedCode = trimmed ? decodeExportProductionCode(trimmed) : null;
       const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
-      
-      let filtered = samples.filter(s => {
-        if (s.status === 'destroyed') return false;
-        const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
-        const sOrder = String(s.order_number || '').toLowerCase();
+      const filtered = filterSamplesList(samples, searchName, searchOrderNumber, monthVal, selectedProduct);
 
-        let matchMain = true;
-        if (trimmed) {
-          matchMain = prodName.includes(searchLower) || sOrder.includes(searchLower);
-          if (!matchMain && decodedCode && s.packaging_date) {
-            const pDate = new Date(s.packaging_date);
-            matchMain = pDate.getFullYear() === decodedCode.dateObj.getFullYear() &&
-                        pDate.getMonth() === decodedCode.dateObj.getMonth() &&
-                        pDate.getDate() === decodedCode.dateObj.getDate();
-          }
-        }
-
-        let matchOrder = true;
-        if (trimmedOrder) {
-          matchOrder = sOrder.includes(orderLower);
-        }
-
-        return matchMain && matchOrder;
-      });
-
-      if (monthVal) {
-        filtered = filtered.filter(s => {
-          const pDate = new Date(s.packaging_date);
-          const sYear = parseInt(monthVal.split('-')[0]);
-          const sMonth = parseInt(monthVal.split('-')[1]);
-          return pDate.getFullYear() === sYear && (pDate.getMonth() + 1) === sMonth;
-        });
-      }
-      
-      const matchedConfigs = trimmed ? slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower)) : [];
+      const searchLower = trimmed.toLowerCase();
+      const matchedConfigs = (trimmed && !selectedProduct)
+        ? slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower))
+        : [];
       setSearchResultSlots(matchedConfigs);
       setSearchResults(filtered);
 
@@ -4037,7 +4056,12 @@ export default function App() {
             currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
           }
           const logParts = [];
-          if (trimmed) logParts.push(decodedCode ? `${trimmed.toUpperCase()} (${decodedCode.dmy})` : trimmed);
+          if (selectedProduct) {
+            logParts.push(selectedProduct.warning_code ? `${selectedProduct.product_name} [${selectedProduct.warning_code}]` : selectedProduct.product_name);
+          } else if (trimmed) {
+            const decodedCode = decodeExportProductionCode(trimmed);
+            logParts.push(decodedCode ? `${trimmed.toUpperCase()} (${decodedCode.dmy})` : trimmed);
+          }
           if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
           try {
             await supabase.from('search_logs').insert({
@@ -4060,17 +4084,30 @@ export default function App() {
         setActiveTab(previousTabBeforeSearch || 'shelves');
       }
     }
-    
+
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [searchName, searchOrderNumber, searchSelMonth, searchSelYear]);
+  }, [searchName, searchOrderNumber, searchSelMonth, searchSelYear, selectedProduct]);
 
   const handleSearchInputChange = (val) => {
     setSearchName(val);
-    if (val.trim().length >= 1) {
-      const searchLower = val.toLowerCase().trim();
-      const matches = products.filter(p => p.product_name.toLowerCase().includes(searchLower)).slice(0, 8);
+    if (selectedProduct) {
+      const expectedDisplayName = selectedProduct.warning_code
+        ? `${selectedProduct.product_name} [${selectedProduct.warning_code}]`
+        : selectedProduct.product_name;
+      if (val.trim() !== expectedDisplayName.trim()) {
+        setSelectedProduct(null);
+      }
+    }
+    const trimmed = val.trim().toLowerCase();
+    if (trimmed.length >= 1) {
+      const matches = products.filter(p => {
+        const pName = (p.product_name || '').toLowerCase();
+        const pWarn = (p.warning_code || '').toLowerCase();
+        const combined = `${pName} ${pWarn}`;
+        return pName.includes(trimmed) || pWarn.includes(trimmed) || combined.includes(trimmed);
+      }).slice(0, 10);
       setSearchSuggestions(matches);
     } else {
       setSearchSuggestions([]);
@@ -5274,7 +5311,7 @@ export default function App() {
 
   // Batch print helper for multiple sticker labels
   // Batch print helper for multiple Tommy 135 sticker labels grouped by slot/box
-  const printTommyStickersForGroup = (groupName, samplesInGroup) => {
+  const printTommyStickersForGroup = (groupName, samplesInGroup, promptClearQueue = true) => {
     if (!samplesInGroup || samplesInGroup.length === 0) {
       showToast("Không có nhãn nào để in!", "warning");
       return;
@@ -5503,12 +5540,14 @@ export default function App() {
     printWindow.document.close();
 
     // Hỏi người dùng có muốn xóa khỏi hàng đợi sau khi đã in không (đợi 1s để cửa sổ in bật lên trước)
-    setTimeout(() => {
-      if (window.confirm(`Đã mở cửa sổ in tem cho ${groupName}. Bạn có muốn XÓA các mẫu này khỏi Hàng đợi in không? (Nên xóa để tránh in nhầm vào lần sau)`)) {
-        const printedIds = new Set(samplesInGroup.map(s => s.id));
-        setPrintQueue(prev => prev.filter(s => !printedIds.has(s.id)));
-      }
-    }, 1000);
+    if (promptClearQueue) {
+      setTimeout(() => {
+        if (window.confirm(`Đã mở cửa sổ in tem cho ${groupName}. Bạn có muốn XÓA các mẫu này khỏi Hàng đợi in không? (Nên xóa để tránh in nhầm vào lần sau)`)) {
+          const printedIds = new Set(samplesInGroup.map(s => s.id));
+          setPrintQueue(prev => prev.filter(s => !printedIds.has(s.id)));
+        }
+      }, 1000);
+    }
   };
 
   const printAllReadyLabels = () => {
@@ -5769,145 +5808,10 @@ export default function App() {
     return Object.values(groups).sort((a, b) => a.trayNumber - b.trayNumber);
   };
 
-  // Generate Print View for QR Sticker Label
+  // Generate Print View for QR Sticker Label (Đồng bộ chuẩn 100% tem Tommy 135 như mục In Nhãn)
   const printQrSticker = (sample) => {
-    const printWindow = window.open('', '_blank');
-    const qrSvg = generateQrSvgMarkup(makeStickerQrUrl(sample.sku));
-    
-    printWindow.document.write(`
-      <html>
-      <head>
-        <title>In nhãn cây mẫu - ${sample.sku}</title>
-        <style>
-          @page { size: 100mm 75mm; margin: 0; }
-          body {
-            font-family: 'Outfit', -apple-system, sans-serif;
-            margin: 0;
-            padding: 10px;
-            width: 100mm;
-            height: 75mm;
-            box-sizing: border-box;
-            color: #000;
-            background: #fff;
-          }
-          .sticker-container {
-            display: flex;
-            gap: 12px;
-            height: 100%;
-            border: 1px solid #000;
-            padding: 6px;
-            box-sizing: border-box;
-            border-radius: 4px;
-          }
-          .left-side {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            width: 35%;
-          }
-          .qr-img {
-            width: 100px;
-            height: 100px;
-          }
-          .sku-code {
-            font-size: 11px;
-            font-weight: 800;
-            margin-top: 6px;
-            letter-spacing: 0.5px;
-          }
-          .right-side {
-            width: 65%;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-          }
-          .title {
-            font-size: 12px;
-            font-weight: 800;
-            border-bottom: 1.5px solid #000;
-            padding-bottom: 2px;
-            margin-bottom: 4px;
-            text-transform: uppercase;
-            text-align: center;
-          }
-          .info-table {
-            width: 100%;
-            border-collapse: collapse;
-          }
-          .info-table td {
-            font-size: 9px;
-            padding: 2px 0;
-            vertical-align: top;
-            line-height: 1.2;
-          }
-          .label {
-            font-weight: bold;
-            width: 75px;
-          }
-          .val {
-            color: #111;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="sticker-container">
-          <div class="left-side">
-            <div class="qr-img">${qrSvg}</div>
-            <div class="sku-code">${sample.sku}</div>
-          </div>
-          <div class="right-side">
-            <div class="title">NHÃN THUỐC LÁ MẪU</div>
-            <table class="info-table">
-              <tr>
-                <td class="label">Sản phẩm:</td>
-                <td class="val"><strong>${escapeHtml(sample.products?.product_name || sample.product_name)}</strong></td>
-              </tr>
-              <tr>
-                <td class="label">Cảnh báo bao:</td>
-                <td class="val">${escapeHtml(sample.products?.warning_code || 'Không cảnh báo')}</td>
-              </tr>
-              <tr>
-                <td class="label">Mẻ sợi:</td>
-                <td class="val">${escapeHtml(formatBlendBatch(sample.blend_batch))}</td>
-              </tr>
-              <tr>
-                <td class="label">Ngày SX sợi:</td>
-                <td class="val">${escapeHtml(new Date(sample.blend_date).toLocaleDateString())}</td>
-              </tr>
-              <tr>
-                <td class="label">Ngày SX bao:</td>
-                <td class="val">${escapeHtml(new Date(sample.packaging_date).toLocaleDateString())} ${escapeHtml(formatSamplingBox(sample.blend_batch))}</td>
-              </tr>
-              <tr>
-                <td class="label">Thời gian lấy:</td>
-                <td class="val">${escapeHtml(new Date(sample.sampling_time).toLocaleString())}</td>
-              </tr>
-              ${sample.order_number ? `
-              <tr>
-                <td class="label">Số đơn hàng XK:</td>
-                <td class="val">${escapeHtml(sample.order_number)}</td>
-              </tr>
-              ` : ''}
-              <tr>
-                <td class="label">Vị trí lưu kho:</td>
-                <td class="val" style="font-weight:bold;">${escapeHtml(formatLocation(sample.shelf, sample.slot, sample.column_number))}</td>
-              </tr>
-            </table>
-          </div>
-        </div>
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-              window.close();
-            }, 300);
-          };
-        </script>
-      </body>
-      </html>
-    `);
-    printWindow.document.close();
+    if (!sample) return;
+    printTommyStickersForGroup(Mẫu , [sample], false);
   };
 
   // Helper calculation: Column utilization
@@ -6258,11 +6162,31 @@ export default function App() {
               )}
 
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{profile?.full_name || 'Người dùng'}</div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{profile?.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên'}</div>
+                <div style={{ fontWeight: 600, fontSize: '13.5px' }}>{profile?.full_name || 'Người dùng'}</div>
+                <div style={{ marginTop: '2px' }}>
+                  <span className={`role-badge ${profile?.role === 'admin' ? 'role-badge-admin' : 'role-badge-staff'}`}>
+                    {profile?.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên QC'}
+                  </span>
+                </div>
               </div>
               <button className="theme-toggle" onClick={handleLogout} title="Đăng xuất">
-                <LogOut size={20} />
+                <LogOut size={18} />
+              </button>
+            </div>
+          ) : authMode === 'guest' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontWeight: 600, fontSize: '13.5px' }}>{visitorName || 'Khách tra cứu'}</div>
+                <div style={{ marginTop: '2px' }}>
+                  <span className="role-badge role-badge-staff">Nhân viên / Khách</span>
+                </div>
+              </div>
+              <button 
+                className="btn btn-secondary" 
+                style={{ padding: '6px 14px', fontSize: '12.5px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }} 
+                onClick={() => setAuthMode('login')}
+              >
+                <LogIn size={14} /> Đăng nhập Admin
               </button>
             </div>
           ) : (
@@ -6369,16 +6293,24 @@ export default function App() {
         <div style={{ display: 'flex', flex: 1, gap: '24px', flexDirection: 'column' }}>
           
           {/* TAB NAVIGATION BAR (Chỉ chứa các nút quản lý, tìm kiếm đã được trích xuất lên trên) */}
-          <div className="glass-panel" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center', flex: 1 }}>
-              {/* Nhóm Tra cứu & Hệ thống */}
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="glass-panel nav-tabs-bar" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="nav-tabs-rail" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center', flex: 1 }}>
+              {/* Nhóm Tra cứu & Sơ đồ kho */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', padding: '5px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <button className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('search')}>
+                  <Search size={15} /> Tra Cứu Mẫu
+                  {searchResults.length > 0 && (
+                    <span style={{ background: activeTab === 'search' ? 'rgba(255,255,255,0.25)' : 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
+                      {searchResults.length}
+                    </span>
+                  )}
+                </button>
                 <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
-                  <Database size={16} /> Sơ Đồ Kệ Kho
+                  <Warehouse size={15} /> Sơ Đồ Kệ Kho
                 </button>
                 {(profile?.role === 'admin') && (
                   <button className={`btn ${activeTab === 'catalog' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('catalog')}>
-                    <ClipboardList size={16} /> Danh Mục Gốc
+                    <ClipboardList size={15} /> Danh Mục Gốc
                   </button>
                 )}
               </div>
@@ -6391,7 +6323,7 @@ export default function App() {
                     <button className={`btn ${activeTab === 'import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('import')}>
                       <Plus size={16} /> Nhập Kho Mẫu
                     </button>
-                    <button className={`btn ${activeTab === 'bulk_import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('bulk_import')} style={{ background: activeTab === 'bulk_import' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : undefined, borderColor: activeTab === 'bulk_import' ? '#7c3aed' : undefined }}>
+                    <button className={`btn ${activeTab === 'bulk_import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('bulk_import')}>
                       <UploadCloud size={16} /> Nhập Hàng Loạt
                     </button>
                     <button className={`btn ${activeTab === 'labels' ? 'btn-primary' : 'btn-secondary'}`} style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setActiveTab('labels')}>
@@ -6427,10 +6359,10 @@ export default function App() {
 
                   {/* Nhóm Tiện ích */}
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }} style={{ background: activeTab === 'search_logs' ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : undefined, borderColor: activeTab === 'search_logs' ? '#0ea5e9' : undefined }}>
+                    <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }}>
                       <FileText size={16} /> Nhật Ký Tìm Kiếm
                     </button>
-                    <button className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('users'); fetchUsersAndVisitors(); }} style={{ background: activeTab === 'users' ? 'linear-gradient(135deg,#10b981,#059669)' : undefined, borderColor: activeTab === 'users' ? '#10b981' : undefined }}>
+                    <button className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('users'); fetchUsersAndVisitors(); }}>
                       <User size={16} /> Tài Khoản & Khách
                     </button>
                   </div>
@@ -6438,59 +6370,110 @@ export default function App() {
               )}
             </div>
 
-            {/* Back button from Guest Mode */}
-            {authMode === 'guest' && (
-              <button className="btn btn-secondary" style={{ borderColor: 'var(--status-warning)', color: 'var(--status-warning)' }} onClick={() => setAuthMode('login')}>
-                Thoát Khách (Đăng Nhập Admin)
-              </button>
+            {/* Quick search input on tabs bar when not on search tab */}
+            {activeTab !== 'search' && (
+              <div style={{ position: 'relative', width: '220px', minWidth: '180px' }}>
+                <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Tìm nhanh tên / mã XK..."
+                  value={searchName}
+                  onChange={e => {
+                    handleSearchInputChange(e.target.value);
+                    if (activeTab !== 'search') {
+                      setPreviousTabBeforeSearch(activeTab);
+                      setActiveTab('search');
+                    }
+                  }}
+                  onFocus={() => {
+                    if (searchName) {
+                      setActiveTab('search');
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '7px 10px 7px 30px',
+                    fontSize: '12.5px',
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid var(--glass-border)',
+                    borderRadius: 'var(--border-radius-sm)',
+                    color: 'var(--text-primary)',
+                    outline: 'none'
+                  }}
+                />
+              </div>
             )}
           </div>
 
-                    {/* GLOBAL SEARCH PANEL (Luôn hiện ở trên cùng của không gian làm việc) */}
-          <div className="glass-panel" style={{ padding: '20px' }}>
+          {/* GLOBAL SEARCH PANEL (Chỉ hiển thị khi ở tab Tra Cứu) */}
+          {activeTab === 'search' && (
+          <div className="glass-panel" style={{ padding: '20px', position: 'relative', zIndex: 100 }}>
             <h2 style={{ fontSize: '18px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Search size={20} color="var(--accent-blue)" /> Tra Cứu Và Tìm Kiếm Thuốc Lá Mẫu
             </h2>
             
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end', position: 'relative' }}>
-              <div className="form-group" style={{ flex: 2, minWidth: '220px', marginBottom: 0, position: 'relative' }}>
+            <form onSubmit={handleSearch} className="search-form" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end', position: 'relative' }}>
+              <div className="form-group" style={{ flex: 2, minWidth: '220px', marginBottom: 0 }}>
                 <label className="form-label" style={{ fontSize: '13px', fontWeight: 600, height: '20px', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>Tên sản phẩm hoặc Mã code XK</label>
-                <input 
-                  className="form-input" 
-                  type="text" 
-                  placeholder="Nhập tên sản phẩm (555, Canyon...) hoặc mã code XK (ví dụ: SGZPOP)" 
-                  value={searchName} 
-                  onChange={e => handleSearchInputChange(e.target.value)} 
-                  onBlur={() => setTimeout(() => setSearchSuggestions([]), 200)}
-                  autoComplete="off"
-                />
-                {(() => {
-                  const decoded = decodeExportProductionCode(searchName);
-                  if (!decoded) return null;
-                  return (
-                    <div style={{ marginTop: '6px', fontSize: '12.5px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '5px 10px', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                      <span>🔍 <strong>Mã {decoded.code}</strong> ({decoded.dayName}, Tuần {String(decoded.week).padStart(2, '0')}/{decoded.year}) → Ngày sản xuất: <strong>{decoded.dmy}</strong></span>
-                    </div>
-                  );
-                })()}
                 
-                {/* Real-time Search Suggestions Autocomplete */}
-                {searchSuggestions.length > 0 && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '75px',
-                    left: 0,
-                    right: 0,
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--glass-border)',
-                    borderRadius: 'var(--border-radius-sm)',
-                    boxShadow: '0 8px 32px var(--glass-shadow)',
-                    zIndex: 100,
-                    maxHeight: '220px',
-                    overflowY: 'auto',
-                    backdropFilter: 'blur(12px)',
-                    WebkitBackdropFilter: 'blur(12px)'
-                  }}>
+                <div style={{ position: 'relative', width: '100%' }}>
+                  <input 
+                    className="form-input" 
+                    type="text" 
+                    placeholder="Nhập tên sản phẩm (555, Canyon...) hoặc mã code XK (ví dụ: SGZPOP)" 
+                    value={searchName} 
+                    onChange={e => handleSearchInputChange(e.target.value)} 
+                    onBlur={() => setTimeout(() => setSearchSuggestions([]), 250)}
+                    autoComplete="off"
+                    style={{ paddingRight: searchName ? '34px' : '12px' }}
+                  />
+                  {searchName && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchName('');
+                        setSelectedProduct(null);
+                        setSearchSuggestions([]);
+                        setSearchResults([]);
+                        setSearchResultSlots([]);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '50%',
+                        zIndex: 2
+                      }}
+                      title="Xóa tìm kiếm"
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
+                  
+                  {/* Real-time Search Suggestions Autocomplete */}
+                  {searchSuggestions.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      left: 0,
+                      right: 0,
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--glass-border)',
+                      borderRadius: 'var(--border-radius-sm)',
+                      boxShadow: '0 12px 36px rgba(0, 0, 0, 0.7)',
+                      zIndex: 9999,
+                      maxHeight: '280px',
+                      overflowY: 'auto'
+                    }}>
                     {searchSuggestions.map(p => (
                       <div 
                         key={p.id} 
@@ -6503,22 +6486,58 @@ export default function App() {
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
+                          gap: '12px',
                           color: 'var(--text-primary)'
                         }}
                         onMouseDown={() => {
-                          setSearchName(p.product_name);
+                          setSelectedProduct(p);
+                          const displayName = p.warning_code ? `${p.product_name} [${p.warning_code}]` : p.product_name;
+                          setSearchName(displayName);
                           setSearchSuggestions([]);
                           const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
-                          executeSearch(p.product_name, monthVal, searchOrderNumber);
+                          executeSearch(displayName, monthVal, searchOrderNumber, p);
                         }}
                         className="suggestion-item"
                       >
-                        <span style={{ fontWeight: 600 }}>{p.product_name}</span>
-                        {p.warning_code && <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>{p.warning_code}</span>}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600 }}>{p.product_name}</span>
+                          {p.format && (
+                            <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px', color: 'var(--text-muted)' }}>
+                              {p.format}
+                            </span>
+                          )}
+                        </div>
+                        {p.warning_code && (
+                          <span style={{ fontSize: '11.5px', background: 'rgba(56,189,248,0.15)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, border: '1px solid rgba(56,189,248,0.3)', whiteSpace: 'nowrap' }}>
+                            {p.warning_code}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
+                </div>
+
+                {selectedProduct && (
+                  <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Đang lọc chính xác mẫu:</span>
+                    <span style={{ background: 'rgba(56,189,248,0.15)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, border: '1px solid rgba(56,189,248,0.3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{selectedProduct.product_name}</span>
+                      {selectedProduct.warning_code && <span style={{ opacity: 0.85 }}>({selectedProduct.warning_code})</span>}
+                      <X size={13} style={{ cursor: 'pointer', marginLeft: '4px' }} onClick={() => { setSelectedProduct(null); setSearchName(''); setSearchResults([]); setSearchResultSlots([]); }} title="Bỏ lọc sản phẩm này" />
+                    </span>
+                  </div>
+                )}
+
+                                {(() => {
+                  const decoded = decodeExportProductionCode(searchName);
+                  if (!decoded) return null;
+                  return (
+                    <div style={{ marginTop: '6px', fontSize: '12.5px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '5px 10px', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🔍 <strong>Mã {decoded.code}</strong> ({decoded.dayName}, Tuần {String(decoded.week).padStart(2, '0')}/{decoded.year}) → Ngày sản xuất: <strong>{decoded.dmy}</strong></span>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="form-group" style={{ flex: 1, minWidth: '130px', marginBottom: 0 }}>
@@ -6558,6 +6577,7 @@ export default function App() {
               </button>
             </form>
           </div>
+          )}
 
           {/* TAB CONTENTS */}
           <div style={{ flex: 1 }}>
@@ -6567,7 +6587,7 @@ export default function App() {
                 {searchResultSlots.length > 0 && (
                   <div style={{ marginBottom: '32px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '24px' }}>
                     <h3 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Database size={20} color="#f59e0b" /> Vị trí kệ/Cột phù hợp với ghi chú ({searchResultSlots.length})
+                      <LayoutGrid size={20} color="var(--status-warning)" /> Vị trí kệ/Cột phù hợp với ghi chú ({searchResultSlots.length})
                     </h3>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
                       {searchResultSlots.map(c => {
@@ -6598,7 +6618,7 @@ export default function App() {
                               style={{ width: '100%', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
                               onClick={() => setSelectedSlot({ shelf: c.shelf, slot: c.slot })}
                             >
-                              <Database size={13} /> Xem sơ đồ ô kệ
+                              <LayoutGrid size={13} /> Xem sơ đồ ô kệ
                             </button>
                           </div>
                         );
@@ -6610,7 +6630,14 @@ export default function App() {
                 {/* SEARCH RESULTS */}
                 <div>
                   <h3 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Search size={20} color="var(--accent-blue)" /> Kết quả tìm kiếm thuốc lá mẫu (${searchResults.length})
+                    <Search size={20} color="var(--accent-blue)" />
+                    <span>Kết quả tìm kiếm thuốc lá mẫu ({searchResults.length})</span>
+                    {selectedProduct && (
+                      <span style={{ fontSize: '12px', background: 'rgba(56,189,248,0.12)', color: 'var(--accent-blue)', padding: '3px 10px', borderRadius: '12px', border: '1px solid rgba(56,189,248,0.3)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        Lọc theo: <strong>{selectedProduct.product_name}</strong> {selectedProduct.warning_code && `[${selectedProduct.warning_code}]`}
+                        <X size={13} style={{ cursor: 'pointer' }} onClick={() => { setSelectedProduct(null); setSearchName(''); setSearchResults([]); setSearchResultSlots([]); }} title="Xóa lọc" />
+                      </span>
+                    )}
                   </h3>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -6624,7 +6651,7 @@ export default function App() {
                       const isValidQty = !isNaN(qtyInt) && qtyInt > 0 && qtyInt <= s.available_qty;
                       
                       return (
-                        <div key={s.id} className="glass-panel" style={{ borderLeft: `4px solid ${isExpired ? 'var(--status-error)' : isWarn ? 'var(--status-warning)' : 'var(--accent-blue)'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                        <div key={s.id} className="glass-panel sample-card" style={{ borderLeft: `4px solid ${isExpired ? 'var(--status-error)' : isWarn ? 'var(--status-warning)' : 'var(--accent-blue)'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                           <div style={{ flex: 1, minWidth: '280px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <h4 style={{ fontSize: '18px', fontWeight: 'bold' }}>{s.products?.product_name || s.product_name}</h4>
@@ -6739,13 +6766,13 @@ export default function App() {
               <div className="glass-panel">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                   <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                    <Database size={22} color="var(--accent-blue)" /> Sơ Đồ Không Gian Kho Lưu (6 Kệ x 5 Ô)
+                    <Warehouse size={22} color="var(--accent-blue)" /> Sơ Đồ Không Gian Kho Lưu (6 Kệ x 5 Ô)
                   </h2>
                   {profile?.role === 'admin' && (
                     <button 
                       className="btn btn-primary" 
                       onClick={handleScanConsolidation} 
-                      style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', padding: '6px 14px' }}
+                      style={{ background: 'var(--qc-emerald)', border: '1px solid var(--qc-emerald)', padding: '6px 14px' }}
                     >
                       <Layers size={16} /> Xử lý Quá tải (700mm) & Gom kho
                     </button>
@@ -6782,7 +6809,7 @@ export default function App() {
                     <div style={{ marginBottom: '24px', border: '2px solid #f59e0b', borderRadius: '12px', overflow: 'hidden', background: 'rgba(245,158,11,0.05)' }}>
                       <div style={{ background: 'rgba(245,158,11,0.15)', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ fontSize: '20px' }}>📏</span>
+                          <Ruler size={24} color="var(--status-warning)" />
                           <div>
                             <strong style={{ color: '#fcd34d', fontSize: '14px' }}>
                               Phát hiện {overloadedSlots.length} ô đang vượt quá chiều ngang vật lý {SLOT_MAX_WIDTH_MM}mm!
@@ -6796,7 +6823,7 @@ export default function App() {
                           <button
                             className="btn btn-primary"
                             onClick={handleScanConsolidation}
-                            style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', border: 'none', padding: '7px 14px', fontSize: '12.5px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                            style={{ background: 'var(--status-warning)', border: '1px solid var(--status-warning)', padding: '7px 14px', fontSize: '12.5px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
                           >
                             ⚡ Đề xuất dồn cột & xử lý quá tải ngay
                           </button>
@@ -6823,7 +6850,7 @@ export default function App() {
                   return (
                     <div style={{ marginBottom: '24px', border: '2px solid #ef4444', borderRadius: '12px', overflow: 'hidden' }}>
                       <div style={{ background: 'rgba(239,68,68,0.15)', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '20px' }}>⚠️</span>
+                        <ShieldAlert size={24} color="var(--status-error)" />
                         <div>
                           <strong style={{ color: '#fca5a5', fontSize: '14px' }}>Phát hiện {mixedCols.length} cột bị lẫn nhiều loại sản phẩm!</strong>
                           <div style={{ color: '#fca5a5', fontSize: '12px', marginTop: '2px' }}>Do lỗi thuật toán trước đó. Cần sửa thủ công từng cột bên dưới.</div>
@@ -6884,9 +6911,54 @@ export default function App() {
                   );
                 })()}
 
+                {/* SHELVES TABS ON MOBILE */}
+                <div className="mobile-shelf-tabs">
+                  <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '8px', marginBottom: '10px' }}>
+                    <button
+                      type="button"
+                      className={`btn ${mobileShelfFilter === 0 ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                      onClick={() => setMobileShelfFilter(0)}
+                    >
+                      Tất cả (6 Kệ)
+                    </button>
+                    {[1, 2, 3, 4, 5, 6].map(sNum => {
+                      const sLet = ['', 'A', 'B', 'C', 'D', 'E', 'F'][sNum];
+                      return (
+                        <button
+                          key={sNum}
+                          type="button"
+                          className={`btn ${mobileShelfFilter === sNum ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                          onClick={() => setMobileShelfFilter(sNum)}
+                        >
+                          Kệ {sLet}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {mobileShelfFilter === 0 && (
+                  <div className="mobile-only-hint" style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '8px', padding: '5px 8px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px dashed var(--glass-border)' }}>
+                    👉 Vuốt ngang để xem đủ 6 Kệ (A — F) hoặc chạm chọn từng Kệ ở trên
+                  </div>
+                )}
+
                 {/* THE 6 KỆ VERTICAL COLS STANDING SIDE-BY-SIDE */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '20px', overflowX: 'auto', paddingBottom: '10px' }}>
-                  {[1, 2, 3, 4, 5, 6].map(shelf => {
+                <div className="shelves-scroll-wrapper" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                  <div
+                    className={`shelves-container ${mobileShelfFilter !== 0 ? 'single-shelf' : ''}`}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: mobileShelfFilter === 0 ? 'repeat(6, 1fr)' : '1fr',
+                      gap: '20px',
+                      paddingBottom: '10px'
+                    }}
+                  >
+                  {[1, 2, 3, 4, 5, 6]
+                    .filter(shelf => mobileShelfFilter === 0 || mobileShelfFilter === shelf)
+                    .map(shelf => {
                     const shelfLetter = ['', 'A', 'B', 'C', 'D', 'E', 'F'][shelf];
                     return (
                       <div key={shelf} style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,0.01)', border: '1px dashed var(--glass-border)', padding: '12px', borderRadius: '12px' }}>
@@ -6984,6 +7056,7 @@ export default function App() {
                     </div>
                   );
                 })}
+                  </div>
                 </div>
               </div>
             )}
@@ -7432,7 +7505,7 @@ export default function App() {
                           </div>
                           <button 
                             className="btn btn-primary"
-                            style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', fontWeight: 600 }}
+                            style={{ padding: '8px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--qc-emerald)', border: '1px solid var(--qc-emerald)', fontWeight: 600 }}
                             disabled={matchedSamples.length === 0}
                             onClick={() => printTommyStickersForGroup(locLabel, matchedSamples)}
                           >
@@ -9348,16 +9421,16 @@ export default function App() {
                 return (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '10px' }}>
                     <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Database size={20} color="var(--accent-blue)" />
+                      <LayoutGrid size={20} color="var(--accent-blue)" />
                       Chi tiết: Kệ {shelfLetter} — Ô {selectedSlot.slot} {selectedSlot.slot === 5 ? '(Ô Lẻ)' : ''}
                     </h3>
                     
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      {slotSamples.length > 0 && (
+                      {profile?.role === 'admin' && slotSamples.length > 0 && (
                         <>
                           <button 
                             className="btn btn-primary"
-                            style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}
+                            style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--qc-emerald)', border: '1px solid var(--qc-emerald)' }}
                             onClick={() => printTommyStickersForGroup(`Kệ ${shelfLetter}${selectedSlot.slot}`, slotSamples)}
                             title="In lại toàn bộ nhãn tem của cả Ô này"
                           >
@@ -9446,12 +9519,12 @@ export default function App() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                     <h4 style={{ fontSize: '15px', color: 'var(--accent-purple)', margin: 0, fontWeight: 'bold' }}>
-                      Ô lẻ Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf} (Loose items)
+                      <Tags size={16} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: '6px' }} /> Ô lẻ Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf} (Loose items)
                     </h4>
-                    {samples.some(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored') && (
+                    {profile?.role === 'admin' && samples.some(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored') && (
                       <button 
                         className="btn btn-primary"
-                        style={{ padding: '5px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}
+                        style={{ padding: '5px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--qc-emerald)', border: '1px solid var(--qc-emerald)' }}
                         onClick={() => {
                           const looseSamples = samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored');
                           const sL = ['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf;
@@ -9500,7 +9573,7 @@ export default function App() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
                         <h4 style={{ fontSize: '15px', color: 'var(--accent-blue)', margin: 0, fontWeight: 'bold' }}>Sơ đồ các Cột xếp chồng đứng</h4>
                         <div style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '6px', background: totalWidth > SLOT_MAX_WIDTH_MM ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.1)', border: `1px solid ${totalWidth > SLOT_MAX_WIDTH_MM ? 'rgba(239,68,68,0.4)' : 'rgba(59,130,246,0.25)'}`, color: totalWidth > SLOT_MAX_WIDTH_MM ? '#fca5a5' : 'var(--text-primary)' }}>
-                          📏 Bề ngang ô: <strong>{totalWidth} / {SLOT_MAX_WIDTH_MM}mm</strong>
+                          <Ruler size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} /> Bề ngang ô: <strong>{totalWidth} / {SLOT_MAX_WIDTH_MM}mm</strong>
                           {remainingWidth >= 90 ? ` (Còn trống ${remainingWidth}mm)` : remainingWidth >= 0 ? ` (Đầy chiều ngang - còn ${remainingWidth}mm)` : ` (⚠️ Vượt quá ${Math.abs(remainingWidth)}mm!)`}
                         </div>
                       </div>
@@ -9553,7 +9626,10 @@ export default function App() {
                   )}
 
                   {/* Visual columns stacks */}
-                  <div style={{ display: 'flex', gap: '16px', justifyContent: 'flex-start', margin: '24px 0', overflowX: 'auto', padding: '10px 0' }}>
+                  <div className="mobile-only-hint" style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', padding: '5px 8px', borderRadius: '6px', border: '1px dashed var(--glass-border)' }}>
+                    👉 Vuốt ngang sang phải để xem tiếp các Cột (Cột 1 — 7)
+                  </div>
+                  <div className="slot-columns-scroll" style={{ display: 'flex', gap: '16px', justifyContent: 'flex-start', margin: '14px 0 24px 0', overflowX: 'auto', WebkitOverflowScrolling: 'touch', padding: '10px 0', width: '100%', maxWidth: '100%' }}>
                     {(() => {
                       const slotSamples = samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === selectedSlot.slot && s.status === 'stored');
                       const occupiedCols = slotSamples.map(s => s.column_number);
@@ -9781,8 +9857,9 @@ export default function App() {
                         const isExpanded = expandedSlotCols[col];
 
                         return (
-                          <div key={col} style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px' }}>
+                          <div key={col} className="slot-col-card" style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px' }}>
                             <div 
+                              className="slot-col-header"
                               onClick={() => setExpandedSlotCols(prev => ({ ...prev, [col]: !prev[col] }))}
                               style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.05)' : 'none', paddingBottom: isExpanded ? '8px' : '0', marginBottom: isExpanded ? '10px' : '0', cursor: 'pointer', userSelect: 'none' }}
                               title="Nhấn để thu gọn / mở rộng"
@@ -9798,37 +9875,41 @@ export default function App() {
                                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                                   Chiều cao: <strong>{totalCartons}/{maxHeight} cây</strong>
                                 </span>
-                                <button
-                                  className="btn btn-secondary"
-                                  style={{ padding: '3px 8px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981', borderColor: 'rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.08)' }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
-                                    const sL = shelfLetters[selectedSlot.shelf] || selectedSlot.shelf;
-                                    printTommyStickersForGroup(`Kệ ${sL}${selectedSlot.slot} - Cột ${col}`, colSamples);
-                                  }}
-                                  title="In lại toàn bộ tem nhãn của riêng Cột này"
-                                >
-                                  <Printer size={12} /> In Cột ({totalCartons} tem)
-                                </button>
-                                <button
-                                  className="btn btn-secondary"
-                                  style={{ padding: '3px 6px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,0.3)' }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setPrintQueue(prev => {
-                                      const existingIds = new Set(prev.map(p => p.id));
-                                      const toAdd = colSamples.filter(s => !existingIds.has(s.id));
-                                      return [...prev, ...toAdd];
-                                    });
-                                    const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
-                                    const sL = shelfLetters[selectedSlot.shelf] || selectedSlot.shelf;
-                                    showToast(`Đã thêm ${colSamples.length} mẫu của Cột ${col} (${sL}${selectedSlot.slot}) vào hàng chờ in!`, 'success');
-                                  }}
-                                  title="Thêm các mẫu cột này vào hàng chờ in gom đầy trang A4"
-                                >
-                                  <Plus size={12} /> Hàng chờ
-                                </button>
+                                {profile?.role === 'admin' && (
+                                  <>
+                                  <button
+                                    className="btn btn-secondary"
+                                    style={{ padding: '3px 8px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981', borderColor: 'rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.08)' }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+                                      const sL = shelfLetters[selectedSlot.shelf] || selectedSlot.shelf;
+                                      printTommyStickersForGroup(`Kệ ${sL}${selectedSlot.slot} - Cột ${col}`, colSamples);
+                                    }}
+                                    title="In lại toàn bộ tem nhãn của riêng Cột này"
+                                  >
+                                    <Printer size={12} /> In Cột ({totalCartons} tem)
+                                  </button>
+                                  <button
+                                    className="btn btn-secondary"
+                                    style={{ padding: '3px 6px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,0.3)' }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPrintQueue(prev => {
+                                        const existingIds = new Set(prev.map(p => p.id));
+                                        const toAdd = colSamples.filter(s => !existingIds.has(s.id));
+                                        return [...prev, ...toAdd];
+                                      });
+                                      const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+                                      const sL = shelfLetters[selectedSlot.shelf] || selectedSlot.shelf;
+                                      showToast(`Đã thêm ${colSamples.length} mẫu của Cột ${col} (${sL}${selectedSlot.slot}) vào hàng chờ in!`, 'success');
+                                    }}
+                                    title="Thêm các mẫu cột này vào hàng chờ in gom đầy trang A4"
+                                  >
+                                    <Plus size={12} /> Hàng chờ
+                                  </button>
+                                  </>
+                                )}
                                 <span style={{ fontSize: '10px', color: 'var(--accent-blue)', background: 'rgba(56,189,248,0.1)', padding: '2px 6px', borderRadius: '4px' }}>
                                   {isExpanded ? '▲ Thu gọn' : '▼ Chi tiết'}
                                 </span>
@@ -9855,6 +9936,7 @@ export default function App() {
                                   const isRowHighlighted = highlightedSampleId === sample.id;
                                   return (
                                     <div
+                                      className="slot-sample-row"
                                       id={`sample-row-${sample.id}`}
                                       key={sample.id || sIdx}
                                       onClick={() => setHighlightedSampleId(isRowHighlighted ? null : sample.id)}
@@ -9873,7 +9955,7 @@ export default function App() {
                                       }}
                                     >
                                       {/* Info left side */}
-                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div className="slot-sample-info" style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
                                           Mẻ sợi: {formatBlendBatch(sample.blend_batch)}
                                           {positionBadge}
@@ -9888,6 +9970,7 @@ export default function App() {
                                         {/* Inline Lấy mẫu form — hiện khi đã nhập số */}
                                         {takeQuantities[sample.id] !== undefined && (
                                           <div
+                                            className="slot-sample-take-form"
                                             style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
                                             onClick={e => e.stopPropagation()}
                                           >
@@ -9924,22 +10007,22 @@ export default function App() {
                                       </div>
 
                                       {/* Action buttons right side */}
-                                      <div style={{ display: 'flex', gap: '6px', flexShrink: 0, marginLeft: '8px' }} onClick={e => e.stopPropagation()}>
+                                      <div className="slot-sample-actions" style={{ display: 'flex', gap: '6px', flexShrink: 0, marginLeft: '8px' }} onClick={e => e.stopPropagation()}>
                                         {/* Lấy mẫu button — hiện cho tất cả */}
                                         {sample.available_qty > 0 && takeQuantities[sample.id] === undefined && (
                                           <button
                                             className="btn btn-primary"
-                                            style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', background: 'linear-gradient(135deg,#10b981,#059669)', border: 'none' }}
+                                            style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--accent-blue)', border: '1px solid var(--accent-blue)' }}
                                             onClick={() => setTakeQuantities(prev => ({ ...prev, [sample.id]: '' }))}
                                           >
-                                            <LogOut size={13} /> Lấy mẫu
+                                            <PackageMinus size={13} /> Lấy mẫu
                                           </button>
                                         )}
-                                        <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => setQrCodeModal(sample)}>
-                                          <QrCode size={14} /> QR
-                                        </button>
                                         {profile?.role === 'admin' && (
-                                          <div style={{ display: 'flex', gap: '6px' }}>
+                                          <div className="slot-sample-btn-group" style={{ display: 'flex', gap: '6px' }}>
+                                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => setQrCodeModal(sample)}>
+                                              <QrCode size={14} /> QR
+                                            </button>
                                             <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => handleOpenEditSample(sample)}>
                                               Sửa
                                             </button>
@@ -10039,7 +10122,7 @@ export default function App() {
                   <button className="btn btn-secondary" onClick={generateConsolidationPDF} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Printer size={15} /> In phiếu lệnh dồn kho
                   </button>
-                  <button className="btn btn-primary" onClick={handleConfirmConsolidation} disabled={loading} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none' }}>
+                  <button className="btn btn-primary" onClick={handleConfirmConsolidation} disabled={loading} style={{ background: 'var(--qc-emerald)', border: '1px solid var(--qc-emerald)' }}>
                     {loading ? <Loader size={16} className="spin" /> : <Check size={16} />} 
                     Xác nhận Áp dụng & Đưa vào Hàng chờ In tem
                   </button>
@@ -10418,36 +10501,77 @@ export default function App() {
         </div>
       )}
 
-      {/* QR CODE MODAL FOR PRINTING */}
+      {/* QR CODE MODAL FOR PRINTING - CHUẨN TOMMY 135 */}
       {qrCodeModal && (
         <div className="modal-overlay" onClick={() => setQrCodeModal(null)}>
-          <div className="modal-content" style={{ maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-content" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 style={{ fontSize: '16px', fontWeight: 'bold' }}>Mã QR Nhãn Cây Mẫu</h3>
+              <h3 style={{ fontSize: '16px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <QrCode size={18} color="var(--accent-blue)" /> Nhãn Tem QR Mẫu (Chuẩn Tommy 135)
+              </h3>
               <button className="close-btn" onClick={() => setQrCodeModal(null)}><X size={18} /></button>
             </div>
             
-            <div className="modal-body" style={{ textAlign: 'center', padding: '24px 20px' }}>
-              <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', display: 'inline-block', border: '1px solid #ddd', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', marginBottom: '20px' }}>
-                <div style={{ width: '160px', height: '160px', margin: '0 auto' }} dangerouslySetInnerHTML={{ __html: generateQrSvgMarkup(makeStickerQrUrl(qrCodeModal.sku)) }} />
-                <div style={{ color: '#000', fontSize: '13px', fontWeight: 'bold', marginTop: '8px' }}>{qrCodeModal.sku}</div>
+            <div className="modal-body" style={{ padding: '16px 18px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', textAlign: 'center' }}>
+                Xem trước mẫu tem chuẩn Tommy 135 (66mm x 40mm) sẽ in:
               </div>
 
-              <div style={{ fontSize: '13px', textAlign: 'left', background: 'rgba(255,255,255,0.02)', padding: '12px', border: '1px solid var(--glass-border)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div><strong>Sản phẩm:</strong> <span style={{ color: 'var(--text-primary)' }}>{qrCodeModal.products?.product_name || qrCodeModal.product_name}</span></div>
-                <div><strong>Cảnh báo bao:</strong> <span style={{ color: 'var(--text-primary)' }}>{qrCodeModal.products?.warning_code || 'Không cảnh báo'}</span></div>
-                {qrCodeModal.order_number && <div><strong>Số đơn hàng XK:</strong> <span style={{ color: 'var(--text-primary)' }}>{qrCodeModal.order_number}</span></div>}
-                <div><strong>Mẻ sợi:</strong> <span style={{ color: 'var(--text-primary)' }}>{formatBlendBatch(qrCodeModal.blend_batch)}</span></div>
-                <div><strong>Ngày SX sợi:</strong> <span style={{ color: 'var(--text-primary)' }}>{new Date(qrCodeModal.blend_date).toLocaleDateString()}</span></div>
-                <div><strong>Ngày SX bao:</strong> <span style={{ color: 'var(--text-primary)' }}>{new Date(qrCodeModal.packaging_date).toLocaleDateString()} {formatSamplingBox(qrCodeModal.blend_batch)}</span></div>
-                <div><strong>Thời gian lấy:</strong> <span style={{ color: 'var(--text-primary)' }}>{new Date(qrCodeModal.sampling_time).toLocaleString()}</span></div>
-                <div><strong>Vị trí lưu kho:</strong> <span style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>{formatLocation(qrCodeModal.shelf, qrCodeModal.slot, qrCodeModal.column_number)}</span></div>
+              {/* Exact Tommy 135 Label Preview matching print output */}
+              <div style={{ background: '#ffffff', color: '#000000', borderRadius: '4px', border: '1px solid #ccc', boxShadow: '0 4px 16px rgba(0,0,0,0.25)', padding: '10px 12px', maxWidth: '380px', margin: '0 auto 14px auto', boxSizing: 'border-box' }}>
+                <div style={{ fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', textAlign: 'center', borderBottom: '1.5px solid #000', paddingBottom: '3px', marginBottom: '8px', letterSpacing: '0.5px' }}>
+                  NHÃN MẪU THUỐC LÁ
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: '10px', lineHeight: '1.4', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <div><strong>Sản phẩm:</strong> <span style={{ fontWeight: 'bold' }}>{qrCodeModal.products?.product_name || qrCodeModal.product_name}</span></div>
+                    <div><strong>Cảnh báo:</strong> {qrCodeModal.products?.warning_code || 'Không cảnh báo'}</div>
+                    {qrCodeModal.order_number && <div><strong>Số đơn hàng:</strong> {qrCodeModal.order_number}</div>}
+                    <div><strong>Mẻ sợi:</strong> {formatBlendBatch(qrCodeModal.blend_batch)}</div>
+                    <div><strong>Thùng lấy mẫu:</strong> {qrCodeModal.blend_batch && qrCodeModal.blend_batch.split('|')[1] ? `Thùng số ${qrCodeModal.blend_batch.split('|')[1]}` : '—'}</div>
+                    <div><strong>Ngày SX sợi:</strong> {new Date(qrCodeModal.blend_date).toLocaleDateString()}</div>
+                    <div><strong>Ngày SX bao:</strong> {new Date(qrCodeModal.packaging_date).toLocaleDateString()}</div>
+                    <div><strong>Thời điểm lấy mẫu:</strong> {new Date(qrCodeModal.sampling_time).toLocaleString()}</div>
+                    <div style={{ borderTop: '1px dashed #999', paddingTop: '4px', marginTop: '2px' }}>
+                      <strong>Vị trí lưu:</strong> <span style={{ fontWeight: 'bold' }}>{formatLocation(qrCodeModal.shelf, qrCodeModal.slot, qrCodeModal.column_number).toUpperCase()}</span>
+                    </div>
+                  </div>
+                  <div style={{ width: '85px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: '75px', height: '75px' }} dangerouslySetInnerHTML={{ __html: generateQrSvgMarkup(makeStickerQrUrl(qrCodeModal.sku)) }} />
+                    <div style={{ fontSize: '7.5px', color: '#444', wordBreak: 'break-all', textAlign: 'center', marginTop: '3px', fontWeight: 'bold', lineHeight: '1.1' }}>
+                      {qrCodeModal.sku}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             
-            <div className="modal-footer">
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', flexWrap: 'wrap' }}>
               <button className="btn btn-secondary" onClick={() => setQrCodeModal(null)}>Đóng</button>
-              <button className="btn btn-primary" onClick={() => printQrSticker(qrCodeModal)}>In Nhãn dán</button>
+              {profile?.role === 'admin' && (
+                <>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => {
+                      setPrintQueue(prev => {
+                        if (prev.some(p => p.id === qrCodeModal.id)) return prev;
+                        return [...prev, qrCodeModal];
+                      });
+                      showToast(`Đã thêm mẫu ${qrCodeModal.sku} vào hàng chờ in!`, 'success');
+                    }}
+                    title="Thêm mẫu này vào hàng chờ in để gom đầy trang A4 Tommy 135"
+                  >
+                    <Plus size={14} style={{ marginRight: '4px' }} /> Nạp vào hàng chờ in
+                  </button>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => printQrSticker(qrCodeModal)}
+                    title="In nhãn dán Tommy 135 này ngay"
+                  >
+                    <Printer size={14} style={{ marginRight: '4px' }} /> In Nhãn dán
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -10987,7 +11111,7 @@ export default function App() {
                             setScanQty('');
                           }}
                         >
-                          <LogOut size={15} /> Lấy mẫu
+                          <PackageMinus size={15} /> Lấy mẫu
                         </button>
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>

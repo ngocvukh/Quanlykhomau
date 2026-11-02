@@ -27,3 +27,9 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Temporary backups & test scripts
+backup_*/
+rollback_ui.*
+check_all.js
+test_query.js
