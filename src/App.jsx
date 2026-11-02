@@ -3377,7 +3377,13 @@ export default function App() {
       setEditSuggestions([]);
       return;
     }
-    const matches = products.filter(p => p.product_name.toLowerCase().includes(val.toLowerCase())).slice(0, 8);
+    const searchLower = val.toLowerCase().trim();
+    const matches = products.filter(p => {
+      const pName = p.product_name.toLowerCase();
+      const wCode = (p.warning_code || '').toLowerCase();
+      const combined = `${pName} (${wCode})`;
+      return pName.includes(searchLower) || wCode.includes(searchLower) || combined.includes(searchLower);
+    }).slice(0, 10);
     setEditSuggestions(matches);
   };
 
@@ -10420,6 +10426,7 @@ export default function App() {
                     placeholder="Gõ tìm sản phẩm (ví dụ: 555, Canyon...)" 
                     value={editSearchQuery} 
                     onChange={e => handleEditSearchChange(e.target.value)}
+                    onFocus={() => { if (editSearchQuery.trim()) handleEditSearchChange(editSearchQuery); }}
                     onBlur={() => setTimeout(() => setEditSuggestions([]), 200)}
                     autoComplete="off"
                   />
@@ -10432,11 +10439,11 @@ export default function App() {
                       left: 0,
                       right: 0,
                       background: 'var(--bg-secondary)',
-                      border: '1px solid var(--glass-border)',
+                      border: '1px solid var(--accent-blue)',
                       borderRadius: 'var(--border-radius-sm)',
                       boxShadow: '0 8px 32px var(--glass-shadow)',
                       zIndex: 100,
-                      maxHeight: '220px',
+                      maxHeight: '240px',
                       overflowY: 'auto',
                       backdropFilter: 'blur(12px)',
                       WebkitBackdropFilter: 'blur(12px)'
@@ -10447,13 +10454,14 @@ export default function App() {
                           style={{
                             padding: '10px 16px',
                             cursor: 'pointer',
-                            borderBottom: '1px solid rgba(255,255,255,0.03)',
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
                             transition: 'background 0.2s',
-                            fontSize: '14px',
+                            fontSize: '13.5px',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
-                            background: editProductId === p.id ? 'rgba(37,99,235,0.1)' : 'transparent'
+                            gap: '12px',
+                            background: editProductId === p.id ? 'rgba(37,99,235,0.15)' : 'transparent'
                           }}
                           onMouseDown={() => {
                             setEditProductId(p.id);
@@ -10461,17 +10469,56 @@ export default function App() {
                             setEditSuggestions([]);
                             if (!p.is_export) setEditOrderNumber('');
                           }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = editProductId === p.id ? 'rgba(37,99,235,0.1)' : 'transparent'; }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = editProductId === p.id ? 'rgba(37,99,235,0.15)' : 'transparent'; }}
                         >
-                          <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{p.product_name}</span>
-                          <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: p.is_export ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: p.is_export ? '#10b981' : '#ef4444' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.product_name}</span>
+                            {p.warning_code ? (
+                              <span style={{ fontSize: '11.5px', background: 'rgba(245,158,11,0.18)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.35)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                {p.warning_code}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                (Không cảnh báo)
+                              </span>
+                            )}
+                            {p.format && (
+                              <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', padding: '2px 6px', borderRadius: '4px' }}>
+                                {p.format}
+                              </span>
+                            )}
+                          </div>
+                          <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: p.is_export ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: p.is_export ? '#10b981' : '#ef4444', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             {p.is_export ? 'Hàng Xuất' : 'Hàng Nội Địa'}
                           </span>
                         </div>
                       ))}
                     </div>
                   )}
+
+                  {/* Thông tin sản phẩm đang được chọn */}
+                  {editProductId && (() => {
+                    const selProd = products.find(p => p.id === editProductId);
+                    if (!selProd) return null;
+                    return (
+                      <div style={{ marginTop: '8px', padding: '8px 12px', background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.25)', borderRadius: '6px', fontSize: '12.5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Đã chọn:</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{selProd.product_name}</strong>
+                          {selProd.warning_code && (
+                            <span style={{ fontSize: '11.5px', background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.35)', padding: '1px 7px', borderRadius: '4px', fontWeight: 'bold' }}>
+                              Mã CB: {selProd.warning_code}
+                            </span>
+                          )}
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>({selProd.format || 'Kingsize'})</span>
+                        </div>
+                        <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: selProd.is_export ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: selProd.is_export ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                          {selProd.is_export ? 'Xuất Khẩu' : 'Nội Địa'}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="form-group">
