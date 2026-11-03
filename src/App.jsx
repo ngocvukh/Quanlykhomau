@@ -2387,10 +2387,31 @@ export default function App() {
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
 
   // Batch Print Label Queue (persisted in LocalStorage and synced globally via Supabase)
+  const getQueueItemKey = (item) => {
+    if (!item) return '';
+    return item.id || item.sku || `${item.product_id}_${item.blend_batch}_${item.packaging_date}_${item.shelf}_${item.slot}_${item.column_number}`;
+  };
+
+  const deduplicateQueue = (list) => {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set();
+    const result = [];
+    for (const item of list) {
+      if (!item) continue;
+      const key = getQueueItemKey(item);
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        result.push(item);
+      }
+    }
+    return result;
+  };
+
   const [printQueue, setPrintQueueState] = useState(() => {
     try {
       const saved = localStorage.getItem('print_queue');
-      return saved ? JSON.parse(saved) : [];
+      const list = saved ? JSON.parse(saved) : [];
+      return deduplicateQueue(list);
     } catch { return []; }
   });
 
@@ -2398,19 +2419,21 @@ export default function App() {
     setPrintQueueState(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       const arr = Array.isArray(next) ? next : [];
-      try { localStorage.setItem('print_queue', JSON.stringify(arr)); } catch { /* ignore */ }
+      // Đảm bảo không bao giờ bị trùng mẫu trong printQueue
+      const uniqueArr = deduplicateQueue(arr);
+      try { localStorage.setItem('print_queue', JSON.stringify(uniqueArr)); } catch { /* ignore */ }
       if (!isDemoMode) {
-        if (arr.length > 0) {
+        if (uniqueArr.length > 0) {
           supabase.from('bulk_import_drafts').upsert({
             id: 'global-print-queue',
-            rows_data: arr,
+            rows_data: uniqueArr,
             updated_at: new Date().toISOString()
           }).then(() => {});
         } else {
           supabase.from('bulk_import_drafts').delete().eq('id', 'global-print-queue').then(() => {});
         }
       }
-      return arr;
+      return uniqueArr;
     });
   };
 
@@ -2868,11 +2891,11 @@ export default function App() {
 
           const pqRow = globalStates.find(r => r.id === 'global-print-queue');
           if (pqRow && Array.isArray(pqRow.rows_data) && pqRow.rows_data.length > 0) {
-            // Làm mới thông tin mẫu từ bảng samples mới nhất (giữ lại cờ isReprint nếu có)
-            const refreshedQueue = pqRow.rows_data.map(qItem => {
+            // Làm mới thông tin mẫu từ bảng samples mới nhất (giữ lại cờ isReprint nếu có, loại trừ trùng lặp)
+            const refreshedQueue = deduplicateQueue(pqRow.rows_data.map(qItem => {
               const fresh = sampleMap.get(qItem.id);
               return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
-            });
+            }));
             setPrintQueueState(refreshedQueue);
             try { localStorage.setItem('print_queue', JSON.stringify(refreshedQueue)); } catch { /* ignore */ }
           } else {
@@ -2881,10 +2904,10 @@ export default function App() {
               const localSaved = localStorage.getItem('print_queue');
               const localParsed = localSaved ? JSON.parse(localSaved) : [];
               if (Array.isArray(localParsed) && localParsed.length > 0) {
-                const refreshedLocal = localParsed.map(qItem => {
+                const refreshedLocal = deduplicateQueue(localParsed.map(qItem => {
                   const fresh = sampleMap.get(qItem.id);
                   return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
-                });
+                }));
                 setPrintQueueState(refreshedLocal);
                 supabase.from('bulk_import_drafts').upsert({
                   id: 'global-print-queue',
@@ -7452,8 +7475,20 @@ export default function App() {
                         showToast("Không có mẫu nào đang lưu trong kho để nạp!", "warning");
                         return;
                       }
-                      setPrintQueue(activeSamples);
-                      showToast(`✅ Đã nạp ${activeSamples.length} mẫu trong kho vào Khay In Lại!`, 'success');
+                      let newlyAddedCount = 0;
+                      setPrintQueue(prev => {
+                        const existingKeys = new Set(prev.map(p => getQueueItemKey(p)));
+                        const toAdd = activeSamples.filter(s => !existingKeys.has(getQueueItemKey(s)));
+                        newlyAddedCount = toAdd.length;
+                        return [...prev, ...toAdd];
+                      });
+                      if (newlyAddedCount === 0) {
+                        showToast("Tất cả các mẫu trong kho đã có sẵn trong hàng chờ in rồi!", "info");
+                      } else if (newlyAddedCount < activeSamples.length) {
+                        showToast(`✅ Đã nạp thêm ${newlyAddedCount} mẫu mới vào Khay In Lại (bỏ qua ${activeSamples.length - newlyAddedCount} mẫu đã có sẵn)!`, 'success');
+                      } else {
+                        showToast(`✅ Đã nạp ${newlyAddedCount} mẫu trong kho vào Khay In Lại!`, 'success');
+                      }
                     }}>
                       Nạp toàn bộ nhãn trong kho ({samples.filter(s => s.status === 'stored' || s.status === 'boxed').length})
                     </button>
@@ -7581,15 +7616,27 @@ export default function App() {
                             style={{ padding: '8px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
                             disabled={matchedSamples.length === 0}
                             onClick={() => {
+                              let newlyAddedCount = 0;
                               setPrintQueue(prev => {
-                                const existingMap = new Map(prev.map(p => [p.id, p]));
+                                const existingKeys = new Set(prev.map(p => getQueueItemKey(p)));
+                                const toAdd = [];
                                 matchedSamples.forEach(s => {
-                                  const existing = existingMap.get(s.id);
-                                  existingMap.set(s.id, { ...(existing || s), ...s, isReprint: true });
+                                  const key = getQueueItemKey(s);
+                                  if (!existingKeys.has(key)) {
+                                    existingKeys.add(key);
+                                    toAdd.push({ ...s, isReprint: true });
+                                    newlyAddedCount++;
+                                  }
                                 });
-                                return Array.from(existingMap.values());
+                                return [...prev, ...toAdd];
                               });
-                              showToast(`Đã nạp ${matchedSamples.length} mẫu tại ${locLabel} vào Khay In Lại!`, 'success');
+                              if (newlyAddedCount === 0) {
+                                showToast(`Tất cả mẫu tại ${locLabel} đã có sẵn trong hàng chờ in rồi!`, 'info');
+                              } else if (newlyAddedCount < matchedSamples.length) {
+                                showToast(`Đã nạp thêm ${newlyAddedCount} mẫu mới vào Khay In Lại (bỏ qua ${matchedSamples.length - newlyAddedCount} mẫu đã có sẵn)!`, 'success');
+                              } else {
+                                showToast(`Đã nạp ${newlyAddedCount} mẫu tại ${locLabel} vào Khay In Lại!`, 'success');
+                              }
                             }}
                           >
                             <Plus size={14} /> Nạp vào hàng chờ in
@@ -7691,7 +7738,7 @@ export default function App() {
                                   <div>
                                     <strong style={{ color:'var(--text-primary)' }}>{s.products?.product_name || s.product_name}</strong>
                                     <span style={{ color:'var(--text-muted)', fontSize:'11px', marginLeft:'8px' }}>
-                                      Mẻ {formatBlendBatch(s.blend_batch)} • Bao: {new Date(s.packaging_date).toLocaleDateString()} • Vị trí: <strong>{itemLoc.toUpperCase()}</strong>
+                                      {formatBlendBatch(s.blend_batch).startsWith('Mẻ') ? formatBlendBatch(s.blend_batch) : `Mẻ ${formatBlendBatch(s.blend_batch)}`} • Bao: {new Date(s.packaging_date).toLocaleDateString()} • Vị trí: <strong>{itemLoc.toUpperCase()}</strong>
                                     </span>
                                   </div>
                                   <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
@@ -9537,15 +9584,27 @@ export default function App() {
                             className="btn btn-secondary"
                             style={{ fontSize: '12px', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
                             onClick={() => {
+                              let newlyAddedCount = 0;
                               setPrintQueue(prev => {
-                                const existingMap = new Map(prev.map(p => [p.id, p]));
+                                const existingKeys = new Set(prev.map(p => getQueueItemKey(p)));
+                                const toAdd = [];
                                 slotSamples.forEach(s => {
-                                  const existing = existingMap.get(s.id);
-                                  existingMap.set(s.id, { ...(existing || s), ...s, isReprint: true });
+                                  const key = getQueueItemKey(s);
+                                  if (!existingKeys.has(key)) {
+                                    existingKeys.add(key);
+                                    toAdd.push({ ...s, isReprint: true });
+                                    newlyAddedCount++;
+                                  }
                                 });
-                                return Array.from(existingMap.values());
+                                return [...prev, ...toAdd];
                               });
-                              showToast(`Đã thêm ${slotSamples.length} mẫu của Ô ${shelfLetter}${selectedSlot.slot} vào Khay In Lại!`, 'success');
+                              if (newlyAddedCount === 0) {
+                                showToast(`Tất cả mẫu của Ô ${shelfLetter}${selectedSlot.slot} đã có sẵn trong hàng chờ in rồi!`, 'info');
+                              } else if (newlyAddedCount < slotSamples.length) {
+                                showToast(`Đã thêm ${newlyAddedCount} mẫu mới vào Khay In Lại (bỏ qua ${slotSamples.length - newlyAddedCount} mẫu đã có sẵn)!`, 'success');
+                              } else {
+                                showToast(`Đã thêm ${newlyAddedCount} mẫu của Ô ${shelfLetter}${selectedSlot.slot} vào Khay In Lại!`, 'success');
+                              }
                             }}
                             title="Nạp tất cả mẫu trong ô này vào hàng chờ in để gom đầy trang A4"
                           >
@@ -9995,17 +10054,29 @@ export default function App() {
                                     style={{ padding: '3px 6px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,0.3)' }}
                                     onClick={(e) => {
                                       e.stopPropagation();
+                                      let newlyAddedCount = 0;
                                       setPrintQueue(prev => {
-                                        const existingMap = new Map(prev.map(p => [p.id, p]));
+                                        const existingKeys = new Set(prev.map(p => getQueueItemKey(p)));
+                                        const toAdd = [];
                                         colSamples.forEach(s => {
-                                          const existing = existingMap.get(s.id);
-                                          existingMap.set(s.id, { ...(existing || s), ...s, isReprint: true });
+                                          const key = getQueueItemKey(s);
+                                          if (!existingKeys.has(key)) {
+                                            existingKeys.add(key);
+                                            toAdd.push({ ...s, isReprint: true });
+                                            newlyAddedCount++;
+                                          }
                                         });
-                                        return Array.from(existingMap.values());
+                                        return [...prev, ...toAdd];
                                       });
                                       const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
                                       const sL = shelfLetters[selectedSlot.shelf] || selectedSlot.shelf;
-                                      showToast(`Đã thêm ${colSamples.length} mẫu của Cột ${col} (${sL}${selectedSlot.slot}) vào Khay In Lại!`, 'success');
+                                      if (newlyAddedCount === 0) {
+                                        showToast(`Tất cả mẫu của Cột ${col} (${sL}${selectedSlot.slot}) đã có sẵn trong hàng chờ in rồi!`, 'info');
+                                      } else if (newlyAddedCount < colSamples.length) {
+                                        showToast(`Đã thêm ${newlyAddedCount} mẫu mới vào Khay In Lại (bỏ qua ${colSamples.length - newlyAddedCount} mẫu đã có sẵn)!`, 'success');
+                                      } else {
+                                        showToast(`Đã thêm ${newlyAddedCount} mẫu của Cột ${col} (${sL}${selectedSlot.slot}) vào Khay In Lại!`, 'success');
+                                      }
                                     }}
                                     title="Thêm các mẫu cột này vào hàng chờ in gom đầy trang A4"
                                   >
@@ -10656,13 +10727,20 @@ export default function App() {
                   <button 
                     className="btn btn-secondary" 
                     onClick={() => {
+                      let alreadyExists = false;
                       setPrintQueue(prev => {
-                        const existingMap = new Map(prev.map(p => [p.id, p]));
-                        const existing = existingMap.get(qrCodeModal.id);
-                        existingMap.set(qrCodeModal.id, { ...(existing || qrCodeModal), ...qrCodeModal, isReprint: true });
-                        return Array.from(existingMap.values());
+                        const key = getQueueItemKey(qrCodeModal);
+                        if (prev.some(p => getQueueItemKey(p) === key)) {
+                          alreadyExists = true;
+                          return prev;
+                        }
+                        return [...prev, { ...qrCodeModal, isReprint: true }];
                       });
-                      showToast(`Đã thêm mẫu ${qrCodeModal.sku} vào Khay In Lại!`, 'success');
+                      if (alreadyExists) {
+                        showToast(`Mẫu ${qrCodeModal.sku} đã có sẵn trong hàng chờ in rồi!`, 'info');
+                      } else {
+                        showToast(`Đã thêm mẫu ${qrCodeModal.sku} vào Khay In Lại!`, 'success');
+                      }
                     }}
                     title="Thêm mẫu này vào hàng chờ in để gom đầy trang A4 Tommy 135"
                   >
