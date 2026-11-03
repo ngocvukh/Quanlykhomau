@@ -2868,8 +2868,11 @@ export default function App() {
 
           const pqRow = globalStates.find(r => r.id === 'global-print-queue');
           if (pqRow && Array.isArray(pqRow.rows_data) && pqRow.rows_data.length > 0) {
-            // Làm mới thông tin mẫu từ bảng samples mới nhất
-            const refreshedQueue = pqRow.rows_data.map(qItem => sampleMap.get(qItem.id) || qItem);
+            // Làm mới thông tin mẫu từ bảng samples mới nhất (giữ lại cờ isReprint nếu có)
+            const refreshedQueue = pqRow.rows_data.map(qItem => {
+              const fresh = sampleMap.get(qItem.id);
+              return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
+            });
             setPrintQueueState(refreshedQueue);
             try { localStorage.setItem('print_queue', JSON.stringify(refreshedQueue)); } catch { /* ignore */ }
           } else {
@@ -2878,7 +2881,10 @@ export default function App() {
               const localSaved = localStorage.getItem('print_queue');
               const localParsed = localSaved ? JSON.parse(localSaved) : [];
               if (Array.isArray(localParsed) && localParsed.length > 0) {
-                const refreshedLocal = localParsed.map(qItem => sampleMap.get(qItem.id) || qItem);
+                const refreshedLocal = localParsed.map(qItem => {
+                  const fresh = sampleMap.get(qItem.id);
+                  return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
+                });
                 setPrintQueueState(refreshedLocal);
                 supabase.from('bulk_import_drafts').upsert({
                   id: 'global-print-queue',
@@ -5317,12 +5323,15 @@ export default function App() {
       return;
     }
 
-    // Sắp xếp theo tên sản phẩm A→Z (thứ tự ABC), nếu cùng tên thì theo thứ tự nhập (created_at)
+    // Sắp xếp theo tên sản phẩm A→Z (thứ tự ABC), nếu cùng tên thì theo thứ tự vị trí/ngày nhập
     const sortedSamples = [...samplesInGroup].sort((a, b) => {
       const nameA = (a.products?.product_name || a.product_name || '').toLowerCase();
       const nameB = (b.products?.product_name || b.product_name || '').toLowerCase();
       const nameDiff = nameA.localeCompare(nameB, 'vi');
       if (nameDiff !== 0) return nameDiff;
+      if (a.shelf !== b.shelf) return (a.shelf || 0) - (b.shelf || 0);
+      if (a.slot !== b.slot) return (a.slot || 0) - (b.slot || 0);
+      if (a.column_number !== b.column_number) return (a.column_number || 0) - (b.column_number || 0);
       return new Date(a.created_at) - new Date(b.created_at);
     });
 
@@ -5340,7 +5349,9 @@ export default function App() {
         ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
         : formatLocation(s.shelf, s.slot, s.column_number);
       const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
-      const trayBadge = s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '';
+      const trayBadge = s.isReprint 
+        ? `<div class="tray-badge" style="color:#0284c7;">In lại</div>` 
+        : (s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '');
       const qrSvg = generateQrSvgMarkup(makeStickerQrUrl(s.sku));
 
       for (let i = 0; i < numLabels; i++) {
@@ -5558,14 +5569,20 @@ export default function App() {
       return;
     }
 
-    // Sort: tray number asc, then within tray by product name A→Z (ABC order), then created_at
+    // Sort: import trays first by tray number asc, reprint items last; within group by product name A→Z (ABC order), then location / created_at
     const sortedSamples = [...readySamples].sort((a, b) => {
+      const isReprintA = a.isReprint ? 1 : 0;
+      const isReprintB = b.isReprint ? 1 : 0;
+      if (isReprintA !== isReprintB) return isReprintA - isReprintB;
       const trayDiff = (a.tray_number || 0) - (b.tray_number || 0);
       if (trayDiff !== 0) return trayDiff;
       const nameA = (a.products?.product_name || a.product_name || '').toLowerCase();
       const nameB = (b.products?.product_name || b.product_name || '').toLowerCase();
       const nameDiff = nameA.localeCompare(nameB, 'vi');
       if (nameDiff !== 0) return nameDiff;
+      if (a.shelf !== b.shelf) return (a.shelf || 0) - (b.shelf || 0);
+      if (a.slot !== b.slot) return (a.slot || 0) - (b.slot || 0);
+      if (a.column_number !== b.column_number) return (a.column_number || 0) - (b.column_number || 0);
       return new Date(a.created_at) - new Date(b.created_at);
     });
 
@@ -5584,7 +5601,9 @@ export default function App() {
         ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
         : formatLocation(s.shelf, s.slot, s.column_number);
       const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
-      const trayBadge = s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '';
+      const trayBadge = s.isReprint 
+        ? `<div class="tray-badge" style="color:#0284c7;">In lại</div>`
+        : (s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '');
       const qrSvg = generateQrSvgMarkup(makeStickerQrUrl(s.sku));
 
       for (let i = 0; i < numLabels; i++) {
@@ -5786,6 +5805,22 @@ export default function App() {
   const getGroupedPrintQueue = () => {
     const groups = {};
     printQueue.forEach(s => {
+      // Nếu là mẫu nạp để in lại từ kho (theo vị trí Kệ-Ô-Cột, nạp toàn kho, nạp từ modal ô/cột), gom tất cả về 1 khay in lại duy nhất
+      if (s.isReprint) {
+        const key = 'reprint-tray';
+        if (!groups[key]) {
+          groups[key] = {
+            key,
+            trayNumber: -1,
+            name: 'Khay In Lại Mẫu Kho',
+            items: [],
+            type: 'reprint'
+          };
+        }
+        groups[key].items.push(s);
+        return;
+      }
+
       let trayNum = s.tray_number;
       if (trayNum === null || trayNum === undefined || isNaN(trayNum)) {
         trayNum = 0;
@@ -5802,10 +5837,27 @@ export default function App() {
       }
       groups[key].items.push(s);
     });
+
+    // Áp dụng thuật toán sắp xếp tên sản phẩm A→Z (ABC) và vị trí cho từng khay
     Object.values(groups).forEach(g => {
-      g.items.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      g.items.sort((a, b) => {
+        const nameA = (a.products?.product_name || a.product_name || '').toLowerCase();
+        const nameB = (b.products?.product_name || b.product_name || '').toLowerCase();
+        const nameDiff = nameA.localeCompare(nameB, 'vi');
+        if (nameDiff !== 0) return nameDiff;
+        if (a.shelf !== b.shelf) return (a.shelf || 0) - (b.shelf || 0);
+        if (a.slot !== b.slot) return (a.slot || 0) - (b.slot || 0);
+        if (a.column_number !== b.column_number) return (a.column_number || 0) - (b.column_number || 0);
+        return new Date(a.created_at) - new Date(b.created_at);
+      });
     });
-    return Object.values(groups).sort((a, b) => a.trayNumber - b.trayNumber);
+
+    // Khay In Lại hiển thị ưu tiên hàng đầu, sau đó đến các khay nhập mẫu QC theo số khay tăng dần
+    return Object.values(groups).sort((a, b) => {
+      if (a.type === 'reprint' && b.type !== 'reprint') return -1;
+      if (a.type !== 'reprint' && b.type === 'reprint') return 1;
+      return a.trayNumber - b.trayNumber;
+    });
   };
 
   // Generate Print View for QR Sticker Label (Đồng bộ chuẩn 100% tem Tommy 135 như mục In Nhãn)
@@ -7395,22 +7447,35 @@ export default function App() {
                       <Printer size={15} /> In biểu mẫu tem trống QC (Tommy 128)
                     </button>
                     <button className="btn btn-secondary" style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '13px' }} onClick={() => {
-                      const activeSamples = samples.filter(s => s.status === 'stored' || s.status === 'boxed');
+                      const activeSamples = samples.filter(s => s.status === 'stored' || s.status === 'boxed').map(s => ({ ...s, isReprint: true }));
                       if (activeSamples.length === 0) {
                         showToast("Không có mẫu nào đang lưu trong kho để nạp!", "warning");
                         return;
                       }
                       setPrintQueue(activeSamples);
-                      showToast(`✅ Đã nạp ${activeSamples.length} mẫu trong kho vào hàng đợi in!`, 'success');
+                      showToast(`✅ Đã nạp ${activeSamples.length} mẫu trong kho vào Khay In Lại!`, 'success');
                     }}>
                       Nạp toàn bộ nhãn trong kho ({samples.filter(s => s.status === 'stored' || s.status === 'boxed').length})
                     </button>
                     {printQueue.length > 0 && (
-                      <button className="btn btn-secondary" style={{ color:'var(--status-error)', borderColor:'rgba(239,68,68,0.2)' }} onClick={() => {
-                        if (confirm("Xóa toàn bộ hàng đợi in nhãn?")) setPrintQueue([]);
-                      }}>
-                        Xóa hàng đợi
-                      </button>
+                      <>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ borderColor: 'rgba(56, 189, 248, 0.4)', color: 'var(--accent-blue)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '5px' }} 
+                          onClick={() => {
+                            setPrintQueue(prev => prev.map(s => ({ ...s, isReprint: true })));
+                            showToast("Đã gom tất cả các mẫu trong hàng chờ về 1 Khay In Lại duy nhất!", "success");
+                          }}
+                          title="Chuyển tất cả mẫu trong hàng chờ hiện tại về 1 Khay In Lại duy nhất để áp dụng thuật toán in liên tục"
+                        >
+                          <Layers size={14} /> Gom về 1 Khay In Lại
+                        </button>
+                        <button className="btn btn-secondary" style={{ color:'var(--status-error)', borderColor:'rgba(239,68,68,0.2)' }} onClick={() => {
+                          if (confirm("Xóa toàn bộ hàng đợi in nhãn?")) setPrintQueue([]);
+                        }}>
+                          Xóa hàng đợi
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -7517,11 +7582,14 @@ export default function App() {
                             disabled={matchedSamples.length === 0}
                             onClick={() => {
                               setPrintQueue(prev => {
-                                const existingIds = new Set(prev.map(p => p.id));
-                                const toAdd = matchedSamples.filter(s => !existingIds.has(s.id));
-                                return [...prev, ...toAdd];
+                                const existingMap = new Map(prev.map(p => [p.id, p]));
+                                matchedSamples.forEach(s => {
+                                  const existing = existingMap.get(s.id);
+                                  existingMap.set(s.id, { ...(existing || s), ...s, isReprint: true });
+                                });
+                                return Array.from(existingMap.values());
                               });
-                              showToast(`Đã thêm ${matchedSamples.length} mẫu tại ${locLabel} vào hàng chờ in!`, 'success');
+                              showToast(`Đã nạp ${matchedSamples.length} mẫu tại ${locLabel} vào Khay In Lại!`, 'success');
                             }}
                           >
                             <Plus size={14} /> Nạp vào hàng chờ in
@@ -7535,18 +7603,38 @@ export default function App() {
                 {printQueue.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     {getGroupedPrintQueue().map(group => {
+                      const isReprintGroup = group.type === 'reprint';
                       // Calculate total labels in this group
                       const totalStickersInGroup = group.items.reduce((sum, s) => sum + Math.max(1, Math.floor(s.available_qty / 10)), 0);
                       const totalPages = Math.ceil(totalStickersInGroup / 21);
                       const hasPending = group.items.some(s => s.status === 'pending' || (!s.shelf && !s.box_id));
 
                       return (
-                        <div key={group.key} className="glass-panel" style={{ background:'rgba(255,255,255,0.01)', border:'1px solid var(--glass-border)', padding:'18px' }}>
-                          
+                        <div 
+                          key={group.key} 
+                          className="glass-panel" 
+                          style={{ 
+                            background: isReprintGroup ? 'rgba(56, 189, 248, 0.03)' : 'rgba(255,255,255,0.01)', 
+                            border: isReprintGroup ? '1px solid rgba(56, 189, 248, 0.45)' : '1px solid var(--glass-border)', 
+                            borderRadius: '10px',
+                            padding: '18px' 
+                          }}
+                        >
                           {/* Group header */}
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px', flexWrap:'wrap', gap:'12px', borderBottom:'1px solid rgba(255,255,255,0.04)', paddingBottom:'12px' }}>
                             <div>
-                              <strong style={{ fontSize:'16px', color: hasPending ? 'var(--status-error)' : 'var(--text-primary)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                {isReprintGroup ? (
+                                  <span style={{ fontSize: '11px', background: 'rgba(56, 189, 248, 0.15)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                                    <Layers size={13} /> DỮ LIỆU IN LẠI (TỪ KHO)
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '11px', background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
+                                    📥 KHAY NHẬP MẪU QC
+                                  </span>
+                                )}
+                              </div>
+                              <strong style={{ fontSize:'16px', color: hasPending ? 'var(--status-error)' : (isReprintGroup ? 'var(--accent-blue)' : 'var(--text-primary)') }}>
                                 {group.name}
                               </strong>
                               <span style={{ fontSize:'12px', color:'var(--text-muted)', marginLeft:'12px' }}>
@@ -7561,9 +7649,18 @@ export default function App() {
                                 </span>
                               ) : (
                                 <div style={{ display: 'flex', gap: '8px' }}>
-                                  <button className="btn btn-primary" style={{ background:'linear-gradient(135deg, #2563eb, #1d4ed8)', borderColor:'#1d4ed8', fontSize:'13px' }}
+                                  <button 
+                                    className="btn btn-primary" 
+                                    style={{ 
+                                      background: isReprintGroup ? 'linear-gradient(135deg, #0284c7, #0369a1)' : 'linear-gradient(135deg, #2563eb, #1d4ed8)', 
+                                      borderColor: isReprintGroup ? '#0284c7' : '#1d4ed8', 
+                                      fontSize:'13px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
                                     onClick={() => printTommyStickersForGroup(group.name, group.items)}>
-                                    In Khay này ({totalStickersInGroup} Nhãn)
+                                    <Printer size={15} /> In Khay này ({totalStickersInGroup} Nhãn)
                                   </button>
                                   <button className="btn btn-secondary" style={{ borderColor:'var(--status-error)', color:'var(--status-error)', fontSize:'13px' }}
                                     onClick={() => {
@@ -9441,11 +9538,14 @@ export default function App() {
                             style={{ fontSize: '12px', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)' }}
                             onClick={() => {
                               setPrintQueue(prev => {
-                                const existingIds = new Set(prev.map(p => p.id));
-                                const toAdd = slotSamples.filter(s => !existingIds.has(s.id));
-                                return [...prev, ...toAdd];
+                                const existingMap = new Map(prev.map(p => [p.id, p]));
+                                slotSamples.forEach(s => {
+                                  const existing = existingMap.get(s.id);
+                                  existingMap.set(s.id, { ...(existing || s), ...s, isReprint: true });
+                                });
+                                return Array.from(existingMap.values());
                               });
-                              showToast(`Đã thêm ${slotSamples.length} mẫu của Ô ${shelfLetter}${selectedSlot.slot} vào hàng chờ in!`, 'success');
+                              showToast(`Đã thêm ${slotSamples.length} mẫu của Ô ${shelfLetter}${selectedSlot.slot} vào Khay In Lại!`, 'success');
                             }}
                             title="Nạp tất cả mẫu trong ô này vào hàng chờ in để gom đầy trang A4"
                           >
@@ -9896,13 +9996,16 @@ export default function App() {
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setPrintQueue(prev => {
-                                        const existingIds = new Set(prev.map(p => p.id));
-                                        const toAdd = colSamples.filter(s => !existingIds.has(s.id));
-                                        return [...prev, ...toAdd];
+                                        const existingMap = new Map(prev.map(p => [p.id, p]));
+                                        colSamples.forEach(s => {
+                                          const existing = existingMap.get(s.id);
+                                          existingMap.set(s.id, { ...(existing || s), ...s, isReprint: true });
+                                        });
+                                        return Array.from(existingMap.values());
                                       });
                                       const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
                                       const sL = shelfLetters[selectedSlot.shelf] || selectedSlot.shelf;
-                                      showToast(`Đã thêm ${colSamples.length} mẫu của Cột ${col} (${sL}${selectedSlot.slot}) vào hàng chờ in!`, 'success');
+                                      showToast(`Đã thêm ${colSamples.length} mẫu của Cột ${col} (${sL}${selectedSlot.slot}) vào Khay In Lại!`, 'success');
                                     }}
                                     title="Thêm các mẫu cột này vào hàng chờ in gom đầy trang A4"
                                   >
@@ -10554,10 +10657,12 @@ export default function App() {
                     className="btn btn-secondary" 
                     onClick={() => {
                       setPrintQueue(prev => {
-                        if (prev.some(p => p.id === qrCodeModal.id)) return prev;
-                        return [...prev, qrCodeModal];
+                        const existingMap = new Map(prev.map(p => [p.id, p]));
+                        const existing = existingMap.get(qrCodeModal.id);
+                        existingMap.set(qrCodeModal.id, { ...(existing || qrCodeModal), ...qrCodeModal, isReprint: true });
+                        return Array.from(existingMap.values());
                       });
-                      showToast(`Đã thêm mẫu ${qrCodeModal.sku} vào hàng chờ in!`, 'success');
+                      showToast(`Đã thêm mẫu ${qrCodeModal.sku} vào Khay In Lại!`, 'success');
                     }}
                     title="Thêm mẫu này vào hàng chờ in để gom đầy trang A4 Tommy 135"
                   >
