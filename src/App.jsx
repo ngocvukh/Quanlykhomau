@@ -7,7 +7,7 @@ import {
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save, Tags, Tag, Barcode,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
   UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar,
-  PackageMinus, Ruler
+  PackageMinus, Ruler, RotateCcw
 } from 'lucide-react';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
@@ -4640,7 +4640,7 @@ export default function App() {
           type: 'take_approve',
           quantity: qtyToTake,
           status: 'approved',
-          note: `Đã duyệt cấp ${qtyToTake} bao. Vị trí cũ: ${formatLocation(sample.shelf, sample.slot)}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5) : 'Hết mẫu'}`
+          note: `Đã duyệt cấp ${qtyToTake} bao. Vị trí cũ: ${sample.shelf ? formatLocation(sample.shelf, sample.slot, sample.column_number) : (sample.box_id ? 'Thùng' : 'Chưa có')}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5, 1) : (newQty === 0 ? 'Hết mẫu' : formatLocation(nextShelf, nextSlot, nextColumn))} [RESTORE:${sample.shelf || ''}|${sample.slot || ''}|${sample.column_number || ''}|${sample.box_id || ''}|${sample.status || 'stored'}]`
         });
 
         sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qtyToTake} bao\n- Người duyệt: ${profile?.full_name || 'Admin'}`);
@@ -4679,6 +4679,178 @@ export default function App() {
       } finally {
         setLoading(false);
       }
+    }
+  };
+
+  // Hoàn tác yêu cầu cấp mẫu (Admin / Storekeeper)
+  const handleUndoRequest = async (tx) => {
+    const sample = tx.samples;
+    const sampleName = sample?.products?.product_name || sample?.product_name || 'mẫu';
+    const isApproved = tx.status === 'approved';
+    const isCancelled = tx.status === 'cancelled';
+
+    if (!isApproved && !isCancelled) return;
+
+    const confirmMsg = isApproved
+      ? `Xác nhận hoàn tác cấp mẫu "${sampleName}"?\nSố lượng ${tx.quantity} bao sẽ được cộng hoàn trả lại vào kho và yêu cầu chuyển về trạng thái Chờ duyệt.`
+      : `Xác nhận hoàn tác từ chối yêu cầu "${sampleName}"?\nYêu cầu sẽ được chuyển về trạng thái Chờ duyệt để có thể xem xét lại.`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    if (isDemoMode) {
+      setTransactions(prev => prev.map(t => {
+        if (t.id === tx.id) return { ...t, status: 'pending' };
+        return t;
+      }));
+
+      if (isApproved && sample) {
+        setSamples(prev => prev.map(s => {
+          if (s.id === sample.id) {
+            const restoredQty = (s.available_qty || 0) + (parseInt(tx.quantity, 10) || 0);
+            return {
+              ...s,
+              available_qty: restoredQty,
+              status: s.status === 'destroyed' ? 'stored' : s.status,
+              shelf: s.shelf || 2,
+              slot: s.slot || 1,
+              column_number: s.column_number || 1
+            };
+          }
+          return s;
+        }));
+      }
+
+      showToast(`Đã hoàn tác yêu cầu "${sampleName}" về trạng thái Chờ duyệt!`, "success");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      if (isApproved) {
+        // 1. Tìm thông tin vị trí cũ từ giao dịch take_approve tương ứng
+        const approveTx = transactions.find(t => 
+          t.type === 'take_approve' && 
+          t.sample_id === tx.sample_id && 
+          Math.abs(new Date(t.created_at) - new Date(tx.created_at)) < 86400000
+        ) || transactions.find(t => t.type === 'take_approve' && t.sample_id === tx.sample_id);
+
+        const { data: currentSample, error: fetchErr } = await supabase
+          .from('samples')
+          .select('*')
+          .eq('id', tx.sample_id)
+          .single();
+
+        if (fetchErr) throw fetchErr;
+
+        let restoredShelf = currentSample.shelf;
+        let restoredSlot = currentSample.slot;
+        let restoredCol = currentSample.column_number;
+        let restoredBoxId = currentSample.box_id;
+        let restoredStatus = currentSample.status;
+
+        // Nếu mẫu đã bị xoá khỏi kệ do hết số lượng
+        if (!restoredShelf && !restoredBoxId) {
+          let restored = false;
+          if (approveTx?.note) {
+            const matchRestore = approveTx.note.match(/\[RESTORE:([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]/);
+            if (matchRestore) {
+              restoredShelf = matchRestore[1] ? parseInt(matchRestore[1], 10) : null;
+              restoredSlot = matchRestore[2] ? parseInt(matchRestore[2], 10) : null;
+              restoredCol = matchRestore[3] ? parseInt(matchRestore[3], 10) : null;
+              restoredBoxId = matchRestore[4] || null;
+              restoredStatus = matchRestore[5] || 'stored';
+              restored = true;
+            } else {
+              const matchLoc = approveTx.note.match(/Vị trí cũ:\s*([A-Fa-f])(\d)/);
+              if (matchLoc) {
+                const shelfLetters = { 'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'F': 6 };
+                restoredShelf = shelfLetters[matchLoc[1].toUpperCase()] || 2;
+                restoredSlot = parseInt(matchLoc[2], 10) || 1;
+                const sameSlotSamples = samples.filter(s => s.shelf === restoredShelf && s.slot === restoredSlot && s.status === 'stored');
+                const sameProdSample = sameSlotSamples.find(s => s.product_id === currentSample.product_id);
+                restoredCol = sameProdSample ? sameProdSample.column_number : 1;
+                restoredStatus = 'stored';
+                restored = true;
+              }
+            }
+          }
+
+          if (!restored) {
+            restoredShelf = 2;
+            restoredSlot = 1;
+            restoredCol = 1;
+            restoredStatus = 'stored';
+          }
+        } else if (currentSample.slot === 5 && currentSample.shelf) {
+          // Từng bị chuyển sang Ô lẻ (Ô 5) do bóc lẻ, giờ hoàn tác có thể khôi phục vị trí cũ
+          if (approveTx?.note) {
+            const matchRestore = approveTx.note.match(/\[RESTORE:([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]/);
+            if (matchRestore && matchRestore[2] && parseInt(matchRestore[2], 10) <= 4) {
+              restoredShelf = parseInt(matchRestore[1], 10);
+              restoredSlot = parseInt(matchRestore[2], 10);
+              restoredCol = parseInt(matchRestore[3], 10) || 1;
+            } else {
+              const matchLoc = approveTx.note.match(/Vị trí cũ:\s*([A-Fa-f])(\d)/);
+              if (matchLoc) {
+                const shelfLetters = { 'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5, 'F': 6 };
+                restoredShelf = shelfLetters[matchLoc[1].toUpperCase()];
+                restoredSlot = parseInt(matchLoc[2], 10);
+                restoredCol = 1;
+              }
+            }
+          }
+        }
+
+        const restoredQty = (currentSample.available_qty || 0) + (parseInt(tx.quantity, 10) || 0);
+
+        // 2. Cập nhật lại kho cho mẫu
+        const { error: sUpdateErr } = await supabase
+          .from('samples')
+          .update({
+            available_qty: restoredQty,
+            shelf: restoredShelf,
+            slot: restoredSlot,
+            column_number: restoredCol,
+            box_id: restoredBoxId,
+            status: restoredBoxId ? 'boxed' : 'stored'
+          })
+          .eq('id', tx.sample_id);
+
+        if (sUpdateErr) throw sUpdateErr;
+
+        // 3. Xoá transaction take_approve tương ứng
+        if (approveTx?.id) {
+          await supabase.from('transactions').delete().eq('id', approveTx.id);
+        }
+
+        // 4. Tạo bản ghi transaction hoàn tác
+        await supabase.from('transactions').insert({
+          sample_id: tx.sample_id,
+          user_id: profile?.id || null,
+          type: 'take_revert',
+          quantity: tx.quantity,
+          status: 'approved',
+          note: `Hoàn tác cấp mẫu: trả lại ${tx.quantity} bao về vị trí ${restoredShelf ? formatLocation(restoredShelf, restoredSlot, restoredCol) : 'Thùng'}`
+        });
+      }
+
+      // 5. Cập nhật lại trạng thái yêu cầu về 'pending'
+      const { error: tUpdateErr } = await supabase
+        .from('transactions')
+        .update({ status: 'pending' })
+        .eq('id', tx.id);
+
+      if (tUpdateErr) throw tUpdateErr;
+
+      sendTelegramNotification(`↩️ <b>HOÀN TÁC YÊU CẦU LẤY MẪU</b>\n- Sản phẩm: ${sampleName}\n- Trạng thái cũ: ${isApproved ? 'Đã cấp' : 'Đã hủy'}\n- Chuyển về: Chờ duyệt\n- Người thực hiện: ${profile?.full_name || 'Admin'}`);
+      showToast(`Đã hoàn tác yêu cầu "${sampleName}" về trạng thái Chờ duyệt!`, "success");
+      await fetchDatabaseData();
+    } catch (e) {
+      console.error(e);
+      showToast("Có lỗi khi hoàn tác: " + e.message, "error");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -7917,7 +8089,11 @@ export default function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {transactions.filter(t => t.type === 'take_request').map(tx => {
                     const sample = tx.samples;
-                    const location = sample?.shelf ? formatLocation(sample.shelf, sample.slot, sample.column_number) : `Thùng ${boxes.find(b => b.id === sample?.box_id)?.box_name || 'Không có'}`;
+                    const location = sample?.shelf 
+                      ? formatLocation(sample.shelf, sample.slot, sample.column_number) 
+                      : (sample?.box_id 
+                          ? `Thùng ${boxes.find(b => b.id === sample?.box_id)?.box_name || sample.box_id}` 
+                          : (tx.status === 'approved' ? 'Đã xuất kho (Hết mẫu)' : 'Chưa có vị trí'));
                     const ageMonths = sample ? Math.floor((new Date() - new Date(sample.packaging_date)) / (1000 * 60 * 60 * 24 * 30.5)) : 0;
                     
                     return (
@@ -7949,12 +8125,25 @@ export default function App() {
                           </div>
                         </div>
 
-                        {tx.status === 'pending' && (
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn btn-secondary" onClick={() => handleCancelRequest(tx.id)}> Từ chối </button>
-                            <button className="btn btn-primary" onClick={() => handleApproveRequest(tx)}> Cấp mẫu </button>
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          {tx.status === 'pending' ? (
+                            <>
+                              <button className="btn btn-secondary" onClick={() => handleCancelRequest(tx.id)}> Từ chối </button>
+                              <button className="btn btn-primary" onClick={() => handleApproveRequest(tx)}> Cấp mẫu </button>
+                            </>
+                          ) : (
+                            profile?.role === 'admin' && (
+                              <button 
+                                className="btn btn-secondary"
+                                style={{ borderColor: '#f97316', color: '#f97316', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                onClick={() => handleUndoRequest(tx)}
+                                title="Hoàn tác yêu cầu này về trạng thái Chờ duyệt và hoàn trả lại kho"
+                              >
+                                <RotateCcw size={14} /> Hoàn tác
+                              </button>
+                            )
+                          )}
+                        </div>
                       </div>
                     );
                   })}
