@@ -2391,6 +2391,7 @@ export default function App() {
   const [requestStatusFilter, setRequestStatusFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'cancelled'
   const [requestDateFilter, setRequestDateFilter] = useState('all'); // 'all' | 'today' | '7days' | '30days'
   const [requestPage, setRequestPage] = useState(1);
+  const [requestCustomQty, setRequestCustomQty] = useState({});
 
   useEffect(() => {
     setRequestPage(1);
@@ -4543,13 +4544,18 @@ export default function App() {
   };
 
   // Approve Take Request (Admin / Storekeeper)
-  // Handles Ô Lẻ (Ô 5) rules!
-  const handleApproveRequest = async (tx) => {
-    const sample = tx.samples;
-    const qtyToTake = tx.quantity;
+  // Handles Ô Lẻ (Ô 5) rules & allows custom adjusted quantity!
+  const handleApproveRequest = async (tx, customQty) => {
+    const sample = samples.find(s => s.id === tx.sample_id) || tx.samples;
+    const qtyToTake = (customQty !== undefined && customQty !== '') ? Number(customQty) : Number(tx.quantity);
 
-    if (qtyToTake > sample.available_qty) {
-      showToast("Số lượng mẫu trong kho không đủ để cấp!", "error");
+    if (!qtyToTake || qtyToTake <= 0) {
+      showToast("Số lượng bao cấp phải lớn hơn 0!", "error");
+      return;
+    }
+
+    if (qtyToTake > (sample?.available_qty || 0)) {
+      showToast(`Số lượng mẫu trong kho (${sample?.available_qty || 0} bao) không đủ để cấp ${qtyToTake} bao!`, "error");
       return;
     }
 
@@ -4580,10 +4586,18 @@ export default function App() {
       newStatus = 'destroyed';
     }
 
+    const isQtyModified = qtyToTake !== tx.quantity;
+    const noteSuffix = isQtyModified ? ` (Đã chỉnh số lượng từ ${tx.quantity} bao)` : '';
+
     if (isDemoMode) {
-      // Update transaction status
+      // Update transaction status & quantity
       setTransactions(prev => prev.map(t => {
-        if (t.id === tx.id) return { ...t, status: 'approved' };
+        if (t.id === tx.id) return { 
+          ...t, 
+          status: 'approved',
+          quantity: qtyToTake,
+          note: t.note ? `${t.note}${noteSuffix}` : `Đã duyệt cấp ${qtyToTake} bao${noteSuffix}`
+        };
         return t;
       }));
 
@@ -4612,12 +4626,12 @@ export default function App() {
         type: 'take_approve',
         quantity: qtyToTake,
         status: 'approved',
-        note: `Đã duyệt cấp ${qtyToTake} bao. Vị trí cũ: ${formatLocation(sample.shelf, sample.slot)}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5) : 'Hết mẫu'}`,
+        note: `Đã duyệt cấp ${qtyToTake} bao${noteSuffix}. Vị trí cũ: ${sample.shelf ? formatLocation(sample.shelf, sample.slot) : 'Thùng'}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5) : 'Hết mẫu'}`,
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [approveTx, ...prev]);
-      sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qtyToTake} bao\n- Người duyệt: ${profile?.full_name || 'Thủ kho Demo'}`);
-      showToast("Đã duyệt cấp mẫu thành công!", "success");
+      sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng cấp: ${qtyToTake} bao${noteSuffix}\n- Người duyệt: ${profile?.full_name || 'Thủ kho Demo'}`);
+      showToast(`Đã duyệt cấp ${qtyToTake} bao thành công!`, "success");
     } else {
       try {
         setLoading(true);
@@ -4635,10 +4649,18 @@ export default function App() {
 
         if (sError) throw sError;
 
-        // 2. Update Transaction Status
+        // 2. Update Transaction Status and Quantity
+        const updatedTxData = {
+          status: 'approved',
+          quantity: qtyToTake
+        };
+        if (isQtyModified) {
+          updatedTxData.note = tx.note ? `${tx.note}${noteSuffix}` : `Đã duyệt cấp ${qtyToTake} bao${noteSuffix}`;
+        }
+
         const { error: tError } = await supabase
           .from('transactions')
-          .update({ status: 'approved' })
+          .update(updatedTxData)
           .eq('id', tx.id);
 
         if (tError) throw tError;
@@ -4650,11 +4672,48 @@ export default function App() {
           type: 'take_approve',
           quantity: qtyToTake,
           status: 'approved',
-          note: `Đã duyệt cấp ${qtyToTake} bao. Vị trí cũ: ${sample.shelf ? formatLocation(sample.shelf, sample.slot, sample.column_number) : (sample.box_id ? 'Thùng' : 'Chưa có')}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5, 1) : (newQty === 0 ? 'Hết mẫu' : formatLocation(nextShelf, nextSlot, nextColumn))} [RESTORE:${sample.shelf || ''}|${sample.slot || ''}|${sample.column_number || ''}|${sample.box_id || ''}|${sample.status || 'stored'}]`
+          note: `Đã duyệt cấp ${qtyToTake} bao${noteSuffix}. Vị trí cũ: ${sample.shelf ? formatLocation(sample.shelf, sample.slot, sample.column_number) : (sample.box_id ? 'Thùng' : 'Chưa có')}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5, 1) : (newQty === 0 ? 'Hết mẫu' : formatLocation(nextShelf, nextSlot, nextColumn))} [RESTORE:${sample.shelf || ''}|${sample.slot || ''}|${sample.column_number || ''}|${sample.box_id || ''}|${sample.status || 'stored'}]`
         });
 
-        sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qtyToTake} bao\n- Người duyệt: ${profile?.full_name || 'Admin'}`);
-        showToast("Đã phê duyệt cấp mẫu thành công!", "success");
+        sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng cấp: ${qtyToTake} bao${noteSuffix}\n- Người duyệt: ${profile?.full_name || 'Admin'}`);
+        showToast(`Đã phê duyệt cấp ${qtyToTake} bao thành công!`, "success");
+        fetchDatabaseData();
+      } catch (e) {
+        showToast(e.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  // Lưu số lượng yêu cầu mới mà chưa duyệt cấp
+  const handleSavePendingQty = async (tx, customQty) => {
+    const qty = Number(customQty);
+    if (!qty || qty <= 0) {
+      showToast("Số lượng phải lớn hơn 0!", "error");
+      return;
+    }
+    const sample = samples.find(s => s.id === tx.sample_id) || tx.samples;
+    if (sample && qty > (sample.available_qty || 0)) {
+      showToast(`Số lượng (${qty} bao) vượt quá tồn kho (${sample.available_qty || 0} bao)!`, "error");
+      return;
+    }
+
+    if (isDemoMode) {
+      setTransactions(prev => prev.map(t => {
+        if (t.id === tx.id) return { ...t, quantity: qty };
+        return t;
+      }));
+      showToast(`Đã cập nhật số lượng yêu cầu thành ${qty} bao`, "success");
+    } else {
+      try {
+        setLoading(true);
+        const { error } = await supabase
+          .from('transactions')
+          .update({ quantity: qty })
+          .eq('id', tx.id);
+        if (error) throw error;
+        showToast(`Đã cập nhật số lượng yêu cầu thành ${qty} bao`, "success");
         fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
@@ -8347,7 +8406,7 @@ export default function App() {
                     return (
                       <>
                         {paginatedRequests.map(tx => {
-                          const sample = tx.samples;
+                          const sample = samples.find(s => s.id === tx.sample_id) || tx.samples;
                           const location = sample?.shelf 
                             ? formatLocation(sample.shelf, sample.slot, sample.column_number) 
                             : (sample?.box_id 
@@ -8355,6 +8414,11 @@ export default function App() {
                                 : (tx.status === 'approved' ? 'Đã xuất kho (Hết mẫu)' : 'Chưa có vị trí'));
                           const ageMonths = sample ? Math.floor((new Date() - new Date(sample.packaging_date)) / (1000 * 60 * 60 * 24 * 30.5)) : 0;
                           
+                          const pendingChosenQty = (requestCustomQty[tx.id] !== undefined && requestCustomQty[tx.id] !== '')
+                            ? Number(requestCustomQty[tx.id])
+                            : tx.quantity;
+                          const isPendingQtyChanged = pendingChosenQty !== tx.quantity;
+
                           return (
                             <div key={tx.id} className="glass-panel" style={{ borderLeft: `4px solid ${tx.status === 'pending' ? 'var(--status-warning)' : tx.status === 'approved' ? 'var(--status-success)' : 'var(--text-muted)'}`, padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', background: tx.status === 'pending' ? 'rgba(245,158,11,0.02)' : 'var(--glass-bg)' }}>
                               <div>
@@ -8371,7 +8435,84 @@ export default function App() {
                                     {tx.status === 'pending' ? 'Chờ duyệt cấp' : (tx.status === 'cancelled' ? 'Đã hủy' : 'Đã cấp')}
                                   </span>
                                   <h4 style={{ fontSize: '18px', fontWeight: 'bold' }}>{sample?.products?.product_name || sample?.product_name || 'Mẫu đã xóa'}</h4>
-                                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy: <strong>{tx.quantity} bao</strong> ({tx.quantity % 10 !== 0 ? 'Bóc cây lẻ' : `${tx.quantity/10} cây nguyên`})</span>
+
+                                  {tx.status === 'pending' ? (
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(255, 255, 255, 0.05)', padding: '3px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
+                                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy:</span>
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', background: '#0b1120', borderRadius: '6px', border: '1px solid var(--accent-blue)', overflow: 'hidden' }}>
+                                        <button
+                                          type="button"
+                                          style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', width: '26px', height: '26px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                          onClick={() => {
+                                            const cur = (requestCustomQty[tx.id] !== undefined && requestCustomQty[tx.id] !== '') ? Number(requestCustomQty[tx.id]) : tx.quantity;
+                                            setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.max(1, cur - 1) }));
+                                          }}
+                                          title="Giảm 1 bao"
+                                        >
+                                          -
+                                        </button>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          max={sample?.available_qty || 9999}
+                                          value={requestCustomQty[tx.id] !== undefined ? requestCustomQty[tx.id] : tx.quantity}
+                                          onChange={(e) => {
+                                            const raw = e.target.value;
+                                            if (raw === '') {
+                                              setRequestCustomQty(prev => ({ ...prev, [tx.id]: '' }));
+                                            } else {
+                                              const val = parseInt(raw, 10);
+                                              if (!isNaN(val)) {
+                                                setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.max(1, Math.min(val, sample?.available_qty || 9999)) }));
+                                              }
+                                            }
+                                          }}
+                                          onBlur={() => {
+                                            if (!requestCustomQty[tx.id] || requestCustomQty[tx.id] < 1) {
+                                              setRequestCustomQty(prev => ({ ...prev, [tx.id]: tx.quantity || 1 }));
+                                            }
+                                          }}
+                                          style={{
+                                            width: '50px',
+                                            height: '26px',
+                                            textAlign: 'center',
+                                            background: 'transparent',
+                                            border: 'none',
+                                            color: '#38bdf8',
+                                            fontWeight: 'bold',
+                                            fontSize: '14px',
+                                            outline: 'none',
+                                            padding: 0
+                                          }}
+                                        />
+                                        <button
+                                          type="button"
+                                          style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', width: '26px', height: '26px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                          onClick={() => {
+                                            const cur = (requestCustomQty[tx.id] !== undefined && requestCustomQty[tx.id] !== '') ? Number(requestCustomQty[tx.id]) : tx.quantity;
+                                            const maxQ = sample?.available_qty || 9999;
+                                            setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.min(maxQ, cur + 1) }));
+                                          }}
+                                          title="Tăng 1 bao"
+                                        >
+                                          +
+                                        </button>
+                                      </div>
+                                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                        bao ({pendingChosenQty % 10 !== 0 ? 'Bóc cây lẻ' : `${Math.floor(pendingChosenQty / 10)} cây nguyên`})
+                                      </span>
+                                      {isPendingQtyChanged && (
+                                        <span style={{ fontSize: '11.5px', color: '#f59e0b', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                          Yêu cầu gốc: {tx.quantity} bao
+                                        </span>
+                                      )}
+                                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                        • Tồn kho: <strong style={{ color: pendingChosenQty > (sample?.available_qty || 0) ? 'var(--status-error)' : 'var(--accent-blue)' }}>{sample?.available_qty ?? 0} bao</strong>
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy: <strong>{tx.quantity} bao</strong> ({tx.quantity % 10 !== 0 ? 'Bóc cây lẻ' : `${tx.quantity/10} cây nguyên`})</span>
+                                  )}
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -8388,7 +8529,24 @@ export default function App() {
                                 {tx.status === 'pending' ? (
                                   <>
                                     <button className="btn btn-secondary" onClick={() => handleCancelRequest(tx.id)}> Từ chối </button>
-                                    <button className="btn btn-primary" onClick={() => handleApproveRequest(tx)}> Cấp mẫu </button>
+                                    {isPendingQtyChanged && (
+                                      <button
+                                        className="btn btn-secondary"
+                                        style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '13px' }}
+                                        onClick={() => handleSavePendingQty(tx, pendingChosenQty)}
+                                        title="Lưu lại số lượng mới mà chưa duyệt cấp"
+                                      >
+                                        Lưu số lượng
+                                      </button>
+                                    )}
+                                    <button 
+                                      className="btn btn-primary" 
+                                      onClick={() => handleApproveRequest(tx, pendingChosenQty)}
+                                      style={{ fontWeight: 'bold' }}
+                                      title={`Phê duyệt cấp ${pendingChosenQty} bao`}
+                                    > 
+                                      {isPendingQtyChanged ? `Cấp ${pendingChosenQty} bao` : 'Cấp mẫu'} 
+                                    </button>
                                   </>
                                 ) : (
                                   profile?.role === 'admin' && (
