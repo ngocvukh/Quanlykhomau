@@ -372,6 +372,7 @@ export default function App() {
   // QR Scan modal (when user opens app via QR code on label)
   const [scanResultModal, setScanResultModal] = useState(null); // sample object | { notFound, sku }
   const [scanQty, setScanQty] = useState('');
+  const [scanPurpose, setScanPurpose] = useState('');
 
   // Tommy 128 Blank QC Template printing states
   const [print128BlankModalOpen, setPrint128BlankModalOpen] = useState(false);
@@ -4451,11 +4452,15 @@ export default function App() {
       return;
     }
 
+    const rawPurpose = typeof note === 'string' ? note.trim() : '';
+    const isMissingPurpose = rawPurpose === '';
+    const effectivePurpose = isMissingPurpose ? 'Người dùng không nhập mục đích' : rawPurpose;
+
     if (isDemoMode) {
-      let finalNote = note || 'Lấy mẫu sử dụng';
+      let finalNote = effectivePurpose;
       if (!profile) {
         const guestName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-        finalNote = `[Khách: ${guestName}] ${finalNote}`.trim();
+        finalNote = `[Khách: ${guestName}] ${effectivePurpose}`.trim();
       }
 
       const newTx = {
@@ -4472,8 +4477,12 @@ export default function App() {
       };
       setTransactions(prev => [newTx, ...prev]);
       const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-      sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Ghi chú: ${finalNote}\n- Tình trạng: Đang chờ duyệt`);
-      showToast("Đã gửi yêu cầu lấy mẫu! Chờ thủ kho xác nhận.", "success");
+      sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${finalNote}\n- Tình trạng: Đang chờ duyệt`);
+      if (isMissingPurpose) {
+        showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
+      } else {
+        showToast("Đã gửi yêu cầu lấy mẫu! Chờ thủ kho xác nhận.", "success");
+      }
       
       // Update result quantity locally for preview
       setSearchResults(prev => prev.map(s => {
@@ -4495,16 +4504,18 @@ export default function App() {
       setTakenLocationModal({
         product_name: sample.products?.product_name || sample.product_name,
         qty: parseInt(qty),
-        location: locStr
+        location: locStr,
+        missingPurpose: isMissingPurpose,
+        purpose: effectivePurpose
       });
     } else {
       try {
         setLoading(true);
 
-        let finalNote = note || '';
+        let finalNote = effectivePurpose;
         if (!profile) {
           const guestName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-          finalNote = `[Khách: ${guestName}] ${finalNote}`.trim();
+          finalNote = `[Khách: ${guestName}] ${effectivePurpose}`.trim();
         }
 
         const { error } = await supabase.from('transactions').insert({
@@ -4517,8 +4528,12 @@ export default function App() {
         });
         if (error) throw error;
         const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-        sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Ghi chú: ${finalNote}\n- Tình trạng: Đang chờ duyệt`);
-        showToast("Gửi yêu cầu thành công!", "success");
+        sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${finalNote}\n- Tình trạng: Đang chờ duyệt`);
+        if (isMissingPurpose) {
+          showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
+        } else {
+          showToast("Gửi yêu cầu thành công!", "success");
+        }
         fetchDatabaseData();
 
         // Show location only after success
@@ -4533,7 +4548,9 @@ export default function App() {
         setTakenLocationModal({
           product_name: sample.products?.product_name || sample.product_name,
           qty: parseInt(qty),
-          location: locStr
+          location: locStr,
+          missingPurpose: isMissingPurpose,
+          purpose: effectivePurpose
         });
       } catch (e) {
         showToast(e.message, "error");
@@ -7018,6 +7035,17 @@ export default function App() {
                                   />
                                 </div>
 
+                                <div style={{ display: 'flex', width: '100%' }}>
+                                  <input 
+                                    type="text"
+                                    className="form-input"
+                                    style={{ flex: 1, padding: '8px 12px', fontSize: '13px' }}
+                                    placeholder="Mục đích lấy mẫu (VD: Kiểm tra chất lượng...)"
+                                    value={takeNotes[s.id] || ''}
+                                    onChange={e => setTakeNotes(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                  />
+                                </div>
+
                                 {/* Vị trí sẽ hiển thị sau khi nhấn xác nhận */}
 
                                 <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end' }}>
@@ -7026,8 +7054,13 @@ export default function App() {
                                     style={{ height: '36px', padding: '0 16px', fontSize: '13px', flex: (profile?.role === 'admin') ? 1 : undefined }}
                                     disabled={!isValidQty}
                                     onClick={() => {
-                                      handleTakeRequest(s, qtyInt, 'Nhân viên lấy mẫu');
+                                      handleTakeRequest(s, qtyInt, takeNotes[s.id] || '');
                                       setTakeQuantities(prev => {
+                                        const copy = { ...prev };
+                                        delete copy[s.id];
+                                        return copy;
+                                      });
+                                      setTakeNotes(prev => {
                                         const copy = { ...prev };
                                         delete copy[s.id];
                                         return copy;
@@ -8588,7 +8621,12 @@ export default function App() {
                                   <strong>Người yêu cầu:</strong> {tx.profiles?.full_name || 'Khách'} {tx.profiles?.employee_code ? `(${tx.profiles.employee_code})` : ''}
                                 </div>
                                 <div className="request-card-body-item">
-                                  <strong>Lý do:</strong> {tx.note || '—'}
+                                  <strong>Mục đích lấy mẫu:</strong>{' '}
+                                  {tx.note && tx.note.includes('Người dùng không nhập mục đích') ? (
+                                    <span style={{ color: '#f59e0b', fontWeight: 500 }}>{tx.note}</span>
+                                  ) : (
+                                    tx.note || 'Người dùng không nhập mục đích'
+                                  )}
                                 </div>
                                 <div className="request-card-body-item">
                                   <strong>Thời gian gửi:</strong> {new Date(tx.created_at).toLocaleString()}
@@ -10847,7 +10885,7 @@ export default function App() {
                                         {takeQuantities[sample.id] !== undefined && (
                                           <div
                                             className="slot-sample-take-form"
-                                            style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}
                                             onClick={e => e.stopPropagation()}
                                           >
                                             <input
@@ -10857,24 +10895,35 @@ export default function App() {
                                               placeholder="Số bao cần lấy..."
                                               value={takeQuantities[sample.id]}
                                               onChange={e => setTakeQuantities(prev => ({ ...prev, [sample.id]: e.target.value }))}
-                                              style={{ width: '130px', padding: '4px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
+                                              style={{ width: '115px', padding: '5px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
                                               autoFocus
+                                            />
+                                            <input
+                                              type="text"
+                                              placeholder="Mục đích lấy mẫu..."
+                                              value={takeNotes[sample.id] || ''}
+                                              onChange={e => setTakeNotes(prev => ({ ...prev, [sample.id]: e.target.value }))}
+                                              style={{ flex: '1 1 150px', minWidth: '130px', padding: '5px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
                                             />
                                             <button
                                               className="btn btn-primary"
-                                              style={{ padding: '4px 10px', fontSize: '11px', background: 'linear-gradient(135deg,#10b981,#059669)' }}
+                                              style={{ padding: '5px 10px', fontSize: '11.5px', background: 'linear-gradient(135deg,#10b981,#059669)', whiteSpace: 'nowrap' }}
                                               disabled={!takeQuantities[sample.id] || parseInt(takeQuantities[sample.id]) <= 0 || parseInt(takeQuantities[sample.id]) > sample.available_qty || loading}
                                               onClick={() => {
-                                                handleTakeRequest(sample, parseInt(takeQuantities[sample.id]), 'Lấy mẫu từ kệ');
+                                                handleTakeRequest(sample, parseInt(takeQuantities[sample.id]), takeNotes[sample.id] || '');
                                                 setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
+                                                setTakeNotes(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
                                               }}
                                             >
                                               Xác nhận
                                             </button>
                                             <button
                                               className="btn btn-secondary"
-                                              style={{ padding: '4px 8px', fontSize: '11px' }}
-                                              onClick={() => setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; })}
+                                              style={{ padding: '5px 8px', fontSize: '11.5px' }}
+                                              onClick={() => {
+                                                setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
+                                                setTakeNotes(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
+                                              }}
                                             >
                                               <X size={13} />
                                             </button>
@@ -11506,17 +11555,31 @@ export default function App() {
       {/* TAKEN LOCATION INFO MODAL (Shown only after take request confirmation) */}
       {takenLocationModal && (
         <div className="modal-overlay" onClick={() => setTakenLocationModal(null)}>
-          <div className="modal-content" style={{ maxWidth: '400px', border: '1px solid var(--status-success)' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header" style={{ borderBottom: '1px solid rgba(16,185,129,0.2)' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--status-success)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Check size={20} /> Đăng Ký Lấy Mẫu Thành Công!
+          <div className="modal-content" style={{ maxWidth: '420px', border: `1px solid ${takenLocationModal.missingPurpose ? 'var(--status-warning)' : 'var(--status-success)'}` }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: `1px solid ${takenLocationModal.missingPurpose ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.2)'}` }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: takenLocationModal.missingPurpose ? '#f59e0b' : 'var(--status-success)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {takenLocationModal.missingPurpose ? <AlertTriangle size={20} /> : <Check size={20} />}
+                {takenLocationModal.missingPurpose ? 'Cảnh Báo Khi Lấy Mẫu!' : 'Đăng Ký Lấy Mẫu Thành Công!'}
               </h3>
               <button className="close-btn" onClick={() => setTakenLocationModal(null)}><X size={18} /></button>
             </div>
-            <div className="modal-body" style={{ textAlign: 'center', padding: '24px 20px' }}>
-              <p style={{ fontSize: '14px', marginBottom: '16px' }}>
+            <div className="modal-body" style={{ textAlign: 'center', padding: '20px' }}>
+              {takenLocationModal.missingPurpose && (
+                <div style={{ padding: '12px 14px', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: '10px', color: '#f59e0b', fontSize: '13.5px', fontWeight: 'bold', marginBottom: '16px', lineHeight: 1.45 }}>
+                  ⚠️ Bạn đã lấy mẫu nhưng chưa ghi mục đích!
+                  <div style={{ fontSize: '12px', fontWeight: 'normal', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    Dữ liệu vẫn được lưu lại và bổ sung: <strong style={{ color: '#f59e0b' }}>"Người dùng không nhập mục đích"</strong>
+                  </div>
+                </div>
+              )}
+              <p style={{ fontSize: '14px', marginBottom: '12px' }}>
                 Đã ghi nhận yêu cầu lấy <strong>{takenLocationModal.qty} bao</strong> của sản phẩm <strong>{takenLocationModal.product_name}</strong>.
               </p>
+              {!takenLocationModal.missingPurpose && takenLocationModal.purpose && (
+                <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+                  Mục đích lấy mẫu: <strong style={{ color: 'var(--text-primary)' }}>{takenLocationModal.purpose}</strong>
+                </div>
+              )}
               <div style={{ padding: '16px', background: 'rgba(16,185,129,0.08)', border: '1px solid var(--status-success)', borderRadius: '12px', marginBottom: '16px' }}>
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Vị trí bạn cần lấy mẫu:</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--status-success)' }}>
@@ -11528,7 +11591,7 @@ export default function App() {
               </p>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-primary" style={{ background: 'var(--status-success)', borderColor: 'var(--status-success)', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => setTakenLocationModal(null)}>
+              <button className="btn btn-primary" style={{ background: takenLocationModal.missingPurpose ? '#f59e0b' : 'var(--status-success)', borderColor: takenLocationModal.missingPurpose ? '#f59e0b' : 'var(--status-success)', color: takenLocationModal.missingPurpose ? '#000' : '#fff', fontWeight: 'bold', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }} onClick={() => setTakenLocationModal(null)}>
                 Đã hiểu và đi lấy mẫu
               </button>
             </div>
@@ -11972,9 +12035,9 @@ export default function App() {
                   </div>
 
                   {scanResultModal.available_qty > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Số bao cần lấy:</label>
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Số bao cần lấy:</label>
                         <input
                           type="number"
                           min="1"
@@ -11983,23 +12046,35 @@ export default function App() {
                           value={scanQty}
                           onChange={e => setScanQty(e.target.value)}
                           className="form-input"
-                          style={{ flex: 1 }}
+                          style={{ width: '100%', boxSizing: 'border-box' }}
                           autoFocus
                         />
-                        <button
-                          className="btn btn-primary"
-                          style={{ background: 'linear-gradient(135deg,#10b981,#059669)', whiteSpace: 'nowrap', padding: '0 16px' }}
-                          disabled={!scanQty || parseInt(scanQty) <= 0 || parseInt(scanQty) > scanResultModal.available_qty || loading}
-                          onClick={() => {
-                            handleTakeRequest(scanResultModal, parseInt(scanQty), 'Lấy mẫu qua QR tem');
-                            setScanResultModal(null);
-                            setScanQty('');
-                          }}
-                        >
-                          <PackageMinus size={15} /> Lấy mẫu
-                        </button>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      <div>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Mục đích lấy mẫu:</label>
+                        <input
+                          type="text"
+                          placeholder="Nhập mục đích lấy mẫu (VD: Kiểm tra chất lượng...)"
+                          value={scanPurpose}
+                          onChange={e => setScanPurpose(e.target.value)}
+                          className="form-input"
+                          style={{ width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <button
+                        className="btn btn-primary"
+                        style={{ background: 'linear-gradient(135deg,#10b981,#059669)', width: '100%', justifyContent: 'center', padding: '10px 16px', marginTop: '2px' }}
+                        disabled={!scanQty || parseInt(scanQty) <= 0 || parseInt(scanQty) > scanResultModal.available_qty || loading}
+                        onClick={() => {
+                          handleTakeRequest(scanResultModal, parseInt(scanQty), scanPurpose);
+                          setScanResultModal(null);
+                          setScanQty('');
+                          setScanPurpose('');
+                        }}
+                      >
+                        <PackageMinus size={15} /> Xác nhận lấy mẫu
+                      </button>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', textAlign: 'center' }}>
                         Yêu cầu sẽ được gửi đến thủ kho để xác nhận.
                       </div>
                     </div>

@@ -873,16 +873,19 @@ h1, h2, h3, h4, h5, h6 {
   .slot-sample-take-form {
     width: 100% !important;
     display: flex !important;
+    flex-wrap: wrap !important;
     gap: 6px !important;
   }
   .slot-sample-take-form input {
-    flex: 1 !important;
-    width: auto !important;
+    flex: 1 1 100% !important;
+    width: 100% !important;
     min-width: 0 !important;
-    height: 32px !important;
+    height: 34px !important;
   }
   .slot-sample-take-form .btn {
-    height: 32px !important;
+    flex: 1 !important;
+    height: 34px !important;
+    justify-content: center !important;
   }
 }
 
