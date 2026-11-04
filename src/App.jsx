@@ -2623,11 +2623,31 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [profile, isDemoMode]);
 
-  // Admin reset tên visitor theo device_id
+  // Admin reset tên visitor theo device_id (tự động tra cứu thiết bị nếu chưa có)
   const handleResetVisitor = async (devId, userName) => {
+    let targetDevId = devId;
+    if (!targetDevId && userName) {
+      try {
+        const { data } = await supabase
+          .from('search_logs')
+          .select('device_id')
+          .ilike('user_name', userName)
+          .order('searched_at', { ascending: false })
+          .limit(1);
+        if (data && data[0]?.device_id) {
+          targetDevId = data[0].device_id;
+        }
+      } catch (e) {
+        console.error('Lỗi tra cứu device_id:', e);
+      }
+    }
+    if (!targetDevId) {
+      showToast(`Không tìm thấy thiết bị của "${userName}" để yêu cầu khai lại.`, 'warning');
+      return;
+    }
     if (!window.confirm(`Xác nhận reset tên "${userName}"?\nLần sau họ vào web sẽ phải khai báo tên lại.`)) return;
     try {
-      await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: false, reset_by: 'admin' });
+      await supabase.from('visitor_resets').upsert({ device_id: targetDevId, is_blocked: false, reset_by: 'admin' });
       showToast(`Đã reset thiết bị của "${userName}". Họ sẽ phải nhập lại tên lần sau!`, 'success');
       fetchSearchLogs();
       fetchUsersAndVisitors();
@@ -2891,6 +2911,14 @@ export default function App() {
       fetchDatabaseData();
     }
   }, [activeTab]);
+
+  // Tự động nạp danh sách khách & thiết bị cho Admin khi duyệt yêu cầu hoặc xem nhật ký
+  useEffect(() => {
+    if (isDemoMode) return;
+    if (profile?.role === 'admin' && (activeTab === 'requests' || activeTab === 'users' || activeTab === 'search_logs')) {
+      fetchUsersAndVisitors();
+    }
+  }, [activeTab, profile?.role]);
 
   const fetchDatabaseData = async () => {
     try {
@@ -4557,6 +4585,16 @@ export default function App() {
           note: finalNote
         });
         if (error) throw error;
+        if (!isDemoMode && deviceId) {
+          try {
+            await supabase.from('search_logs').insert({
+              device_id: deviceId,
+              user_name: visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh',
+              keyword: `[Yêu cầu lấy mẫu] ${sample.products?.product_name || sample.product_name || ''}`,
+              results_count: 1
+            });
+          } catch (e) { /* ignore */ }
+        }
         const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER;
         sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${effectivePurpose}\n- Tình trạng: Đang chờ duyệt`);
         if (isMissingPurpose) {
@@ -8648,13 +8686,67 @@ export default function App() {
                               {/* 2. Body: Lưới thông tin chi tiết (Responsive 3 cột trên PC, 1 cột trên Mobile) */}
                               <div className="request-card-body">
                                 <div className="request-card-body-item">
-                                  <strong>Người yêu cầu:</strong>{' '}
-                                  {(() => {
-                                    const label = getRequesterLabel(tx);
-                                    return label === UNKNOWN_REQUESTER
-                                      ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{label}</span>
-                                      : <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{label}</span>;
-                                  })()}
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span>
+                                      <strong>Người yêu cầu:</strong>{' '}
+                                      {(() => {
+                                        const label = getRequesterLabel(tx);
+                                        return label === UNKNOWN_REQUESTER
+                                          ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{label}</span>
+                                          : <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{label}</span>;
+                                      })()}
+                                    </span>
+                                    {(() => {
+                                      if (profile?.role !== 'admin') return null;
+                                      const rawGuest = parseRequestNote(tx.note).name;
+                                      const reqName = rawGuest || tx.profiles?.full_name || '';
+                                      if (!reqName || reqName === UNKNOWN_REQUESTER || tx.profiles?.role === 'admin') return null;
+
+                                      const vLog = allVisitorLogs.find(l => l.user_name && l.user_name.trim().toLowerCase() === reqName.trim().toLowerCase())
+                                        || searchLogs.find(l => l.user_name && l.user_name.trim().toLowerCase() === reqName.trim().toLowerCase());
+                                      const devId = vLog?.device_id;
+                                      const resetStatus = devId ? resetDevices.find(d => d.device_id === devId) : null;
+                                      const isBlocked = !!resetStatus && resetStatus.is_blocked;
+                                      const isPendingReset = !!resetStatus && !resetStatus.is_blocked;
+
+                                      if (isBlocked) {
+                                        return (
+                                          <span style={{ fontSize: '11px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 7px', borderRadius: '4px', border: '1px solid rgba(239,68,68,0.3)', fontWeight: 600 }}>
+                                            🚫 Đang bị chặn
+                                          </span>
+                                        );
+                                      }
+
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleResetVisitor(devId, reqName);
+                                          }}
+                                          disabled={isPendingReset}
+                                          style={{
+                                            background: isPendingReset ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)',
+                                            border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
+                                            color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)',
+                                            borderRadius: '6px',
+                                            padding: '2px 8px',
+                                            fontSize: '11px',
+                                            cursor: isPendingReset ? 'not-allowed' : 'pointer',
+                                            fontWeight: 600,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            whiteSpace: 'nowrap',
+                                            transition: 'all 0.2s ease'
+                                          }}
+                                          title={isPendingReset ? 'Thiết bị này đang ở trạng thái chờ khai lại tên khi truy cập' : `Yêu cầu thiết bị của "${reqName}" phải khai lại tên vào lần truy cập sau`}
+                                        >
+                                          🔄 {isPendingReset ? 'Đang chờ nhập' : 'Yêu cầu khai lại tên'}
+                                        </button>
+                                      );
+                                    })()}
+                                  </div>
                                 </div>
                                 <div className="request-card-body-item">
                                   <strong>Mục đích lấy mẫu:</strong>{' '}
