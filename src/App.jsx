@@ -27,6 +27,25 @@ Date.prototype.toLocaleString = function() {
   return `${hours}:${minutes} ngày ${day}/${month}/${year}`;
 };
 
+// ── Tách tên người yêu cầu và mục đích từ ghi chú yêu cầu lấy mẫu ──
+// Ghi chú cũ có dạng "[Khách: Tên] Mục đích" → trả về { name, purpose }
+const UNKNOWN_REQUESTER = 'Không xác định';
+const parseRequestNote = (note) => {
+  const raw = (note || '').trim();
+  const m = raw.match(/^\[(?:Khách|Người yêu cầu):\s*([^\]]*)\]\s*/);
+  if (!m) return { name: '', purpose: raw };
+  let name = (m[1] || '').trim();
+  if (!name || name === 'Khách ẩn danh') name = '';
+  return { name, purpose: raw.slice(m[0].length).trim() };
+};
+const getRequesterLabel = (tx) => {
+  const fullName = (tx?.profiles?.full_name || '').trim();
+  const empCode = (tx?.profiles?.employee_code || '').trim();
+  if (fullName) return empCode ? `${fullName} (${empCode})` : fullName;
+  const { name } = parseRequestNote(tx?.note);
+  return name || UNKNOWN_REQUESTER;
+};
+
 // ── Hỗ trợ lấy tên thiết bị từ UserAgent ──
 const getDeviceDescription = () => {
   const ua = navigator.userAgent;
@@ -4468,7 +4487,7 @@ export default function App() {
         sample_id: sample.id,
         samples: sample,
         user_id: profile?.id || 'guest',
-        profiles: profile || { full_name: 'Nhân viên Khách' },
+        profiles: profile || { full_name: visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER },
         type: 'take_request',
         quantity: parseInt(qty),
         status: 'pending',
@@ -4476,8 +4495,8 @@ export default function App() {
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [newTx, ...prev]);
-      const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-      sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${finalNote}\n- Tình trạng: Đang chờ duyệt`);
+      const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER;
+      sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${effectivePurpose}\n- Tình trạng: Đang chờ duyệt`);
       if (isMissingPurpose) {
         showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
       } else {
@@ -4527,8 +4546,8 @@ export default function App() {
           note: finalNote
         });
         if (error) throw error;
-        const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-        sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${finalNote}\n- Tình trạng: Đang chờ duyệt`);
+        const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER;
+        sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${effectivePurpose}\n- Tình trạng: Đang chờ duyệt`);
         if (isMissingPurpose) {
           showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
         } else {
@@ -8618,15 +8637,22 @@ export default function App() {
                               {/* 2. Body: Lưới thông tin chi tiết (Responsive 3 cột trên PC, 1 cột trên Mobile) */}
                               <div className="request-card-body">
                                 <div className="request-card-body-item">
-                                  <strong>Người yêu cầu:</strong> {tx.profiles?.full_name || 'Khách'} {tx.profiles?.employee_code ? `(${tx.profiles.employee_code})` : ''}
+                                  <strong>Người yêu cầu:</strong>{' '}
+                                  {(() => {
+                                    const label = getRequesterLabel(tx);
+                                    return label === UNKNOWN_REQUESTER
+                                      ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{label}</span>
+                                      : <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{label}</span>;
+                                  })()}
                                 </div>
                                 <div className="request-card-body-item">
                                   <strong>Mục đích lấy mẫu:</strong>{' '}
-                                  {tx.note && tx.note.includes('Người dùng không nhập mục đích') ? (
-                                    <span style={{ color: '#f59e0b', fontWeight: 500 }}>{tx.note}</span>
-                                  ) : (
-                                    tx.note || 'Người dùng không nhập mục đích'
-                                  )}
+                                  {(() => {
+                                    const purpose = parseRequestNote(tx.note).purpose;
+                                    return !purpose || purpose.includes('Người dùng không nhập mục đích')
+                                      ? <span style={{ color: '#f59e0b', fontWeight: 500 }}>Người dùng không nhập mục đích</span>
+                                      : purpose;
+                                  })()}
                                 </div>
                                 <div className="request-card-body-item">
                                   <strong>Thời gian gửi:</strong> {new Date(tx.created_at).toLocaleString()}
