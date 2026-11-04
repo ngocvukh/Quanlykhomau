@@ -32,11 +32,24 @@ Date.prototype.toLocaleString = function() {
 const UNKNOWN_REQUESTER = 'Không xác định';
 const parseRequestNote = (note) => {
   const raw = (note || '').trim();
-  const m = raw.match(/^\[(?:Khách|Người yêu cầu):\s*([^\]]*)\]\s*/);
-  if (!m) return { name: '', purpose: raw };
-  let name = (m[1] || '').trim();
-  if (!name || name === 'Khách ẩn danh') name = '';
-  return { name, purpose: raw.slice(m[0].length).trim() };
+  let name = '';
+  let deviceId = '';
+  let rest = raw;
+
+  const m = rest.match(/^\[(?:Khách|Người yêu cầu):\s*([^\]]*)\]\s*/i);
+  if (m) {
+    name = (m[1] || '').trim();
+    if (!name || name === 'Khách ẩn danh' || name === UNKNOWN_REQUESTER) name = '';
+    rest = rest.slice(m[0].length).trim();
+  }
+
+  const mDev = rest.match(/\[dev:\s*([^\]]+)\]/i);
+  if (mDev) {
+    deviceId = (mDev[1] || '').trim();
+    rest = rest.replace(mDev[0], '').trim();
+  }
+
+  return { name, purpose: rest, deviceId };
 };
 const getRequesterLabel = (tx) => {
   const fullName = (tx?.profiles?.full_name || '').trim();
@@ -2623,10 +2636,10 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [profile, isDemoMode]);
 
-  // Admin reset tên visitor theo device_id (tự động tra cứu thiết bị nếu chưa có)
+  // Admin reset tên visitor theo device_id (tự động tra cứu thiết bị nếu chưa có, hỗ trợ cả người không xác định)
   const handleResetVisitor = async (devId, userName) => {
     let targetDevId = devId;
-    if (!targetDevId && userName) {
+    if (!targetDevId && userName && userName !== UNKNOWN_REQUESTER) {
       try {
         const { data } = await supabase
           .from('search_logs')
@@ -2642,18 +2655,56 @@ export default function App() {
       }
     }
     if (!targetDevId) {
-      showToast(`Không tìm thấy thiết bị của "${userName}" để yêu cầu khai lại.`, 'warning');
+      showToast(`Không tìm thấy thiết bị của "${userName || UNKNOWN_REQUESTER}" để yêu cầu khai lại.`, 'warning');
       return;
     }
-    if (!window.confirm(`Xác nhận reset tên "${userName}"?\nLần sau họ vào web sẽ phải khai báo tên lại.`)) return;
+    const displayName = (userName && userName !== UNKNOWN_REQUESTER)
+      ? `người dùng "${userName}" (Thiết bị: ${getDisplayDeviceName(targetDevId)})`
+      : `thiết bị [${getDisplayDeviceName(targetDevId)}] (Người yêu cầu: Không xác định)`;
+
+    if (!window.confirm(`Xác nhận yêu cầu ${displayName} phải khai báo lại tên?\nLần sau thiết bị này truy cập web sẽ bắt buộc phải nhập lại tên mới.`)) return;
     try {
       await supabase.from('visitor_resets').upsert({ device_id: targetDevId, is_blocked: false, reset_by: 'admin' });
-      showToast(`Đã reset thiết bị của "${userName}". Họ sẽ phải nhập lại tên lần sau!`, 'success');
+      showToast(`Đã reset thiết bị [${getDisplayDeviceName(targetDevId)}]. Thiết bị này sẽ phải nhập lại tên lần sau!`, 'success');
       fetchSearchLogs();
       fetchUsersAndVisitors();
     } catch (e) {
       showToast('Lỗi khi reset. Thử lại.', 'error');
     }
+  };
+
+  // Xác định mã thiết bị (device_id) cho giao dịch yêu cầu lấy mẫu (kể cả người không xác định)
+  const getDeviceForTx = (tx) => {
+    if (!tx) return null;
+    const parsed = parseRequestNote(tx.note);
+    if (parsed.deviceId) return parsed.deviceId;
+    if (tx.device_id) return tx.device_id;
+
+    // 1. Tìm theo tên khách nếu có
+    const rawName = (parsed.name || (tx.profiles?.role !== 'admin' ? tx.profiles?.full_name : '') || '').trim();
+    if (rawName && rawName !== UNKNOWN_REQUESTER && rawName !== 'Khách ẩn danh') {
+      const vLog = allVisitorLogs.find(l => l.user_name && l.user_name.trim().toLowerCase() === rawName.toLowerCase())
+        || searchLogs.find(l => l.user_name && l.user_name.trim().toLowerCase() === rawName.toLowerCase());
+      if (vLog?.device_id) return vLog.device_id;
+    }
+
+    // 2. Tìm theo thời gian tương đồng trong nhật ký thiết bị (hỗ trợ cả người không xác định)
+    if (tx.created_at) {
+      const txTime = new Date(tx.created_at).getTime();
+      const logs = allVisitorLogs.length > 0 ? allVisitorLogs : searchLogs;
+      let closest = null;
+      let minDiff = 3 * 3600 * 1000; // trong khoảng 3 tiếng
+      logs.forEach(l => {
+        if (!l.device_id || !l.searched_at) return;
+        const diff = Math.abs(txTime - new Date(l.searched_at).getTime());
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = l;
+        }
+      });
+      if (closest?.device_id) return closest.device_id;
+    }
+    return null;
   };
 
   // Admin chặn vĩnh viễn thiết bị
@@ -4516,9 +4567,12 @@ export default function App() {
 
     if (isDemoMode) {
       let finalNote = effectivePurpose;
+      const currentDevId = deviceId || '';
       if (!profile) {
-        const guestName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-        finalNote = `[Khách: ${guestName}] ${effectivePurpose}`.trim();
+        const guestName = visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER;
+        finalNote = `[Khách: ${guestName}]${currentDevId ? `[dev: ${currentDevId}] ` : ' '}${effectivePurpose}`.trim();
+      } else {
+        finalNote = `${currentDevId ? `[dev: ${currentDevId}] ` : ''}${effectivePurpose}`.trim();
       }
 
       const newTx = {
@@ -4571,9 +4625,12 @@ export default function App() {
         setLoading(true);
 
         let finalNote = effectivePurpose;
+        const currentDevId = deviceId || '';
         if (!profile) {
-          const guestName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-          finalNote = `[Khách: ${guestName}] ${effectivePurpose}`.trim();
+          const guestName = visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER;
+          finalNote = `[Khách: ${guestName}]${currentDevId ? `[dev: ${currentDevId}] ` : ' '}${effectivePurpose}`.trim();
+        } else {
+          finalNote = `${currentDevId ? `[dev: ${currentDevId}] ` : ''}${effectivePurpose}`.trim();
         }
 
         const { error } = await supabase.from('transactions').insert({
@@ -8691,20 +8748,21 @@ export default function App() {
                                       <strong>Người yêu cầu:</strong>{' '}
                                       {(() => {
                                         const label = getRequesterLabel(tx);
+                                        const devId = getDeviceForTx(tx);
+                                        const devBadge = devId ? `(${getDisplayDeviceName(devId)})` : '';
                                         return label === UNKNOWN_REQUESTER
-                                          ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{label}</span>
-                                          : <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{label}</span>;
+                                          ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{label} {devBadge && <span style={{ fontStyle: 'normal', color: 'var(--accent-blue)', fontSize: '11.5px', marginLeft: '3px' }}>{devBadge}</span>}</span>
+                                          : <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{label} {devBadge && <span style={{ fontWeight: 400, color: 'var(--text-secondary)', fontSize: '11.5px', marginLeft: '3px' }}>{devBadge}</span>}</span>;
                                       })()}
                                     </span>
                                     {(() => {
                                       if (profile?.role !== 'admin') return null;
-                                      const rawGuest = parseRequestNote(tx.note).name;
-                                      const reqName = rawGuest || tx.profiles?.full_name || '';
-                                      if (!reqName || reqName === UNKNOWN_REQUESTER || tx.profiles?.role === 'admin') return null;
+                                      if (tx.profiles?.role === 'admin') return null;
 
-                                      const vLog = allVisitorLogs.find(l => l.user_name && l.user_name.trim().toLowerCase() === reqName.trim().toLowerCase())
-                                        || searchLogs.find(l => l.user_name && l.user_name.trim().toLowerCase() === reqName.trim().toLowerCase());
-                                      const devId = vLog?.device_id;
+                                      const devId = getDeviceForTx(tx);
+                                      const rawGuest = parseRequestNote(tx.note).name;
+                                      const reqName = rawGuest || tx.profiles?.full_name || UNKNOWN_REQUESTER;
+
                                       const resetStatus = devId ? resetDevices.find(d => d.device_id === devId) : null;
                                       const isBlocked = !!resetStatus && resetStatus.is_blocked;
                                       const isPendingReset = !!resetStatus && !resetStatus.is_blocked;
@@ -8740,7 +8798,13 @@ export default function App() {
                                             whiteSpace: 'nowrap',
                                             transition: 'all 0.2s ease'
                                           }}
-                                          title={isPendingReset ? 'Thiết bị này đang ở trạng thái chờ khai lại tên khi truy cập' : `Yêu cầu thiết bị của "${reqName}" phải khai lại tên vào lần truy cập sau`}
+                                          title={
+                                            isPendingReset
+                                              ? 'Thiết bị này đang ở trạng thái chờ khai lại tên khi truy cập'
+                                              : devId
+                                                ? `Yêu cầu thiết bị [${getDisplayDeviceName(devId)}] phải khai lại tên vào lần truy cập sau`
+                                                : 'Yêu cầu thiết bị này phải khai lại tên vào lần truy cập sau'
+                                          }
                                         >
                                           🔄 {isPendingReset ? 'Đang chờ nhập' : 'Yêu cầu khai lại tên'}
                                         </button>
