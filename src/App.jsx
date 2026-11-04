@@ -5708,11 +5708,12 @@ export default function App() {
             width: 210mm;
             height: 297mm;
             box-sizing: border-box;
-            padding: 8.5mm 6mm; /* Tommy 135 standard margins */
+            padding: 8.5mm 4.5mm; /* Tommy 135: lề trên/dưới 8.5mm, lề trái/phải 4.5mm */
             display: grid;
             grid-template-columns: repeat(3, 66mm);
             grid-template-rows: repeat(7, 40mm);
-            grid-gap: 0;
+            column-gap: 1.5mm; /* Khe hở 1.5mm giữa 3 cột tem (4.5 + 66 + 1.5 + 66 + 1.5 + 66 + 4.5 = 210mm) */
+            row-gap: 0;
             page-break-after: always;
           }
           .page:last-child {
@@ -5959,11 +5960,12 @@ export default function App() {
             width: 210mm;
             height: 297mm;
             box-sizing: border-box;
-            padding: 8.5mm 6mm; /* Tommy 135 standard margins */
+            padding: 8.5mm 4.5mm; /* Tommy 135: lề trên/dưới 8.5mm, lề trái/phải 4.5mm */
             display: grid;
             grid-template-columns: repeat(3, 66mm);
             grid-template-rows: repeat(7, 40mm);
-            grid-gap: 0;
+            column-gap: 1.5mm; /* Khe hở 1.5mm giữa 3 cột tem (4.5 + 66 + 1.5 + 66 + 1.5 + 66 + 4.5 = 210mm) */
+            row-gap: 0;
             page-break-after: always;
           }
           .page:last-child {
@@ -6127,7 +6129,7 @@ export default function App() {
   // Generate Print View for QR Sticker Label (Đồng bộ chuẩn 100% tem Tommy 135 như mục In Nhãn)
   const printQrSticker = (sample) => {
     if (!sample) return;
-    printTommyStickersForGroup(Mẫu , [sample], false);
+    printTommyStickersForGroup('Mẫu ' + (sample.sku || ''), [sample], false);
   };
 
   // Helper calculation: Column utilization
