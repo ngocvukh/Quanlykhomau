@@ -2530,24 +2530,30 @@ export default function App() {
     })();
   }, []);
 
-  // Chỉ hiện popup hỏi tên khi là Guest hoặc Staff (không phải Admin)
+  // Bắt buộc khai báo tên theo thiết bị (Guest, Staff và cả khi mở app qua quét mã QR tem)
   useEffect(() => {
     const isAdmin = profile?.role === 'admin';
-    if (isAdmin) return; // Admin đã có tên trong profile, không cần hỏi
+    if (isAdmin) { setShowNamePrompt(false); return; } // Admin đã có tên trong profile, không cần hỏi
     const isLoggedInAsUser = user && profile; // Staff đã đăng nhập
     const isGuest = authMode === 'guest';
-    if (!isLoggedInAsUser && !isGuest) return; // Chưa vào app, chưa cần hỏi
+    const isQrScan = !!scanResultModal || new URLSearchParams(window.location.search).has('scan');
+    if (!isLoggedInAsUser && !isGuest && !isQrScan) return; // Chưa vào app, chưa cần hỏi
 
-    const savedName = localStorage.getItem('visitor_name');
-    if (!savedName) {
-      setTimeout(() => setShowNamePrompt(true), 1000);
+    if (!localStorage.getItem('visitor_name')) {
+      setShowNamePrompt(true);
     }
-  }, [authMode, profile, user]);
+  }, [authMode, profile, user, scanResultModal]);
+
+  // Kiểm tra thiết bị đã khai báo tên chưa (Admin luôn được coi là đã khai báo)
+  const hasDeclaredName = () => {
+    if (profile?.role === 'admin') return true;
+    return !!(visitorName || localStorage.getItem('visitor_name') || '').trim();
+  };
 
   const saveVisitorName = async () => {
     const trimmed = nameInput.trim();
     if (!trimmed) {
-      window.location.href = 'https://www.google.com.vn';
+      showToast('Vui lòng nhập tên của bạn trước khi sử dụng!', 'warning');
       return;
     }
     localStorage.setItem('visitor_name', trimmed);
@@ -4453,6 +4459,11 @@ export default function App() {
   }, []);
 
   const handleTakeRequest = async (sample, qty, note) => {
+    if (!hasDeclaredName()) {
+      setShowNamePrompt(true);
+      showToast('Bạn phải khai báo tên trước khi lấy mẫu!', 'warning');
+      return;
+    }
     if (!qty || qty <= 0) {
       showToast("Số lượng lấy phải lớn hơn 0!", "error");
       return;
@@ -11984,7 +11995,7 @@ export default function App() {
 
       {/* NAME PROMPT MODAL */}
       {showNamePrompt && (
-        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+        <div className="modal-overlay" style={{ zIndex: 10050 }}>
           <div className="modal-content" style={{ maxWidth: '400px', border: '1px solid var(--accent-blue)' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header" style={{ borderBottom: '1px solid rgba(99,102,241,0.25)' }}>
               <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -11992,6 +12003,9 @@ export default function App() {
               </h3>
             </div>
             <div className="modal-body" style={{ padding: '20px 20px' }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 12px 0', lineHeight: 1.5 }}>
+                Thiết bị này chưa được khai báo tên. Bạn cần nhập tên trước khi tra cứu hoặc lấy mẫu.
+              </p>
               <input
                 className="form-input"
                 type="text"
@@ -12015,7 +12029,7 @@ export default function App() {
       )}
 
       {/* ── QR SCAN RESULT MODAL (auto-opens when app loaded via ?scan=) ── */}
-      {scanResultModal && (
+      {scanResultModal && !showNamePrompt && (
         <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => { setScanResultModal(null); setScanQty(''); }}>
           <div className="modal-content" style={{ maxWidth: '380px' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
