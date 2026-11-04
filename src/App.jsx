@@ -2386,6 +2386,11 @@ export default function App() {
   // Bộ lọc tìm kiếm cho Danh mục gốc
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
 
+  // Bộ lọc & tìm kiếm Lịch sử cấp mẫu / Yêu cầu lấy mẫu
+  const [requestSearchQuery, setRequestSearchQuery] = useState('');
+  const [requestStatusFilter, setRequestStatusFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'cancelled'
+  const [requestDateFilter, setRequestDateFilter] = useState('all'); // 'all' | 'today' | '7days' | '30days'
+
   // Batch Print Label Queue (persisted in LocalStorage and synced globally via Supabase)
   const getQueueItemKey = (item) => {
     if (!item) return '';
@@ -8086,8 +8091,249 @@ export default function App() {
                   <ArrowRightLeft size={22} color="var(--accent-blue)" /> Phê Duyệt Yêu Cầu Cấp Lấy Mẫu Thuốc Lá
                 </h2>
 
+                {/* THANH TÌM KIẾM & BỘ LỌC LỊCH SỬ CẤP MẪU */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '16px 20px', marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Search size={18} color="var(--accent-blue)" />
+                      <strong style={{ fontSize: '15px' }}>Tra cứu & Tìm kiếm lịch sử cấp mẫu</strong>
+                    </div>
+
+                    {/* Quick Stats Filter Badges */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {(() => {
+                        const allTakeReqs = transactions.filter(t => t.type === 'take_request');
+                        const pendingCount = allTakeReqs.filter(t => t.status === 'pending').length;
+                        const approvedCount = allTakeReqs.filter(t => t.status === 'approved').length;
+                        const cancelledCount = allTakeReqs.filter(t => t.status === 'cancelled').length;
+
+                        return (
+                          <>
+                            <span 
+                              style={{ 
+                                fontSize: '12px', 
+                                padding: '3px 10px', 
+                                borderRadius: '14px', 
+                                background: requestStatusFilter === 'all' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.05)', 
+                                color: requestStatusFilter === 'all' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                                border: requestStatusFilter === 'all' ? '1px solid var(--accent-blue)' : '1px solid transparent',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                userSelect: 'none'
+                              }}
+                              onClick={() => setRequestStatusFilter('all')}
+                              title="Xem tất cả yêu cầu"
+                            >
+                              Tất cả: <strong>{allTakeReqs.length}</strong>
+                            </span>
+                            <span 
+                              style={{ 
+                                fontSize: '12px', 
+                                padding: '3px 10px', 
+                                borderRadius: '14px', 
+                                background: requestStatusFilter === 'pending' ? 'rgba(245, 158, 11, 0.25)' : 'rgba(245, 158, 11, 0.08)', 
+                                color: '#f59e0b',
+                                border: requestStatusFilter === 'pending' ? '1px solid #f59e0b' : '1px solid rgba(245, 158, 11, 0.2)',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                userSelect: 'none'
+                              }}
+                              onClick={() => setRequestStatusFilter('pending')}
+                              title="Lọc các yêu cầu đang chờ duyệt"
+                            >
+                              Chờ duyệt: <strong>{pendingCount}</strong>
+                            </span>
+                            <span 
+                              style={{ 
+                                fontSize: '12px', 
+                                padding: '3px 10px', 
+                                borderRadius: '14px', 
+                                background: requestStatusFilter === 'approved' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.08)', 
+                                color: '#10b981',
+                                border: requestStatusFilter === 'approved' ? '1px solid #10b981' : '1px solid rgba(16, 185, 129, 0.2)',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                userSelect: 'none'
+                              }}
+                              onClick={() => setRequestStatusFilter('approved')}
+                              title="Lọc các yêu cầu đã cấp mẫu"
+                            >
+                              Đã cấp: <strong>{approvedCount}</strong>
+                            </span>
+                            <span 
+                              style={{ 
+                                fontSize: '12px', 
+                                padding: '3px 10px', 
+                                borderRadius: '14px', 
+                                background: requestStatusFilter === 'cancelled' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.08)', 
+                                color: '#ef4444',
+                                border: requestStatusFilter === 'cancelled' ? '1px solid #ef4444' : '1px solid rgba(239, 68, 68, 0.2)',
+                                cursor: 'pointer',
+                                fontWeight: 500,
+                                userSelect: 'none'
+                              }}
+                              onClick={() => setRequestStatusFilter('cancelled')}
+                              title="Lọc các yêu cầu đã từ chối/hủy"
+                            >
+                              Đã hủy: <strong>{cancelledCount}</strong>
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', alignItems: 'center' }}>
+                    {/* Search query box */}
+                    <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+                      <input 
+                        type="text"
+                        className="form-input"
+                        style={{ paddingLeft: '34px', paddingRight: requestSearchQuery ? '32px' : '12px', fontSize: '13px' }}
+                        placeholder="Tìm theo tên thuốc, khách hàng, mẻ sợi, SKU..."
+                        value={requestSearchQuery}
+                        onChange={e => setRequestSearchQuery(e.target.value)}
+                      />
+                      <Search size={15} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                      {requestSearchQuery && (
+                        <button 
+                          style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
+                          onClick={() => setRequestSearchQuery('')}
+                          title="Xóa tìm kiếm"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Filter Status select */}
+                    <div style={{ minWidth: '160px' }}>
+                      <select 
+                        className="form-select"
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                        value={requestStatusFilter}
+                        onChange={e => setRequestStatusFilter(e.target.value)}
+                      >
+                        <option value="all">Tất cả trạng thái</option>
+                        <option value="pending">Chờ duyệt cấp</option>
+                        <option value="approved">Đã cấp mẫu</option>
+                        <option value="cancelled">Đã hủy / Từ chối</option>
+                      </select>
+                    </div>
+
+                    {/* Filter Date select */}
+                    <div style={{ minWidth: '160px' }}>
+                      <select 
+                        className="form-select"
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                        value={requestDateFilter}
+                        onChange={e => setRequestDateFilter(e.target.value)}
+                      >
+                        <option value="all">Toàn bộ thời gian</option>
+                        <option value="today">Hôm nay</option>
+                        <option value="7days">7 ngày gần nhất</option>
+                        <option value="30days">30 ngày gần nhất</option>
+                      </select>
+                    </div>
+
+                    {/* Reset Filters button */}
+                    {(requestSearchQuery || requestStatusFilter !== 'all' || requestDateFilter !== 'all') && (
+                      <button 
+                        className="btn btn-secondary"
+                        style={{ padding: '8px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', borderColor: 'rgba(255,255,255,0.1)' }}
+                        onClick={() => {
+                          setRequestSearchQuery('');
+                          setRequestStatusFilter('all');
+                          setRequestDateFilter('all');
+                        }}
+                      >
+                        <RotateCcw size={13} /> Đặt lại
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {transactions.filter(t => t.type === 'take_request').map(tx => {
+                  {(() => {
+                    const filteredRequests = transactions
+                      .filter(t => t.type === 'take_request')
+                      .filter(tx => {
+                        // 1. Status Filter
+                        if (requestStatusFilter !== 'all' && tx.status !== requestStatusFilter) {
+                          return false;
+                        }
+
+                        // 2. Date Filter
+                        if (requestDateFilter !== 'all') {
+                          const txDate = new Date(tx.created_at);
+                          const now = new Date();
+                          if (requestDateFilter === 'today') {
+                            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                            if (txDate < startOfToday) return false;
+                          } else if (requestDateFilter === '7days') {
+                            const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                            if (txDate < sevenDaysAgo) return false;
+                          } else if (requestDateFilter === '30days') {
+                            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                            if (txDate < thirtyDaysAgo) return false;
+                          }
+                        }
+
+                        // 3. Search Query Filter
+                        if (requestSearchQuery && requestSearchQuery.trim()) {
+                          const q = requestSearchQuery.trim().toLowerCase();
+                          const sample = tx.samples;
+                          const prodName = (sample?.products?.product_name || sample?.product_name || '').toLowerCase();
+                          const batch = (sample?.blend_batch || '').toLowerCase();
+                          const sku = (sample?.sku || '').toLowerCase();
+                          const orderNum = (sample?.order_number || '').toLowerCase();
+                          const requester = (tx.profiles?.full_name || '').toLowerCase();
+                          const empCode = (tx.profiles?.employee_code || '').toLowerCase();
+                          const note = (tx.note || '').toLowerCase();
+                          const loc = sample?.shelf ? `kệ ${sample.shelf} ô ${sample.slot} cột ${sample.column_number}`.toLowerCase() : '';
+
+                          const matches = 
+                            prodName.includes(q) ||
+                            batch.includes(q) ||
+                            sku.includes(q) ||
+                            orderNum.includes(q) ||
+                            requester.includes(q) ||
+                            empCode.includes(q) ||
+                            note.includes(q) ||
+                            loc.includes(q);
+
+                          if (!matches) return false;
+                        }
+
+                        return true;
+                      });
+
+                    if (filteredRequests.length === 0) {
+                      return (
+                        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.01)', borderRadius: '10px', border: '1px dashed var(--glass-border)' }}>
+                          <p style={{ margin: 0, fontSize: '14px' }}>
+                            {requestSearchQuery || requestStatusFilter !== 'all' || requestDateFilter !== 'all'
+                              ? 'Không tìm thấy yêu cầu cấp mẫu nào khớp với bộ lọc tìm kiếm.'
+                              : 'Không có yêu cầu lấy mẫu nào cần duyệt.'}
+                          </p>
+                          {(requestSearchQuery || requestStatusFilter !== 'all' || requestDateFilter !== 'all') && (
+                            <button 
+                              className="btn btn-secondary" 
+                              style={{ marginTop: '12px', fontSize: '13px' }}
+                              onClick={() => {
+                                setRequestSearchQuery('');
+                                setRequestStatusFilter('all');
+                                setRequestDateFilter('all');
+                              }}
+                            >
+                              Xóa bộ lọc để xem lại tất cả
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    return filteredRequests.map(tx => {
                     const sample = tx.samples;
                     const location = sample?.shelf 
                       ? formatLocation(sample.shelf, sample.slot, sample.column_number) 
@@ -8146,12 +8392,8 @@ export default function App() {
                         </div>
                       </div>
                     );
-                  })}
-                  {transactions.filter(t => t.type === 'take_request').length === 0 && (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      Không có yêu cầu lấy mẫu nào cần duyệt.
-                    </div>
-                  )}
+                  });
+                })()}
                 </div>
               </div>
             )}
