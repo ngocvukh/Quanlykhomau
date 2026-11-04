@@ -8420,21 +8420,34 @@ export default function App() {
                           const isPendingQtyChanged = pendingChosenQty !== tx.quantity;
 
                           return (
-                            <div key={tx.id} className="glass-panel" style={{ borderLeft: `4px solid ${tx.status === 'pending' ? 'var(--status-warning)' : tx.status === 'approved' ? 'var(--status-success)' : 'var(--text-muted)'}`, padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', background: tx.status === 'pending' ? 'rgba(245,158,11,0.02)' : 'var(--glass-bg)' }}>
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <div 
+                              key={tx.id} 
+                              className="glass-panel request-card" 
+                              style={{ 
+                                borderLeft: `4px solid ${tx.status === 'pending' ? 'var(--status-warning)' : tx.status === 'approved' ? 'var(--status-success)' : 'var(--text-muted)'}`, 
+                                background: tx.status === 'pending' ? 'rgba(245,158,11,0.02)' : 'var(--glass-bg)' 
+                              }}
+                            >
+                              {/* 1. Header: Status, Tên sản phẩm, Bộ chỉnh số lượng & Nút hành động */}
+                              <div className="request-card-header">
+                                <div className="request-card-title-group">
                                   <span style={{ 
                                     textTransform: 'uppercase', 
                                     fontSize: '11px', 
                                     background: tx.status === 'pending' ? 'var(--status-warning)' : (tx.status === 'cancelled' ? 'var(--status-error)' : 'var(--status-success)'), 
                                     color: '#000', 
-                                    padding: '2px 8px', 
+                                    padding: '3px 8px', 
                                     borderRadius: '12px', 
-                                    fontWeight: 'bold' 
+                                    fontWeight: 'bold',
+                                    letterSpacing: '0.4px',
+                                    flexShrink: 0
                                   }}>
                                     {tx.status === 'pending' ? 'Chờ duyệt cấp' : (tx.status === 'cancelled' ? 'Đã hủy' : 'Đã cấp')}
                                   </span>
-                                  <h4 style={{ fontSize: '18px', fontWeight: 'bold' }}>{sample?.products?.product_name || sample?.product_name || 'Mẫu đã xóa'}</h4>
+
+                                  <h4 className="request-card-title">
+                                    {sample?.products?.product_name || sample?.product_name || 'Mẫu đã xóa'}
+                                  </h4>
 
                                   {tx.status === 'pending' ? (
                                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(255, 255, 255, 0.05)', padding: '3px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
@@ -8511,55 +8524,82 @@ export default function App() {
                                       </span>
                                     </div>
                                   ) : (
-                                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy: <strong>{tx.quantity} bao</strong> ({tx.quantity % 10 !== 0 ? 'Bóc cây lẻ' : `${tx.quantity/10} cây nguyên`})</span>
+                                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                      — Lấy: <strong>{tx.quantity} bao</strong> ({tx.quantity % 10 !== 0 ? 'Bóc cây lẻ' : `${tx.quantity/10} cây nguyên`})
+                                    </span>
                                   )}
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                                  <div><strong>Người yêu cầu:</strong> {tx.profiles?.full_name} ({tx.profiles?.employee_code})</div>
-                                  <div><strong>Lý do:</strong> {tx.note}</div>
-                                  <div><strong>Thời gian gửi:</strong> {new Date(tx.created_at).toLocaleString()}</div>
-                                  <div><strong>Vị trí kệ mẫu:</strong> <strong style={{ color: 'var(--accent-blue)' }}>{location}</strong></div>
-                                  <div><strong>Mẻ sợi:</strong> {formatBlendBatch(sample?.blend_batch)}</div>
-                                  <div><strong>Hạn lưu của mẫu:</strong> {ageMonths} tháng tuổi</div>
+                                {/* Nút hành động: Luôn neo cố định bên phải trên PC, co giãn mượt trên Mobile */}
+                                <div className="request-card-actions">
+                                  {tx.status === 'pending' ? (
+                                    <>
+                                      <button className="btn btn-secondary" onClick={() => handleCancelRequest(tx.id)}> 
+                                        Từ chối 
+                                      </button>
+                                      {isPendingQtyChanged && (
+                                        <button
+                                          className="btn btn-secondary"
+                                          style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '13px' }}
+                                          onClick={() => handleSavePendingQty(tx, pendingChosenQty)}
+                                          title="Lưu lại số lượng mới mà chưa duyệt cấp"
+                                        >
+                                          Lưu số lượng
+                                        </button>
+                                      )}
+                                      <button 
+                                        className="btn btn-primary" 
+                                        onClick={() => handleApproveRequest(tx, pendingChosenQty)}
+                                        style={{ fontWeight: 'bold' }}
+                                        title={`Phê duyệt cấp ${pendingChosenQty} bao`}
+                                      > 
+                                        {isPendingQtyChanged ? `Cấp ${pendingChosenQty} bao` : 'Cấp mẫu'} 
+                                      </button>
+                                    </>
+                                  ) : (
+                                    profile?.role === 'admin' && (
+                                      <button 
+                                        className="btn btn-secondary"
+                                        style={{ 
+                                          borderColor: '#f97316', 
+                                          color: '#f97316', 
+                                          fontSize: '13px', 
+                                          display: 'inline-flex', 
+                                          alignItems: 'center', 
+                                          gap: '6px',
+                                          fontWeight: 500,
+                                          padding: '6px 14px'
+                                        }}
+                                        onClick={() => handleUndoRequest(tx)}
+                                        title="Hoàn tác yêu cầu này về trạng thái Chờ duyệt và hoàn trả lại kho"
+                                      >
+                                        <RotateCcw size={14} /> Hoàn tác
+                                      </button>
+                                    )
+                                  )}
                                 </div>
                               </div>
 
-                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                {tx.status === 'pending' ? (
-                                  <>
-                                    <button className="btn btn-secondary" onClick={() => handleCancelRequest(tx.id)}> Từ chối </button>
-                                    {isPendingQtyChanged && (
-                                      <button
-                                        className="btn btn-secondary"
-                                        style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '13px' }}
-                                        onClick={() => handleSavePendingQty(tx, pendingChosenQty)}
-                                        title="Lưu lại số lượng mới mà chưa duyệt cấp"
-                                      >
-                                        Lưu số lượng
-                                      </button>
-                                    )}
-                                    <button 
-                                      className="btn btn-primary" 
-                                      onClick={() => handleApproveRequest(tx, pendingChosenQty)}
-                                      style={{ fontWeight: 'bold' }}
-                                      title={`Phê duyệt cấp ${pendingChosenQty} bao`}
-                                    > 
-                                      {isPendingQtyChanged ? `Cấp ${pendingChosenQty} bao` : 'Cấp mẫu'} 
-                                    </button>
-                                  </>
-                                ) : (
-                                  profile?.role === 'admin' && (
-                                    <button 
-                                      className="btn btn-secondary"
-                                      style={{ borderColor: '#f97316', color: '#f97316', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                                      onClick={() => handleUndoRequest(tx)}
-                                      title="Hoàn tác yêu cầu này về trạng thái Chờ duyệt và hoàn trả lại kho"
-                                    >
-                                      <RotateCcw size={14} /> Hoàn tác
-                                    </button>
-                                  )
-                                )}
+                              {/* 2. Body: Lưới thông tin chi tiết (Responsive 3 cột trên PC, 1 cột trên Mobile) */}
+                              <div className="request-card-body">
+                                <div className="request-card-body-item">
+                                  <strong>Người yêu cầu:</strong> {tx.profiles?.full_name || 'Khách'} {tx.profiles?.employee_code ? `(${tx.profiles.employee_code})` : ''}
+                                </div>
+                                <div className="request-card-body-item">
+                                  <strong>Lý do:</strong> {tx.note || '—'}
+                                </div>
+                                <div className="request-card-body-item">
+                                  <strong>Thời gian gửi:</strong> {new Date(tx.created_at).toLocaleString()}
+                                </div>
+                                <div className="request-card-body-item">
+                                  <strong>Vị trí kệ mẫu:</strong> <strong style={{ color: 'var(--accent-blue)' }}>{location}</strong>
+                                </div>
+                                <div className="request-card-body-item">
+                                  <strong>Mẻ sợi:</strong> {formatBlendBatch(sample?.blend_batch)}
+                                </div>
+                                <div className="request-card-body-item">
+                                  <strong>Hạn lưu của mẫu:</strong> {ageMonths} tháng tuổi
+                                </div>
                               </div>
                             </div>
                           );

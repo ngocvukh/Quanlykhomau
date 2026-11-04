@@ -885,3 +885,108 @@ h1, h2, h3, h4, h5, h6 {
     height: 32px !important;
   }
 }
+
+
+/* ==========================================================================
+   REQUEST CARD (Phê duyệt & Lịch sử cấp mẫu)
+   Synchronized, robust layout for both PC and Mobile
+   ========================================================================== */
+.request-card {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+  padding: 18px 22px !important;
+  border-radius: 12px !important;
+  box-sizing: border-box !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.request-card-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+  width: 100% !important;
+}
+
+.request-card-title-group {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  flex-wrap: wrap !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+}
+
+.request-card-title {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  margin: 0 !important;
+  color: var(--text-primary) !important;
+  word-break: break-word !important;
+}
+
+.request-card-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+  margin-left: auto !important;
+}
+
+.request-card-body {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
+  gap: 10px 16px !important;
+  padding-top: 14px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+  font-size: 13px !important;
+  color: var(--text-secondary) !important;
+  line-height: 1.5 !important;
+}
+
+.request-card-body-item {
+  min-width: 0 !important;
+  word-break: break-word !important;
+}
+
+/* Mobile optimizations for Request Card */
+@media (max-width: 768px) {
+  .request-card {
+    padding: 14px 14px !important;
+    gap: 12px !important;
+  }
+  .request-card-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .request-card-title-group {
+    width: 100% !important;
+    gap: 8px !important;
+  }
+  .request-card-title {
+    font-size: 16px !important;
+  }
+  .request-card-actions {
+    width: 100% !important;
+    justify-content: flex-end !important;
+    margin-left: 0 !important;
+    padding-top: 8px !important;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08) !important;
+  }
+  .request-card-actions .btn {
+    flex: 1 !important;
+    justify-content: center !important;
+    text-align: center !important;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+  }
+  .request-card-body {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding-top: 10px !important;
+    font-size: 12.5px !important;
+  }
+}
