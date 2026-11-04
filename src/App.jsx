@@ -2386,10 +2386,15 @@ export default function App() {
   // Bộ lọc tìm kiếm cho Danh mục gốc
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
 
-  // Bộ lọc & tìm kiếm Lịch sử cấp mẫu / Yêu cầu lấy mẫu
+  // Bộ lọc & tìm kiếm Lịch sử cấp mẫu / Yêu cầu lấy mẫu (Phân trang 20 mục / trang)
   const [requestSearchQuery, setRequestSearchQuery] = useState('');
   const [requestStatusFilter, setRequestStatusFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'cancelled'
   const [requestDateFilter, setRequestDateFilter] = useState('all'); // 'all' | 'today' | '7days' | '30days'
+  const [requestPage, setRequestPage] = useState(1);
+
+  useEffect(() => {
+    setRequestPage(1);
+  }, [requestSearchQuery, requestStatusFilter, requestDateFilter]);
 
   // Batch Print Label Queue (persisted in LocalStorage and synced globally via Supabase)
   const getQueueItemKey = (item) => {
@@ -8333,66 +8338,132 @@ export default function App() {
                       );
                     }
 
-                    return filteredRequests.map(tx => {
-                    const sample = tx.samples;
-                    const location = sample?.shelf 
-                      ? formatLocation(sample.shelf, sample.slot, sample.column_number) 
-                      : (sample?.box_id 
-                          ? `Thùng ${boxes.find(b => b.id === sample?.box_id)?.box_name || sample.box_id}` 
-                          : (tx.status === 'approved' ? 'Đã xuất kho (Hết mẫu)' : 'Chưa có vị trí'));
-                    const ageMonths = sample ? Math.floor((new Date() - new Date(sample.packaging_date)) / (1000 * 60 * 60 * 24 * 30.5)) : 0;
-                    
+                    const PAGE_SIZE = 20;
+                    const totalPages = Math.ceil(filteredRequests.length / PAGE_SIZE) || 1;
+                    const currentPage = Math.min(Math.max(1, requestPage), totalPages);
+                    const startIndex = (currentPage - 1) * PAGE_SIZE;
+                    const paginatedRequests = filteredRequests.slice(startIndex, startIndex + PAGE_SIZE);
+
                     return (
-                      <div key={tx.id} className="glass-panel" style={{ borderLeft: `4px solid ${tx.status === 'pending' ? 'var(--status-warning)' : tx.status === 'approved' ? 'var(--status-success)' : 'var(--text-muted)'}`, padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', background: tx.status === 'pending' ? 'rgba(245,158,11,0.02)' : 'var(--glass-bg)' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <span style={{ 
-                              textTransform: 'uppercase', 
-                              fontSize: '11px', 
-                              background: tx.status === 'pending' ? 'var(--status-warning)' : (tx.status === 'cancelled' ? 'var(--status-error)' : 'var(--status-success)'), 
-                              color: '#000', 
-                              padding: '2px 8px', 
-                              borderRadius: '12px', 
-                              fontWeight: 'bold' 
-                            }}>
-                              {tx.status === 'pending' ? 'Chờ duyệt cấp' : (tx.status === 'cancelled' ? 'Đã hủy' : 'Đã cấp')}
-                            </span>
-                            <h4 style={{ fontSize: '18px', fontWeight: 'bold' }}>{sample?.products?.product_name || sample?.product_name || 'Mẫu đã xóa'}</h4>
-                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy: <strong>{tx.quantity} bao</strong> ({tx.quantity % 10 !== 0 ? 'Bóc cây lẻ' : `${tx.quantity/10} cây nguyên`})</span>
-                          </div>
+                      <>
+                        {paginatedRequests.map(tx => {
+                          const sample = tx.samples;
+                          const location = sample?.shelf 
+                            ? formatLocation(sample.shelf, sample.slot, sample.column_number) 
+                            : (sample?.box_id 
+                                ? `Thùng ${boxes.find(b => b.id === sample?.box_id)?.box_name || sample.box_id}` 
+                                : (tx.status === 'approved' ? 'Đã xuất kho (Hết mẫu)' : 'Chưa có vị trí'));
+                          const ageMonths = sample ? Math.floor((new Date() - new Date(sample.packaging_date)) / (1000 * 60 * 60 * 24 * 30.5)) : 0;
+                          
+                          return (
+                            <div key={tx.id} className="glass-panel" style={{ borderLeft: `4px solid ${tx.status === 'pending' ? 'var(--status-warning)' : tx.status === 'approved' ? 'var(--status-success)' : 'var(--text-muted)'}`, padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', background: tx.status === 'pending' ? 'rgba(245,158,11,0.02)' : 'var(--glass-bg)' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span style={{ 
+                                    textTransform: 'uppercase', 
+                                    fontSize: '11px', 
+                                    background: tx.status === 'pending' ? 'var(--status-warning)' : (tx.status === 'cancelled' ? 'var(--status-error)' : 'var(--status-success)'), 
+                                    color: '#000', 
+                                    padding: '2px 8px', 
+                                    borderRadius: '12px', 
+                                    fontWeight: 'bold' 
+                                  }}>
+                                    {tx.status === 'pending' ? 'Chờ duyệt cấp' : (tx.status === 'cancelled' ? 'Đã hủy' : 'Đã cấp')}
+                                  </span>
+                                  <h4 style={{ fontSize: '18px', fontWeight: 'bold' }}>{sample?.products?.product_name || sample?.product_name || 'Mẫu đã xóa'}</h4>
+                                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy: <strong>{tx.quantity} bao</strong> ({tx.quantity % 10 !== 0 ? 'Bóc cây lẻ' : `${tx.quantity/10} cây nguyên`})</span>
+                                </div>
 
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                            <div><strong>Người yêu cầu:</strong> {tx.profiles?.full_name} ({tx.profiles?.employee_code})</div>
-                            <div><strong>Lý do:</strong> {tx.note}</div>
-                            <div><strong>Thời gian gửi:</strong> {new Date(tx.created_at).toLocaleString()}</div>
-                            <div><strong>Vị trí kệ mẫu:</strong> <strong style={{ color: 'var(--accent-blue)' }}>{location}</strong></div>
-                            <div><strong>Mẻ sợi:</strong> {formatBlendBatch(sample?.blend_batch)}</div>
-                            <div><strong>Hạn lưu của mẫu:</strong> {ageMonths} tháng tuổi</div>
-                          </div>
-                        </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                  <div><strong>Người yêu cầu:</strong> {tx.profiles?.full_name} ({tx.profiles?.employee_code})</div>
+                                  <div><strong>Lý do:</strong> {tx.note}</div>
+                                  <div><strong>Thời gian gửi:</strong> {new Date(tx.created_at).toLocaleString()}</div>
+                                  <div><strong>Vị trí kệ mẫu:</strong> <strong style={{ color: 'var(--accent-blue)' }}>{location}</strong></div>
+                                  <div><strong>Mẻ sợi:</strong> {formatBlendBatch(sample?.blend_batch)}</div>
+                                  <div><strong>Hạn lưu của mẫu:</strong> {ageMonths} tháng tuổi</div>
+                                </div>
+                              </div>
 
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          {tx.status === 'pending' ? (
-                            <>
-                              <button className="btn btn-secondary" onClick={() => handleCancelRequest(tx.id)}> Từ chối </button>
-                              <button className="btn btn-primary" onClick={() => handleApproveRequest(tx)}> Cấp mẫu </button>
-                            </>
-                          ) : (
-                            profile?.role === 'admin' && (
-                              <button 
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                {tx.status === 'pending' ? (
+                                  <>
+                                    <button className="btn btn-secondary" onClick={() => handleCancelRequest(tx.id)}> Từ chối </button>
+                                    <button className="btn btn-primary" onClick={() => handleApproveRequest(tx)}> Cấp mẫu </button>
+                                  </>
+                                ) : (
+                                  profile?.role === 'admin' && (
+                                    <button 
+                                      className="btn btn-secondary"
+                                      style={{ borderColor: '#f97316', color: '#f97316', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                      onClick={() => handleUndoRequest(tx)}
+                                      title="Hoàn tác yêu cầu này về trạng thái Chờ duyệt và hoàn trả lại kho"
+                                    >
+                                      <RotateCcw size={14} /> Hoàn tác
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Phân trang: 20 mục / trang */}
+                        {totalPages > 1 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', padding: '12px 18px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--glass-border)', flexWrap: 'wrap', gap: '12px' }}>
+                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                              Hiển thị <strong>{startIndex + 1}</strong> – <strong>{Math.min(startIndex + PAGE_SIZE, filteredRequests.length)}</strong> trong tổng số <strong>{filteredRequests.length}</strong> yêu cầu (Trang {currentPage}/{totalPages})
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <button
                                 className="btn btn-secondary"
-                                style={{ borderColor: '#f97316', color: '#f97316', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                                onClick={() => handleUndoRequest(tx)}
-                                title="Hoàn tác yêu cầu này về trạng thái Chờ duyệt và hoàn trả lại kho"
+                                style={{ padding: '6px 12px', fontSize: '12.5px', opacity: currentPage === 1 ? 0.4 : 1, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+                                disabled={currentPage === 1}
+                                onClick={() => setRequestPage(p => Math.max(1, p - 1))}
                               >
-                                <RotateCcw size={14} /> Hoàn tác
+                                ← Trước
                               </button>
-                            )
-                          )}
-                        </div>
-                      </div>
+
+                              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2)
+                                .map((p, idx, arr) => {
+                                  const prev = arr[idx - 1];
+                                  return (
+                                    <React.Fragment key={p}>
+                                      {prev && p - prev > 1 && (
+                                        <span style={{ color: 'var(--text-muted)', padding: '0 4px', fontSize: '12px' }}>...</span>
+                                      )}
+                                      <button
+                                        className={`btn ${currentPage === p ? 'btn-primary' : 'btn-secondary'}`}
+                                        style={{ 
+                                          minWidth: '34px', 
+                                          height: '32px', 
+                                          padding: '0 8px', 
+                                          fontSize: '12.5px', 
+                                          fontWeight: currentPage === p ? 'bold' : 'normal',
+                                          borderColor: currentPage === p ? 'var(--accent-blue)' : 'rgba(255,255,255,0.1)'
+                                        }}
+                                        onClick={() => setRequestPage(p)}
+                                      >
+                                        {p}
+                                      </button>
+                                    </React.Fragment>
+                                  );
+                                })}
+
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: '6px 12px', fontSize: '12.5px', opacity: currentPage === totalPages ? 0.4 : 1, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+                                disabled={currentPage === totalPages}
+                                onClick={() => setRequestPage(p => Math.min(totalPages, p + 1))}
+                              >
+                                Sau →
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     );
-                  });
                 })()}
                 </div>
               </div>
