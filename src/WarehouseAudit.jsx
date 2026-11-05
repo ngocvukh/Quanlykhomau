@@ -4,7 +4,7 @@ import {
   Camera, CameraOff, CheckCircle2, AlertTriangle, AlertCircle, RefreshCw,
   Search, Volume2, VolumeX, Printer, Check, X, ArrowRight,
   Warehouse, Layers, QrCode, Sliders, ShieldAlert, FileText, ChevronRight,
-  Radio, Smartphone, Monitor
+  Radio, Smartphone, Monitor, ZoomIn
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
@@ -91,6 +91,8 @@ export default function WarehouseAudit({
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
+  const [currentZoom, setCurrentZoom] = useState(1);
+  const [zoomSupported, setZoomSupported] = useState(true);
   const [syncStatus, setSyncStatus] = useState('connected'); // 'connected' | 'syncing' | 'error'
 
   // Scanned Map: { [sku]: { sample, scannedAt, matchType: 'matched'|'misplaced'|'unknown', detectedText } }
@@ -377,6 +379,7 @@ export default function WarehouseAudit({
       );
 
       setIsScanning(true);
+      setCurrentZoom(1);
 
       try {
         const caps = html5QrCode.getRunningTrackCapabilities();
@@ -404,6 +407,44 @@ export default function WarehouseAudit({
     }
     setIsScanning(false);
     setIsTorchOn(false);
+    setCurrentZoom(1);
+    try {
+      const videoEl = document.querySelector('#reader-audit-camera video');
+      if (videoEl) videoEl.style.transform = 'none';
+    } catch (e) {}
+  };
+
+  // Áp dụng mức Zoom Camera (Hỗ trợ cả Hardware Zoom và Fallback phóng to CSS)
+  const handleApplyZoom = async (zoomLevel) => {
+    const targetZoom = Number(zoomLevel);
+    setCurrentZoom(targetZoom);
+
+    // 1. Cố gắng áp dụng Zoom phần cứng trên cảm biến camera
+    if (html5QrCodeRef.current) {
+      try {
+        const camCaps = html5QrCodeRef.current.getRunningTrackCameraCapabilities?.();
+        const zf = camCaps?.zoomFeature?.();
+        if (zf && zf.isSupported()) {
+          await zf.apply(targetZoom);
+        } else {
+          await html5QrCodeRef.current.applyVideoConstraints({
+            advanced: [{ zoom: targetZoom }]
+          });
+        }
+      } catch (err) {
+        console.warn("Hardware zoom warning, using CSS magnification:", err);
+      }
+    }
+
+    // 2. CSS Scale phóng to trực tiếp trên thẻ video (giúp quét nhạy và phóng to trên mọi thiết bị)
+    try {
+      const videoEl = document.querySelector('#reader-audit-camera video');
+      if (videoEl) {
+        videoEl.style.transform = `scale(${targetZoom})`;
+        videoEl.style.transformOrigin = 'center center';
+        videoEl.style.transition = 'transform 0.2s ease-out';
+      }
+    } catch (e) {}
   };
 
   // Dọn dẹp khi unmount
@@ -442,6 +483,38 @@ export default function WarehouseAudit({
     } catch (e) {
       showToast("Thiết bị không hỗ trợ bật đèn Flash", "info");
     }
+  };
+
+  // Điểm danh 1 chạm cho mẫu có tem bị mờ/trầy
+  const handleManualVerifyItem = (item) => {
+    if (!item || !item.sku) return;
+    if (isSoundEnabled) playScanBeep('success');
+    triggerHaptic(50);
+    const newMap = {
+      ...scannedMap,
+      [item.sku]: { sample: item, scannedAt: new Date().toISOString(), matchType: 'matched', manualConfirmed: true }
+    };
+    const newResult = {
+      type: 'matched',
+      sku: item.sku,
+      sample: item,
+      time: new Date().toISOString(),
+      manualConfirmed: true
+    };
+    setScannedMap(newMap);
+    setLastScannedResult(newResult);
+    syncAuditToSupabase(newMap, selectedScope, newResult);
+    showToast(`🟢 Đã xác nhận: ${item.products?.product_name || item.product_name}`, 'success');
+  };
+
+  // Hủy xác nhận một mẫu (nếu bấm nhầm)
+  const handleUnmatchItem = (sku) => {
+    if (!sku || !scannedMap[sku]) return;
+    const newMap = { ...scannedMap };
+    delete newMap[sku];
+    setScannedMap(newMap);
+    syncAuditToSupabase(newMap, selectedScope, null);
+    showToast(`Đã hủy xác nhận mẫu [${sku}]`, 'info');
   };
 
   // Nhập mã thủ công khi tem mờ
@@ -739,15 +812,63 @@ export default function WarehouseAudit({
             )}
 
             {isScanning && (
-              <div style={{ position: 'absolute', bottom: '12px', zIndex: 10 }}>
-                <button
-                  className="btn btn-secondary"
-                  onClick={stopCameraScanner}
-                  style={{ background: 'rgba(0,0,0,0.7)', color: '#fff', borderColor: 'rgba(255,255,255,0.3)', backdropFilter: 'blur(8px)', padding: '6px 16px', fontSize: '12.5px' }}
+              <>
+                {/* THANH ZOOM CAMERA TIỆN LỢI */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '12px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'rgba(0, 0, 0, 0.75)',
+                    backdropFilter: 'blur(10px)',
+                    padding: '4px 10px',
+                    borderRadius: '24px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    boxShadow: '0 4px 14px rgba(0,0,0,0.5)'
+                  }}
                 >
-                  <CameraOff size={14} /> Tạm dừng camera
-                </button>
-              </div>
+                  <span style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', marginRight: '4px' }}>
+                    <ZoomIn size={13} color="#10b981" /> Zoom:
+                  </span>
+                  {[1, 1.5, 2, 2.5, 3].map(z => (
+                    <button
+                      key={z}
+                      type="button"
+                      onClick={() => handleApplyZoom(z)}
+                      style={{
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px 9px',
+                        borderRadius: '14px',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                        transition: 'all 0.15s ease',
+                        background: currentZoom === z ? '#10b981' : 'rgba(255, 255, 255, 0.12)',
+                        color: currentZoom === z ? '#ffffff' : '#e2e8f0',
+                        boxShadow: currentZoom === z ? '0 0 10px rgba(16,185,129,0.7)' : 'none'
+                      }}
+                    >
+                      {z}x
+                    </button>
+                  ))}
+                </div>
+
+                {/* NÚT TẠM DỪNG CAMERA */}
+                <div style={{ position: 'absolute', bottom: '12px', zIndex: 10 }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={stopCameraScanner}
+                    style={{ background: 'rgba(0,0,0,0.7)', color: '#fff', borderColor: 'rgba(255,255,255,0.3)', backdropFilter: 'blur(8px)', padding: '6px 16px', fontSize: '12.5px' }}
+                  >
+                    <CameraOff size={14} /> Tạm dừng camera
+                  </button>
+                </div>
+              </>
             )}
           </div>
 
@@ -793,19 +914,24 @@ export default function WarehouseAudit({
           )}
 
           {/* NHẬP MÃ THỦ CÔNG KHI TEM MỜ */}
-          <form onSubmit={handleManualSubmit} style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="Nhập mã SKU thủ công nếu tem mờ..."
-              value={manualSkuInput}
-              onChange={e => setManualSkuInput(e.target.value)}
-              style={{ fontSize: '13px', padding: '8px 12px' }}
-            />
-            <button type="submit" className="btn btn-secondary" style={{ padding: '8px 14px', fontSize: '13px', whiteSpace: 'nowrap' }}>
-              Xác nhận
-            </button>
-          </form>
+          <div style={{ marginTop: '4px' }}>
+            <form onSubmit={handleManualSubmit} style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Nhập 3-4 số cuối SKU hoặc toàn bộ mã..."
+                value={manualSkuInput}
+                onChange={e => setManualSkuInput(e.target.value)}
+                style={{ fontSize: '13px', padding: '8px 12px' }}
+              />
+              <button type="submit" className="btn btn-secondary" style={{ padding: '8px 14px', fontSize: '13px', whiteSpace: 'nowrap' }}>
+                Tìm / Khớp
+              </button>
+            </form>
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '5px' }}>
+              💡 <em>Mẹo: Có thể gõ 3 số cuối SKU hoặc bấm <strong>"Xác nhận đã thấy"</strong> ngay dưới danh sách nếu tem quá mờ.</em>
+            </div>
+          </div>
         </div>
 
         {/* THỐNG KÊ TIẾN ĐỘ & BÁO CÁO NHANH */}
@@ -1105,14 +1231,68 @@ export default function WarehouseAudit({
                         </button>
                       )}
                       {isMissing && (
-                        <span style={{ fontSize: '12px', color: '#ef4444', fontStyle: 'italic' }}>
-                          Cần kiểm tra lại ô {item.slot} - cột {item.column_number}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                          <button
+                            className="btn"
+                            style={{
+                              fontSize: '12px',
+                              padding: '6px 14px',
+                              color: '#10b981',
+                              borderColor: 'rgba(16, 185, 129, 0.4)',
+                              background: 'rgba(16, 185, 129, 0.1)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              borderRadius: '6px'
+                            }}
+                            onClick={() => handleManualVerifyItem(item)}
+                            title="Tem bị mờ không quét được? Bấm để điểm danh xác nhận có mặt"
+                          >
+                            <Check size={14} /> Xác nhận đã thấy (Tem mờ)
+                          </button>
+                          <span style={{ fontSize: '11px', color: '#ef4444', fontStyle: 'italic' }}>
+                            Ô {item.slot} - Cột {item.column_number}
+                          </span>
+                        </div>
                       )}
                       {isMatched && (
-                        <span style={{ fontSize: '12px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <Check size={14} /> Có mặt
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              fontSize: '12px',
+                              color: '#10b981',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              fontWeight: 600,
+                              background: 'rgba(16, 185, 129, 0.08)',
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              border: '1px solid rgba(16, 185, 129, 0.25)'
+                            }}
+                          >
+                            <CheckCircle2 size={14} />
+                            {scannedMap[item.sku]?.manualConfirmed ? 'Xác nhận thủ công' : 'Đã quét khớp'}
+                          </span>
+                          <button
+                            onClick={() => handleUnmatchItem(item.sku)}
+                            style={{
+                              background: 'rgba(255,255,255,0.06)',
+                              border: '1px solid rgba(255,255,255,0.1)',
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                              padding: '4px 6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              borderRadius: '4px'
+                            }}
+                            title="Hủy xác nhận mẫu này để quét lại"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
