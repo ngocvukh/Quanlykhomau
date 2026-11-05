@@ -7,8 +7,9 @@ import {
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save, Tags, Tag, Barcode,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
   UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar,
-  PackageMinus, Ruler, RotateCcw
+  PackageMinus, Ruler, RotateCcw, CheckSquare
 } from 'lucide-react';
+import WarehouseAudit from './WarehouseAudit';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
 Date.prototype.toLocaleDateString = function() {
@@ -6817,8 +6818,19 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Nhóm Tiện ích */}
+                  {/* Nhóm Tiện ích & Kiểm kê */}
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <button 
+                      className={`btn ${activeTab === 'audit' ? 'btn-primary' : 'btn-secondary'}`} 
+                      style={{ 
+                        background: activeTab === 'audit' ? 'linear-gradient(135deg, #059669, #10b981)' : '', 
+                        borderColor: activeTab === 'audit' ? '#10b981' : '' 
+                      }} 
+                      onClick={() => setActiveTab('audit')}
+                      title="Kiểm kê kho bằng camera quét mã QR tem liên tục (bỏ qua ô 5 lẻ)"
+                    >
+                      <CheckSquare size={16} /> Kiểm Kê Kho (QR)
+                    </button>
                     <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }}>
                       <FileText size={16} /> Nhật Ký Tìm Kiếm
                     </button>
@@ -10479,6 +10491,21 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* KIỂM KÊ KHO BẰNG QUÉT QR CAMERA LIÊN TỤC */}
+            {activeTab === 'audit' && (
+              <WarehouseAudit
+                samples={samples}
+                boxes={boxes}
+                products={products}
+                formatLocation={formatLocation}
+                formatBlendBatch={formatBlendBatch}
+                showToast={showToast}
+                profile={profile}
+                fetchDatabaseData={fetchDatabaseData}
+                onClose={() => setActiveTab('shelves')}
+              />
             )}
           </div>
         </div>
