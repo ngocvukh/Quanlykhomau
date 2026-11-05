@@ -5757,32 +5757,34 @@ export default function App() {
       for (let i = 0; i < numLabels; i++) {
         allStickers.push(`
           <div class="sticker">
-            ${trayBadge}
             <div class="info-section">
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
-              <div class="info-row product-row">
-                <span class="info-label">Sản phẩm:</span>
-                <span class="info-val product-name">${escapeHtml(s.products?.product_name || s.product_name)}</span>
+              <div class="product-block">
+                <div class="field-lbl">Sản phẩm:</div>
+                <div class="product-val">${escapeHtml(s.products?.product_name || s.product_name)}</div>
               </div>
-              <div class="info-row">
-                <span class="info-label">Cảnh báo:</span>
-                <span class="info-val">${escapeHtml(s.products?.warning_code || 'Không cảnh báo')}</span>
+              <div class="warning-row">
+                <span class="field-lbl">Cảnh báo:</span>
+                <span class="warning-val">${escapeHtml(s.products?.warning_code || 'Không cảnh báo')}</span>
               </div>
-              <div class="info-row">
-                <span class="info-label">Ngày SX bao:</span>
-                <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+              <div class="meta-rows">
+                <div class="meta-row">
+                  <span class="field-lbl">Ngày SX bao:</span>
+                  <span class="meta-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+                </div>
+                <div class="meta-row">
+                  <span class="field-lbl">Đơn hàng:</span>
+                  <span class="order-badge">${escapeHtml(s.order_number || '—')}</span>
+                </div>
               </div>
-              <div class="info-row order-row">
-                <span class="info-label">Đơn hàng:</span>
-                <span class="info-val order-val">${escapeHtml(s.order_number || '—')}</span>
-              </div>
-              <div class="info-row loc-row">
-                <span class="info-label">Vị trí lưu:</span>
-                <span class="info-val loc-val">${locText.toUpperCase()}</span>
+              <div class="loc-block">
+                <span class="loc-lbl">VỊ TRÍ:</span>
+                <span class="loc-val">${locText.toUpperCase()}</span>
               </div>
             </div>
             <div class="qr-section">
-              ${qrSvg}
+              <div class="qr-badge-slot">${trayBadge}</div>
+              <div class="qr-box">${qrSvg}</div>
               <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
@@ -5842,119 +5844,173 @@ export default function App() {
             width: 66mm;
             height: 40mm;
             box-sizing: border-box;
-            padding: 3.5mm 4mm;
+            padding: 2.5mm 3.5mm;
             display: flex;
+            flex-direction: row;
+            justify-content: space-between;
             border: 1px dashed #ddd; /* Preview grid borders */
             overflow: hidden;
             position: relative;
+            background: #fff;
+            color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
           }
           @media print {
             .sticker {
               border: none;
             }
           }
-          .tray-badge {
-            position: absolute;
-            top: 2.5mm;
-            right: 3.5mm;
-            font-size: 7px;
-            font-weight: bold;
-            color: #0284c7;
-            white-space: nowrap;
-            line-height: 1;
-            background: #e0f2fe;
-            padding: 1px 3px;
-            border-radius: 2px;
-          }
           .info-section {
-            flex: 1;
+            width: 37mm;
             min-width: 0;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            font-size: 8.5px;
-            line-height: 1.35;
-            padding-right: 3mm;
+            padding-right: 2.5mm;
+            box-sizing: border-box;
           }
           .info-title {
-            font-size: 9.5px;
+            font-size: 8px;
             font-weight: 800;
-            margin-top: 0px;
-            margin-bottom: 2px;
-            border-bottom: 1.5px solid #000;
+            margin: 0;
+            border-bottom: 1.2px solid #000;
             padding-bottom: 1.5px;
             text-transform: uppercase;
             text-align: left;
             letter-spacing: 0.3px;
-          }
-          .info-row {
-            display: flex;
-            align-items: baseline;
-            gap: 2px;
-            margin-bottom: 1px;
-          }
-          .info-label {
-            font-weight: 600;
-            color: #444;
-            flex-shrink: 0;
-            font-size: 8px;
-            width: 17mm;
-          }
-          .info-val {
-            flex: 1;
-            font-weight: bold;
-            white-space: normal;
-            word-break: break-word;
+            white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             color: #000;
           }
-          .product-row {
-            align-items: flex-start;
+          .product-block {
+            margin-top: 1px;
           }
-          .product-name {
-            font-size: 10.5px;
+          .field-lbl {
+            font-size: 6.8px;
+            font-weight: 700;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.2px;
+            line-height: 1;
+            flex-shrink: 0;
+          }
+          .product-val {
+            font-size: 10px;
             font-weight: 900;
+            color: #000;
             line-height: 1.15;
-            color: #000;
+            overflow-wrap: break-word;
+            word-break: normal;
           }
-          .order-val {
-            font-size: 9px;
-            font-weight: 900;
-            color: #000;
+          .warning-row {
+            font-size: 7.2px;
+            line-height: 1.2;
+            display: flex;
+            gap: 3px;
+            align-items: baseline;
           }
-          .loc-row {
-            margin-top: 1.5px;
-            border-top: 1px solid #000;
+          .warning-val {
+            font-weight: 600;
+            color: #111;
+            overflow-wrap: break-word;
+            word-break: normal;
+            font-size: 7.2px;
+          }
+          .meta-rows {
+            font-size: 7.2px;
+            line-height: 1.2;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+          }
+          .meta-row {
+            display: flex;
+            align-items: baseline;
+            gap: 3px;
+          }
+          .meta-val {
+            font-weight: 700;
+            color: #000;
+            font-size: 7.2px;
+          }
+          .order-badge {
+            font-weight: 800;
+            color: #0284c7;
+            background: #f0f9ff;
+            padding: 0 3px;
+            border-radius: 2px;
+            border: 0.5px solid #bae6fd;
+            font-size: 7.2px;
+          }
+          .loc-block {
+            border-top: 1.2px solid #000;
             padding-top: 1.5px;
-            align-items: center;
+            display: flex;
+            align-items: baseline;
+            gap: 3px;
+          }
+          .loc-lbl {
+            font-size: 7px;
+            font-weight: 800;
+            color: #333;
+            text-transform: uppercase;
+            flex-shrink: 0;
           }
           .loc-val {
             font-size: 10px;
             font-weight: 900;
             color: #000;
             letter-spacing: 0.2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
           .qr-section {
-            width: 27mm;
+            width: 22mm;
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            border-left: 1px solid #222;
+            justify-content: space-between;
+            border-left: 1px solid #111;
             padding-left: 2mm;
             overflow: hidden;
+            box-sizing: border-box;
+          }
+          .qr-badge-slot {
+            width: 100%;
+            height: 4mm;
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-start;
+          }
+          .tray-badge {
+            font-size: 6.5px;
+            font-weight: 800;
+            color: #0284c7;
+            white-space: nowrap;
+            line-height: 1.1;
+            background: #e0f2fe;
+            padding: 0.5px 3px;
+            border-radius: 2px;
+          }
+          .qr-box {
+            width: 21mm;
+            height: 21mm;
+            display: flex;
+            align-items: center;
+            justify-content: center;
           }
           .qr-sku {
-            font-size: 6px;
-            font-weight: bold;
+            font-size: 6.2px;
+            font-weight: 800;
             color: #000;
             text-align: center;
-            margin-top: 2px;
+            line-height: 1;
             word-break: break-all;
-            line-height: 1.1;
-            max-width: 26mm;
+            margin-top: 1px;
+            max-width: 22mm;
           }
         </style>
       </head>
@@ -6032,32 +6088,34 @@ export default function App() {
       for (let i = 0; i < numLabels; i++) {
         allStickers.push(`
           <div class="sticker">
-            ${trayBadge}
             <div class="info-section">
               <div class="info-title">Nhãn Mẫu Thuốc Lá</div>
-              <div class="info-row product-row">
-                <span class="info-label">Sản phẩm:</span>
-                <span class="info-val product-name">${escapeHtml(s.products?.product_name || s.product_name)}</span>
+              <div class="product-block">
+                <div class="field-lbl">Sản phẩm:</div>
+                <div class="product-val">${escapeHtml(s.products?.product_name || s.product_name)}</div>
               </div>
-              <div class="info-row">
-                <span class="info-label">Cảnh báo:</span>
-                <span class="info-val">${escapeHtml(s.products?.warning_code || 'Không cảnh báo')}</span>
+              <div class="warning-row">
+                <span class="field-lbl">Cảnh báo:</span>
+                <span class="warning-val">${escapeHtml(s.products?.warning_code || 'Không cảnh báo')}</span>
               </div>
-              <div class="info-row">
-                <span class="info-label">Ngày SX bao:</span>
-                <span class="info-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+              <div class="meta-rows">
+                <div class="meta-row">
+                  <span class="field-lbl">Ngày SX bao:</span>
+                  <span class="meta-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+                </div>
+                <div class="meta-row">
+                  <span class="field-lbl">Đơn hàng:</span>
+                  <span class="order-badge">${escapeHtml(s.order_number || '—')}</span>
+                </div>
               </div>
-              <div class="info-row order-row">
-                <span class="info-label">Đơn hàng:</span>
-                <span class="info-val order-val">${escapeHtml(s.order_number || '—')}</span>
-              </div>
-              <div class="info-row loc-row">
-                <span class="info-label">Vị trí lưu:</span>
-                <span class="info-val loc-val">${locText.toUpperCase()}</span>
+              <div class="loc-block">
+                <span class="loc-lbl">VỊ TRÍ:</span>
+                <span class="loc-val">${locText.toUpperCase()}</span>
               </div>
             </div>
             <div class="qr-section">
-              ${qrSvg}
+              <div class="qr-badge-slot">${trayBadge}</div>
+              <div class="qr-box">${qrSvg}</div>
               <div class="qr-sku">${s.sku}</div>
             </div>
           </div>
@@ -6116,119 +6174,173 @@ export default function App() {
             width: 66mm;
             height: 40mm;
             box-sizing: border-box;
-            padding: 3.5mm 4mm;
+            padding: 2.5mm 3.5mm;
             display: flex;
+            flex-direction: row;
+            justify-content: space-between;
             border: 1px dashed #ddd; /* Preview grid borders */
             overflow: hidden;
             position: relative;
+            background: #fff;
+            color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
           }
           @media print {
             .sticker {
               border: none;
             }
           }
-          .tray-badge {
-            position: absolute;
-            top: 2.5mm;
-            right: 3.5mm;
-            font-size: 7px;
-            font-weight: bold;
-            color: #0284c7;
-            white-space: nowrap;
-            line-height: 1;
-            background: #e0f2fe;
-            padding: 1px 3px;
-            border-radius: 2px;
-          }
           .info-section {
-            flex: 1;
+            width: 37mm;
             min-width: 0;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            font-size: 8.5px;
-            line-height: 1.35;
-            padding-right: 3mm;
+            padding-right: 2.5mm;
+            box-sizing: border-box;
           }
           .info-title {
-            font-size: 9.5px;
+            font-size: 8px;
             font-weight: 800;
-            margin-top: 0px;
-            margin-bottom: 2px;
-            border-bottom: 1.5px solid #000;
+            margin: 0;
+            border-bottom: 1.2px solid #000;
             padding-bottom: 1.5px;
             text-transform: uppercase;
             text-align: left;
             letter-spacing: 0.3px;
-          }
-          .info-row {
-            display: flex;
-            align-items: baseline;
-            gap: 2px;
-            margin-bottom: 1px;
-          }
-          .info-label {
-            font-weight: 600;
-            color: #444;
-            flex-shrink: 0;
-            font-size: 8px;
-            width: 17mm;
-          }
-          .info-val {
-            flex: 1;
-            font-weight: bold;
-            white-space: normal;
-            word-break: break-word;
+            white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             color: #000;
           }
-          .product-row {
-            align-items: flex-start;
+          .product-block {
+            margin-top: 1px;
           }
-          .product-name {
-            font-size: 10.5px;
+          .field-lbl {
+            font-size: 6.8px;
+            font-weight: 700;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.2px;
+            line-height: 1;
+            flex-shrink: 0;
+          }
+          .product-val {
+            font-size: 10px;
             font-weight: 900;
+            color: #000;
             line-height: 1.15;
-            color: #000;
+            overflow-wrap: break-word;
+            word-break: normal;
           }
-          .order-val {
-            font-size: 9px;
-            font-weight: 900;
-            color: #000;
+          .warning-row {
+            font-size: 7.2px;
+            line-height: 1.2;
+            display: flex;
+            gap: 3px;
+            align-items: baseline;
           }
-          .loc-row {
-            margin-top: 1.5px;
-            border-top: 1px solid #000;
+          .warning-val {
+            font-weight: 600;
+            color: #111;
+            overflow-wrap: break-word;
+            word-break: normal;
+            font-size: 7.2px;
+          }
+          .meta-rows {
+            font-size: 7.2px;
+            line-height: 1.2;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+          }
+          .meta-row {
+            display: flex;
+            align-items: baseline;
+            gap: 3px;
+          }
+          .meta-val {
+            font-weight: 700;
+            color: #000;
+            font-size: 7.2px;
+          }
+          .order-badge {
+            font-weight: 800;
+            color: #0284c7;
+            background: #f0f9ff;
+            padding: 0 3px;
+            border-radius: 2px;
+            border: 0.5px solid #bae6fd;
+            font-size: 7.2px;
+          }
+          .loc-block {
+            border-top: 1.2px solid #000;
             padding-top: 1.5px;
-            align-items: center;
+            display: flex;
+            align-items: baseline;
+            gap: 3px;
+          }
+          .loc-lbl {
+            font-size: 7px;
+            font-weight: 800;
+            color: #333;
+            text-transform: uppercase;
+            flex-shrink: 0;
           }
           .loc-val {
             font-size: 10px;
             font-weight: 900;
             color: #000;
             letter-spacing: 0.2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
           .qr-section {
-            width: 27mm;
+            width: 22mm;
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            border-left: 1px solid #222;
+            justify-content: space-between;
+            border-left: 1px solid #111;
             padding-left: 2mm;
             overflow: hidden;
+            box-sizing: border-box;
+          }
+          .qr-badge-slot {
+            width: 100%;
+            height: 4mm;
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-start;
+          }
+          .tray-badge {
+            font-size: 6.5px;
+            font-weight: 800;
+            color: #0284c7;
+            white-space: nowrap;
+            line-height: 1.1;
+            background: #e0f2fe;
+            padding: 0.5px 3px;
+            border-radius: 2px;
+          }
+          .qr-box {
+            width: 21mm;
+            height: 21mm;
+            display: flex;
+            align-items: center;
+            justify-content: center;
           }
           .qr-sku {
-            font-size: 6px;
-            font-weight: bold;
+            font-size: 6.2px;
+            font-weight: 800;
             color: #000;
             text-align: center;
-            margin-top: 2px;
+            line-height: 1;
             word-break: break-all;
-            line-height: 1.1;
-            max-width: 26mm;
+            margin-top: 1px;
+            max-width: 22mm;
           }
         </style>
       </head>
@@ -11716,24 +11828,40 @@ export default function App() {
                 Xem trước mẫu tem chuẩn Tommy 135 (66mm x 40mm) sẽ in:
               </div>
 
-              {/* Exact Tommy 135 Label Preview matching print output */}
-              <div style={{ background: '#ffffff', color: '#000000', borderRadius: '4px', border: '1px solid #ccc', boxShadow: '0 4px 16px rgba(0,0,0,0.25)', padding: '10px 12px', maxWidth: '380px', margin: '0 auto 14px auto', boxSizing: 'border-box' }}>
-                <div style={{ fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', textAlign: 'center', borderBottom: '1.5px solid #000', paddingBottom: '3px', marginBottom: '8px', letterSpacing: '0.5px' }}>
-                  NHÃN MẪU THUỐC LÁ
-                </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: '10px', lineHeight: '1.4', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                    <div><strong>Sản phẩm:</strong> <span style={{ fontWeight: 'bold', fontSize: '11px' }}>{qrCodeModal.products?.product_name || qrCodeModal.product_name}</span></div>
-                    <div><strong>Cảnh báo:</strong> {qrCodeModal.products?.warning_code || 'Không cảnh báo'}</div>
-                    <div><strong>Ngày SX bao:</strong> {new Date(qrCodeModal.packaging_date).toLocaleDateString()}</div>
-                    <div><strong>Đơn hàng:</strong> <span style={{ fontWeight: 'bold', color: '#0284c7' }}>{qrCodeModal.order_number || '—'}</span></div>
-                    <div style={{ borderTop: '1px solid #000', paddingTop: '3px', marginTop: '3px' }}>
-                      <strong>Vị trí lưu:</strong> <span style={{ fontWeight: 'bold' }}>{formatLocation(qrCodeModal.shelf, qrCodeModal.slot, qrCodeModal.column_number).toUpperCase()}</span>
+              {/* Exact Tommy 135 Label Preview matching Option A print output */}
+              <div style={{ background: '#ffffff', color: '#000000', borderRadius: '4px', border: '1px solid #ccc', boxShadow: '0 4px 16px rgba(0,0,0,0.25)', padding: '8px 12px', maxWidth: '380px', margin: '0 auto 14px auto', boxSizing: 'border-box' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: '10px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '4px' }}>
+                    <div style={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.3px', borderBottom: '1.2px solid #000', paddingBottom: '2px', color: '#000' }}>
+                      NHÃN MẪU THUỐC LÁ
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '7.5px', fontWeight: 700, color: '#555', textTransform: 'uppercase' }}>Sản phẩm:</div>
+                      <div style={{ fontSize: '11px', fontWeight: 900, color: '#000', lineHeight: 1.2 }}>{qrCodeModal.products?.product_name || qrCodeModal.product_name}</div>
+                    </div>
+                    <div style={{ fontSize: '8px', display: 'flex', gap: '4px', alignItems: 'baseline' }}>
+                      <span style={{ fontWeight: 700, color: '#444' }}>Cảnh báo:</span>
+                      <span style={{ fontWeight: 600 }}>{qrCodeModal.products?.warning_code || 'Không cảnh báo'}</span>
+                    </div>
+                    <div style={{ fontSize: '8px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <div><span style={{ fontWeight: 700, color: '#444' }}>Ngày SX bao:</span> <span style={{ fontWeight: 700 }}>{new Date(qrCodeModal.packaging_date).toLocaleDateString()}</span></div>
+                      <div><span style={{ fontWeight: 700, color: '#444' }}>Đơn hàng:</span> <span style={{ fontWeight: 800, color: '#0284c7', background: '#f0f9ff', padding: '0 3px', borderRadius: '2px', border: '0.5px solid #bae6fd' }}>{qrCodeModal.order_number || '—'}</span></div>
+                    </div>
+                    <div style={{ borderTop: '1.2px solid #000', paddingTop: '3px', marginTop: '2px', display: 'flex', gap: '4px', alignItems: 'baseline' }}>
+                      <span style={{ fontSize: '8px', fontWeight: 800, color: '#333' }}>VỊ TRÍ:</span>
+                      <span style={{ fontSize: '11px', fontWeight: 900, color: '#000' }}>{formatLocation(qrCodeModal.shelf, qrCodeModal.slot, qrCodeModal.column_number).toUpperCase()}</span>
                     </div>
                   </div>
-                  <div style={{ width: '100px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderLeft: '1px solid #ddd', paddingLeft: '8px' }}>
-                    <div style={{ width: '85px', height: '85px' }} dangerouslySetInnerHTML={{ __html: generateQrSvgMarkup(makeStickerQrUrl(qrCodeModal.sku)) }} />
-                    <div style={{ fontSize: '8px', color: '#000', wordBreak: 'break-all', textAlign: 'center', marginTop: '3px', fontWeight: 'bold', lineHeight: '1.1' }}>
+                  <div style={{ width: '90px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', borderLeft: '1px solid #111', paddingLeft: '8px' }}>
+                    <div style={{ width: '100%', height: '14px', display: 'flex', justifyContent: 'flex-end' }}>
+                      {qrCodeModal.isReprint ? (
+                        <span style={{ fontSize: '7.5px', fontWeight: 800, color: '#0284c7', background: '#e0f2fe', padding: '0.5px 3px', borderRadius: '2px' }}>In lại</span>
+                      ) : (
+                        qrCodeModal.tray_number ? <span style={{ fontSize: '7.5px', fontWeight: 800, color: '#0284c7', background: '#e0f2fe', padding: '0.5px 3px', borderRadius: '2px' }}>Khay {qrCodeModal.tray_number}</span> : null
+                      )}
+                    </div>
+                    <div style={{ width: '75px', height: '75px' }} dangerouslySetInnerHTML={{ __html: generateQrSvgMarkup(makeStickerQrUrl(qrCodeModal.sku)) }} />
+                    <div style={{ fontSize: '7.5px', color: '#000', wordBreak: 'break-all', textAlign: 'center', marginTop: '2px', fontWeight: 800 }}>
                       {qrCodeModal.sku}
                     </div>
                   </div>
