@@ -3,7 +3,8 @@ import { Html5Qrcode } from 'html5-qrcode';
 import {
   Camera, CameraOff, CheckCircle2, AlertTriangle, AlertCircle, RefreshCw,
   Search, Volume2, VolumeX, Printer, Check, X, ArrowRight,
-  Warehouse, Layers, QrCode, Sliders, ShieldAlert, FileText, ChevronRight
+  Warehouse, Layers, QrCode, Sliders, ShieldAlert, FileText, ChevronRight,
+  Radio, Smartphone, Monitor
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
@@ -90,22 +91,22 @@ export default function WarehouseAudit({
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('connected'); // 'connected' | 'syncing' | 'error'
 
   // Scanned Map: { [sku]: { sample, scannedAt, matchType: 'matched'|'misplaced'|'unknown', detectedText } }
   const [scannedMap, setScannedMap] = useState({});
   const [lastScannedResult, setLastScannedResult] = useState(null); // { type, sample, sku, time }
   const [manualSkuInput, setManualSkuInput] = useState('');
   const [filterView, setFilterView] = useState('missing'); // 'all' | 'missing' | 'misplaced' | 'matched'
-  const [isPrintingReport, setIsPrintingReport] = useState(false);
 
   const scannerRef = useRef(null);
   const html5QrCodeRef = useRef(null);
   const lastScanTimeRef = useRef({});
+  const syncTimeoutRef = useRef(null);
 
-  // ── Danh sách cây nguyên cần kiểm kê theo quy ước: BỎ QUA HOÀN TOÀN Ô 5 LẺ ──
+  // ── Danh sách cây nguyên cần kiểm kê: BỎ QUA HOÀN TOÀN Ô 5 LẺ ──
   const expectedSamples = useMemo(() => {
     if (selectedScope === 'all') {
-      // Toàn bộ các cây nguyên trên kệ (Ô 1, 2, 3, 4)
       return samples.filter(s => s.status === 'stored' && s.shelf && s.slot && s.slot !== 5);
     }
     if (selectedScope === 'box') {
@@ -114,6 +115,104 @@ export default function WarehouseAudit({
     const shelfNum = parseInt(selectedScope, 10);
     return samples.filter(s => s.status === 'stored' && s.shelf === shelfNum && s.slot && s.slot !== 5);
   }, [samples, selectedScope]);
+
+  // ── ĐỒNG BỘ REALTIME GIỮA ĐIỆN THOẠI & MÁY TÍNH QUA SUPABASE ──
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Tải tiến trình kiểm kê mới nhất từ Supabase khi mở tab
+    const fetchLatestAuditSession = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('bulk_import_drafts')
+          .select('rows_data')
+          .eq('id', 'global-warehouse-audit')
+          .maybeSingle();
+
+        if (error) {
+          console.warn("Lỗi tải tiến trình kiểm kê:", error);
+          return;
+        }
+
+        if (isMounted && data?.rows_data) {
+          const session = data.rows_data;
+          if (session.scannedMap) {
+            setScannedMap(session.scannedMap);
+          }
+          if (session.selectedScope) {
+            setSelectedScope(session.selectedScope);
+          }
+          if (session.lastScannedResult) {
+            setLastScannedResult(session.lastScannedResult);
+          }
+        }
+      } catch (err) {
+        console.error("Lỗi kết nối kiểm kê:", err);
+      }
+    };
+
+    fetchLatestAuditSession();
+
+    // 2. Đăng ký Realtime Channel để nhận dữ liệu ngay khi Điện thoại quét
+    const channel = supabase
+      .channel('warehouse-audit-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bulk_import_drafts',
+          filter: 'id=eq.global-warehouse-audit'
+        },
+        (payload) => {
+          if (!isMounted) return;
+          const session = payload.new?.rows_data;
+          if (session) {
+            if (session.scannedMap !== undefined) {
+              setScannedMap(session.scannedMap);
+            }
+            if (session.selectedScope) {
+              setSelectedScope(session.selectedScope);
+            }
+            if (session.lastScannedResult !== undefined) {
+              setLastScannedResult(session.lastScannedResult);
+            }
+            setSyncStatus('connected');
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (isMounted) {
+          setSyncStatus(status === 'SUBSCRIBED' ? 'connected' : 'syncing');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Hàm đẩy dữ liệu kiểm kê lên Supabase để máy tính và các thiết bị khác nhận được tức thì
+  const syncAuditToSupabase = async (newMap, newScope, newResult) => {
+    setSyncStatus('syncing');
+    try {
+      await supabase.from('bulk_import_drafts').upsert({
+        id: 'global-warehouse-audit',
+        rows_data: {
+          scannedMap: newMap,
+          selectedScope: newScope,
+          lastScannedResult: newResult,
+          updatedAt: new Date().toISOString()
+        },
+        updated_at: new Date().toISOString()
+      });
+      setSyncStatus('connected');
+    } catch (e) {
+      console.error("Lỗi đồng bộ kiểm kê lên Supabase:", e);
+      setSyncStatus('error');
+    }
+  };
 
   // Nhóm danh sách đối soát
   const { matchedItems, missingItems, misplacedItems, unknownItems } = useMemo(() => {
@@ -128,7 +227,6 @@ export default function WarehouseAudit({
       if (expectedSkuMap.has(sku)) {
         matched.push({ ...expectedSkuMap.get(sku), ...info });
       } else {
-        // Tìm xem có trong toàn bộ mẫu kho không (để xem có phải mẫu bị để nhầm kệ không)
         const inAnyShelf = samples.find(s => s.sku === sku);
         if (inAnyShelf) {
           misplaced.push({ ...inAnyShelf, ...info, matchType: 'misplaced' });
@@ -138,7 +236,6 @@ export default function WarehouseAudit({
       }
     });
 
-    // Mẫu bị thiếu = có trong expected nhưng chưa quét
     const scannedSkus = new Set(Object.keys(scannedMap));
     const missing = expectedSamples.filter(s => !scannedSkus.has(s.sku));
 
@@ -155,7 +252,6 @@ export default function WarehouseAudit({
     Html5Qrcode.getCameras().then(devices => {
       if (devices && devices.length) {
         setCameras(devices);
-        // Ưu tiên camera sau (environment/back)
         const backCam = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[0];
         setActiveCameraId(backCam.id);
       }
@@ -169,79 +265,82 @@ export default function WarehouseAudit({
     const sku = extractSkuFromQr(decodedText);
     if (!sku) return;
 
-    // Chống debounce quét cùng 1 mã trong 1.5 giây
     const now = Date.now();
     if (lastScanTimeRef.current[sku] && (now - lastScanTimeRef.current[sku] < 1500)) {
       return;
     }
     lastScanTimeRef.current[sku] = now;
 
-    // Kiểm tra đã có trong danh sách đã quét chưa
     if (scannedMap[sku]) {
       if (isSoundEnabled) playScanBeep('duplicate');
-      setLastScannedResult({
+      const dupResult = {
         type: 'duplicate',
         sku,
         sample: scannedMap[sku].sample,
         time: new Date()
-      });
+      };
+      setLastScannedResult(dupResult);
       return;
     }
 
-    // Đối chiếu với kho
     const targetSample = expectedSamples.find(s => s.sku === sku);
     if (targetSample) {
-      // 🟢 KHỚP HOÀN TOÀN
       if (isSoundEnabled) playScanBeep('success');
       triggerHaptic(50);
-      setScannedMap(prev => ({
-        ...prev,
-        [sku]: { sample: targetSample, scannedAt: new Date(), matchType: 'matched' }
-      }));
-      setLastScannedResult({
+      const newMap = {
+        ...scannedMap,
+        [sku]: { sample: targetSample, scannedAt: new Date().toISOString(), matchType: 'matched' }
+      };
+      const newResult = {
         type: 'matched',
         sku,
         sample: targetSample,
-        time: new Date()
-      });
+        time: new Date().toISOString()
+      };
+      setScannedMap(newMap);
+      setLastScannedResult(newResult);
+      syncAuditToSupabase(newMap, selectedScope, newResult);
       showToast(`🟢 Khớp: ${targetSample.products?.product_name || targetSample.product_name}`, 'success');
       return;
     }
 
-    // Kiểm tra xem có phải mẫu nằm ở kệ khác không
     const anySample = samples.find(s => s.sku === sku);
     if (anySample) {
-      // 🟡 ĐỂ SAI VỊ TRÍ
       if (isSoundEnabled) playScanBeep('misplaced');
       triggerHaptic(150);
-      setScannedMap(prev => ({
-        ...prev,
-        [sku]: { sample: anySample, scannedAt: new Date(), matchType: 'misplaced' }
-      }));
-      setLastScannedResult({
+      const newMap = {
+        ...scannedMap,
+        [sku]: { sample: anySample, scannedAt: new Date().toISOString(), matchType: 'misplaced' }
+      };
+      const newResult = {
         type: 'misplaced',
         sku,
         sample: anySample,
-        time: new Date()
-      });
+        time: new Date().toISOString()
+      };
+      setScannedMap(newMap);
+      setLastScannedResult(newResult);
+      syncAuditToSupabase(newMap, selectedScope, newResult);
       const loc = anySample.shelf ? formatLocation(anySample.shelf, anySample.slot, anySample.column_number) : (anySample.box_id ? `Thùng ${anySample.box_id}` : 'Chưa có vị trí');
       showToast(`🟡 Sai vị trí: Cây này ghi nhận ở ${loc}`, 'warning');
       return;
     }
 
-    // 🔴 MẪU KHÔNG XÁC ĐỊNH TRONG HỆ THỐNG
     if (isSoundEnabled) playScanBeep('misplaced');
     triggerHaptic(200);
-    setScannedMap(prev => ({
-      ...prev,
-      [sku]: { sample: null, scannedAt: new Date(), matchType: 'unknown' }
-    }));
-    setLastScannedResult({
+    const newMap = {
+      ...scannedMap,
+      [sku]: { sample: null, scannedAt: new Date().toISOString(), matchType: 'unknown' }
+    };
+    const newResult = {
       type: 'unknown',
       sku,
       sample: null,
-      time: new Date()
-    });
+      time: new Date().toISOString()
+    };
+    setScannedMap(newMap);
+    setLastScannedResult(newResult);
+    syncAuditToSupabase(newMap, selectedScope, newResult);
     showToast(`⚠️ Không tìm thấy SKU [${sku}] trên hệ thống!`, 'error');
   };
 
@@ -274,21 +373,14 @@ export default function WarehouseAudit({
         (decodedText) => {
           handleQrScanned(decodedText);
         },
-        () => {
-          // parse frame error, ignore
-        }
+        () => {}
       );
 
       setIsScanning(true);
 
-      // Kiểm tra torch (đèn flash)
       try {
         const caps = html5QrCode.getRunningTrackCapabilities();
-        if (caps && caps.torch) {
-          setTorchSupported(true);
-        } else {
-          setTorchSupported(false);
-        }
+        setTorchSupported(!!(caps && caps.torch));
       } catch (e) {
         setTorchSupported(false);
       }
@@ -357,7 +449,6 @@ export default function WarehouseAudit({
     e.preventDefault();
     const query = manualSkuInput.trim();
     if (!query) return;
-    // Tìm theo SKU hoặc khớp một phần
     const found = samples.find(s => 
       s.sku?.toLowerCase() === query.toLowerCase() ||
       s.sku?.toLowerCase().endsWith(query.toLowerCase())
@@ -370,14 +461,15 @@ export default function WarehouseAudit({
     setManualSkuInput('');
   };
 
-  // Làm mới đợt kiểm kê
-  const handleResetAudit = () => {
+  // Làm mới đợt kiểm kê (Đồng bộ xóa sạch trên cả ĐT và Máy tính)
+  const handleResetAudit = async () => {
     if (Object.keys(scannedMap).length === 0) return;
-    if (!window.confirm("Bắt đầu lại đợt kiểm kê mới? Toàn bộ danh sách đã quét hiện tại sẽ được làm mới.")) return;
+    if (!window.confirm("Bắt đầu lại đợt kiểm kê mới? Toàn bộ danh sách đã quét sẽ được làm mới trên cả điện thoại và máy tính.")) return;
     setScannedMap({});
     setLastScannedResult(null);
     lastScanTimeRef.current = {};
-    showToast("Đã làm mới đợt kiểm kê!", "info");
+    await syncAuditToSupabase({}, selectedScope, null);
+    showToast("Đã làm mới đợt kiểm kê trên toàn hệ thống!", "info");
   };
 
   // Chuyển cây bị để sai vị trí về Kệ hiện tại
@@ -391,7 +483,6 @@ export default function WarehouseAudit({
     if (!window.confirm(`Xác nhận chuyển mẫu "${sample.products?.product_name || sample.product_name}" sang Kệ ${targetShelfLetter}?`)) return;
 
     try {
-      // Cập nhật kệ thực tế trên Supabase
       const { error } = await supabase
         .from('samples')
         .update({
@@ -408,7 +499,6 @@ export default function WarehouseAudit({
     }
   };
 
-  // In / Xuất biên bản kiểm kê
   const handlePrintAuditReport = () => {
     window.print();
   };
@@ -434,14 +524,34 @@ export default function WarehouseAudit({
               <Camera size={22} />
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Kiểm Kê Kho Bằng QR Camera
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700 }}>
+                  Kiểm Kê Kho Bằng QR Camera
+                </h2>
                 <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.2)', color: 'var(--status-success)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
                   Chống Thất Thoát
                 </span>
-              </h2>
-              <p style={{ margin: '3px 0 0', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                Quét lia liên tục mã QR trên cây thuốc nguyên. <strong style={{ color: '#f59e0b' }}>Tự động bỏ qua Ô 5 lẻ</strong> theo quy ước kho.
+                {/* Trạng thái đồng bộ Realtime giữa ĐT & PC */}
+                <span
+                  style={{
+                    fontSize: '11px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    background: syncStatus === 'connected' ? 'rgba(56,189,248,0.15)' : 'rgba(245,158,11,0.15)',
+                    color: syncStatus === 'connected' ? 'var(--accent-blue)' : 'var(--status-warning)',
+                    fontWeight: 600
+                  }}
+                  title="Dữ liệu quét từ điện thoại tự động đồng bộ sang máy tính theo thời gian thực"
+                >
+                  <Radio size={11} className={syncStatus === 'syncing' ? 'spin' : ''} />
+                  {syncStatus === 'connected' ? 'Đồng bộ Realtime (ĐT ⇄ PC)' : 'Đang đồng bộ...'}
+                </span>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                Quét lia liên tục mã QR trên cây thuốc nguyên. <strong style={{ color: '#f59e0b' }}>Tự động bỏ qua Ô 5 lẻ</strong>.
               </p>
             </div>
           </div>
@@ -453,7 +563,7 @@ export default function WarehouseAudit({
             onClick={handleResetAudit}
             disabled={Object.keys(scannedMap).length === 0}
             style={{ fontSize: '13px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-            title="Làm mới lại danh sách quét"
+            title="Làm mới lại danh sách quét trên cả điện thoại và máy tính"
           >
             <RefreshCw size={14} /> Bắt đầu lại
           </button>
@@ -523,8 +633,10 @@ export default function WarehouseAudit({
                     if (!window.confirm("Đổi phạm vi Kệ sẽ làm mới kết quả quét hiện tại. Bạn có chắc chắn?")) return;
                     setScannedMap({});
                     setLastScannedResult(null);
+                    syncAuditToSupabase({}, tab.id, null);
                   }
                   setSelectedScope(tab.id);
+                  syncAuditToSupabase(scannedMap, tab.id, lastScannedResult);
                 }}
               >
                 <strong>{tab.label}</strong>
@@ -604,7 +716,9 @@ export default function WarehouseAudit({
                 </div>
                 <div>
                   <strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Camera đang tắt</strong>
-                  <p style={{ margin: '4px 0 0', fontSize: '12.5px' }}>Bấm nút dưới để bật camera quét lia liên tục các tem trên kệ</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '12.5px' }}>
+                    Nếu bạn đang mở máy tính, bạn có thể cầm điện thoại đi quét, dữ liệu sẽ tự động nhảy số lên máy tính theo thời gian thực!
+                  </p>
                 </div>
                 <button
                   className="btn btn-primary"
@@ -619,7 +733,7 @@ export default function WarehouseAudit({
                     marginTop: '8px'
                   }}
                 >
-                  <Camera size={16} /> Bắt đầu quét kiểm kê
+                  <Camera size={16} /> Bật camera trên máy này
                 </button>
               </div>
             )}

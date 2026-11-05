@@ -2466,17 +2466,20 @@ export default function App() {
       const arr = Array.isArray(next) ? next : [];
       // Đảm bảo không bao giờ bị trùng mẫu trong printQueue
       const uniqueArr = deduplicateQueue(arr);
-      try { localStorage.setItem('print_queue', JSON.stringify(uniqueArr)); } catch { /* ignore */ }
-      if (!isDemoMode) {
-        if (uniqueArr.length > 0) {
-          supabase.from('bulk_import_drafts').upsert({
-            id: 'global-print-queue',
-            rows_data: uniqueArr,
-            updated_at: new Date().toISOString()
-          }).then(() => {});
+      try { 
+        if (uniqueArr.length === 0) {
+          localStorage.removeItem('print_queue');
         } else {
-          supabase.from('bulk_import_drafts').delete().eq('id', 'global-print-queue').then(() => {});
+          localStorage.setItem('print_queue', JSON.stringify(uniqueArr)); 
         }
+      } catch { /* ignore */ }
+      if (!isDemoMode) {
+        // Luôn upsert trạng thái với rows_data (kể cả khi rỗng []) để mọi thiết bị khác biết là đã xóa sạch
+        supabase.from('bulk_import_drafts').upsert({
+          id: 'global-print-queue',
+          rows_data: uniqueArr,
+          updated_at: new Date().toISOString()
+        }).then(() => {});
       }
       return uniqueArr;
     });
@@ -3007,34 +3010,24 @@ export default function App() {
           const sampleMap = new Map((s || []).map(item => [item.id, item]));
 
           const pqRow = globalStates.find(r => r.id === 'global-print-queue');
-          if (pqRow && Array.isArray(pqRow.rows_data) && pqRow.rows_data.length > 0) {
-            // Làm mới thông tin mẫu từ bảng samples mới nhất (giữ lại cờ isReprint nếu có, loại trừ trùng lặp)
-            const refreshedQueue = deduplicateQueue(pqRow.rows_data.map(qItem => {
-              const fresh = sampleMap.get(qItem.id);
-              return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
-            }));
-            setPrintQueueState(refreshedQueue);
-            try { localStorage.setItem('print_queue', JSON.stringify(refreshedQueue)); } catch { /* ignore */ }
+          if (pqRow) {
+            const dbQueue = Array.isArray(pqRow.rows_data) ? pqRow.rows_data : [];
+            if (dbQueue.length === 0) {
+              // Trên DB đã chủ động xóa sạch hàng đợi -> Xóa sạch state và localStorage của máy này ngay lập tức!
+              setPrintQueueState([]);
+              try { localStorage.removeItem('print_queue'); } catch { /* ignore */ }
+            } else {
+              const refreshedQueue = deduplicateQueue(dbQueue.map(qItem => {
+                const fresh = sampleMap.get(qItem.id);
+                return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
+              }));
+              setPrintQueueState(refreshedQueue);
+              try { localStorage.setItem('print_queue', JSON.stringify(refreshedQueue)); } catch { /* ignore */ }
+            }
           } else {
-            // Nếu máy hiện tại đang có hàng đợi trong localStorage mà trên DB chưa có thì đẩy lên DB để các máy khác thấy
-            try {
-              const localSaved = localStorage.getItem('print_queue');
-              const localParsed = localSaved ? JSON.parse(localSaved) : [];
-              if (Array.isArray(localParsed) && localParsed.length > 0) {
-                const refreshedLocal = deduplicateQueue(localParsed.map(qItem => {
-                  const fresh = sampleMap.get(qItem.id);
-                  return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
-                }));
-                setPrintQueueState(refreshedLocal);
-                supabase.from('bulk_import_drafts').upsert({
-                  id: 'global-print-queue',
-                  rows_data: refreshedLocal,
-                  updated_at: new Date().toISOString()
-                }).then(() => {});
-              } else {
-                setPrintQueueState([]);
-              }
-            } catch { /* ignore */ }
+            // Không có hàng đợi trên DB -> Xóa sạch hàng đợi local để tránh tự hồi sinh mẫu cũ
+            setPrintQueueState([]);
+            try { localStorage.removeItem('print_queue'); } catch { /* ignore */ }
           }
 
           const ppsRow = globalStates.find(r => r.id === 'global-pending-print-samples');
@@ -7918,9 +7911,26 @@ export default function App() {
                         >
                           <Layers size={14} /> Gom về 1 Khay In Lại
                         </button>
-                        <button className="btn btn-secondary" style={{ color:'var(--status-error)', borderColor:'rgba(239,68,68,0.2)' }} onClick={() => {
-                          if (confirm("Xóa toàn bộ hàng đợi in nhãn?")) setPrintQueue([]);
-                        }}>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ color:'var(--status-error)', borderColor:'rgba(239,68,68,0.3)', fontWeight: 600 }} 
+                          onClick={async () => {
+                            if (confirm("Xóa toàn bộ hàng đợi in nhãn trên tất cả các thiết bị?")) {
+                              try { localStorage.removeItem('print_queue'); } catch(e) {}
+                              setPrintQueueState([]);
+                              try {
+                                await supabase.from('bulk_import_drafts').upsert({
+                                  id: 'global-print-queue',
+                                  rows_data: [],
+                                  updated_at: new Date().toISOString()
+                                });
+                                showToast("Đã xóa sạch hàng đợi in trên tất cả thiết bị!", "success");
+                              } catch (err) {
+                                console.error(err);
+                              }
+                            }
+                          }}
+                        >
                           Xóa hàng đợi
                         </button>
                       </>
