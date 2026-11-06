@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Warehouse, Search, Camera, Printer, Layers, Box, Plus,
   ArrowRightLeft, CheckSquare, Clock, ClipboardList, UploadCloud, FileText,
-  User, ChevronRight, X
+  User, ChevronRight, X, BarChart3
 } from 'lucide-react';
 
 const SLOT_MAX_WIDTH_MM = 700;
@@ -28,6 +28,7 @@ export default function BentoDashboard({
   boxes = [],
   printQueue = [],
   transactions = [],
+  destructionLogs = [],
   getExpiredSamples = () => [],
   getApproachingExpiredSamples = () => [],
   slotConfigs = [],
@@ -125,6 +126,82 @@ export default function BentoDashboard({
   const fullSheets = Math.floor(readyStickersCount / 21);
   const remainderStickers = readyStickersCount % 21;
   const totalSheetsNeeded = Math.ceil(readyStickersCount / 21) || 0;
+
+  // ── 6. Thống kê Nhập & Tiêu Hủy Hàng Tháng (6 tháng gần nhất) ──
+  const monthlyStats = useMemo(() => {
+    const monthsMap = {};
+    const now = new Date();
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = `T${d.getMonth() + 1}`;
+      monthsMap[key] = { key, label, imported: 0, destroyed: 0 };
+    }
+
+    (samples || []).forEach(s => {
+      const dateStr = s.created_at || s.sampling_date;
+      if (!dateStr) return;
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (monthsMap[key]) {
+        monthsMap[key].imported += 1;
+      }
+    });
+
+    (destructionLogs || []).forEach(l => {
+      if (!l.created_at) return;
+      const d = new Date(l.created_at);
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (monthsMap[key]) {
+        monthsMap[key].destroyed += (l.num_samples_destroyed || 0);
+      }
+    });
+
+    // Fallback: nếu tháng hiện tại chưa có log hủy thì check transactions
+    (transactions || []).filter(t => t.type === 'destroy').forEach(t => {
+      if (!t.created_at) return;
+      const d = new Date(t.created_at);
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (monthsMap[key] && monthsMap[key].destroyed === 0) {
+        monthsMap[key].destroyed += 1;
+      }
+    });
+
+    const list = Object.values(monthsMap);
+    const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const cur = monthsMap[curKey] || { imported: 0, destroyed: 0 };
+    const maxBarVal = Math.max(...list.map(x => Math.max(x.imported, x.destroyed)), 10);
+
+    // Thống kê theo ngày sản xuất bao (packaging_date)
+    const pkgMonthsSet = new Set();
+    let latestPkgDate = null;
+    (samples || []).forEach(s => {
+      if (s.packaging_date) {
+        pkgMonthsSet.add(s.packaging_date.slice(0, 7));
+        if (!latestPkgDate || s.packaging_date > latestPkgDate) {
+          latestPkgDate = s.packaging_date;
+        }
+      }
+    });
+
+    let latestPkgLabel = 'Chưa ghi nhận';
+    if (latestPkgDate) {
+      const pD = new Date(latestPkgDate);
+      latestPkgLabel = `T${pD.getMonth() + 1}/${pD.getFullYear()}`;
+    }
+
+    return {
+      recentMonths: list,
+      currentMonth: cur,
+      maxBarVal,
+      totalPkgCohorts: pkgMonthsSet.size,
+      latestPkgLabel
+    };
+  }, [samples, destructionLogs, transactions]);
 
   const handleQuickSearchSubmit = (e) => {
     e.preventDefault();
@@ -417,8 +494,59 @@ export default function BentoDashboard({
               </button>
             </div>
 
-            {/* ── TILE 6: NHẬP KHO MẪU ── */}
-            <div className="bento-tile bento-tile-action-compact" onClick={() => setActiveTab('import')}>
+            {/* ── TILE 6: THỐNG KÊ NHẬP & TIÊU HỦY MẪU (CHIẾM 2 CỘT DESKTOP) ── */}
+            <div className="bento-tile bento-tile-analytics" onClick={() => setActiveTab('analytics')}>
+              <div className="bento-tile-header">
+                <div className="bento-tile-title">
+                  <BarChart3 size={17} className="bento-icon-kraft" />
+                  <div>
+                    <h3>Thống kê Lưu Chuyển & Ngày SX</h3>
+                    <span className="bento-tile-subtitle">
+                      Tháng này: +{monthlyStats.currentMonth.imported} nhập · -{monthlyStats.currentMonth.destroyed} hủy · {monthlyStats.totalPkgCohorts} kỳ NSX bao
+                    </span>
+                  </div>
+                </div>
+                <span className="bento-badge-kraft">
+                  {monthlyStats.currentMonth.imported - monthlyStats.currentMonth.destroyed >= 0
+                    ? `+${monthlyStats.currentMonth.imported - monthlyStats.currentMonth.destroyed} tồn ròng`
+                    : `${monthlyStats.currentMonth.imported - monthlyStats.currentMonth.destroyed} tồn ròng`}
+                </span>
+              </div>
+
+              {/* Mini Spark Bars (6 tháng gần nhất) */}
+              <div className="bento-analytics-spark">
+                <div className="bento-spark-bars">
+                  {monthlyStats.recentMonths.map((m) => {
+                    const impH = Math.max(3, Math.round((m.imported / monthlyStats.maxBarVal) * 44));
+                    const destH = m.destroyed > 0 ? Math.max(3, Math.round((m.destroyed / monthlyStats.maxBarVal) * 44)) : 0;
+                    return (
+                      <div key={m.key} className="spark-month-col" title={`${m.key}: Nhập ${m.imported} mẫu, Hủy ${m.destroyed} mẫu`}>
+                        <div className="spark-bars-pair">
+                          <div className="spark-bar-imp" style={{ height: `${impH}px` }} />
+                          <div className="spark-bar-dest" style={{ height: `${destH}px` }} />
+                        </div>
+                        <span className="spark-month-label">{m.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="bento-spark-legend">
+                  <span><i className="dot dot-import" /> Nhập</span>
+                  <span><i className="dot dot-destroy" /> Hủy</span>
+                  <span style={{ color: 'var(--bento-kraft)', marginLeft: 'auto', fontWeight: '500' }}>
+                    NSX mới: {monthlyStats.latestPkgLabel}
+                  </span>
+                </div>
+              </div>
+
+              <button className="bento-tile-action-btn btn-kraft-soft">
+                <span>Xem biểu đồ & Quản lý theo ngày SX bao</span>
+                <ChevronRight size={14} />
+              </button>
+            </div>
+
+            {/* ── TILE 7: NHẬP KHO MẪU ── */}
+            <div className="bento-tile bento-tile-action-compact bento-action-half" onClick={() => setActiveTab('import')}>
               <div className="bento-action-icon-circle">
                 <Plus size={18} />
               </div>
@@ -429,8 +557,8 @@ export default function BentoDashboard({
               <ChevronRight size={16} className="bento-action-arrow" />
             </div>
 
-            {/* ── TILE 7: ĐÓNG THÙNG LƯU TRỮ ── */}
-            <div className="bento-tile bento-tile-action-compact" onClick={() => setActiveTab('archives')}>
+            {/* ── TILE 8: ĐÓNG THÙNG LƯU TRỮ ── */}
+            <div className="bento-tile bento-tile-action-compact bento-action-half" onClick={() => setActiveTab('archives')}>
               <div className="bento-action-icon-circle">
                 <Box size={18} />
               </div>

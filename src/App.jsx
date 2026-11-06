@@ -7,9 +7,10 @@ import {
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save, Tags, Tag, Barcode,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
   UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar,
-  PackageMinus, Ruler, RotateCcw, CheckSquare, ArrowLeft, Camera
+  PackageMinus, Ruler, RotateCcw, CheckSquare, ArrowLeft, Camera, BarChart3
 } from 'lucide-react';
 import WarehouseAudit from './WarehouseAudit';
+import MonthlyAnalytics from './MonthlyAnalytics';
 import BentoDashboard from './BentoDashboard';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
@@ -6914,6 +6915,7 @@ export default function App() {
               boxes={boxes}
               printQueue={printQueue}
               transactions={transactions}
+              destructionLogs={destructionLogs}
               getExpiredSamples={getExpiredSamples}
               getApproachingExpiredSamples={getApproachingExpiredSamples}
               slotConfigs={slotConfigs}
@@ -6948,6 +6950,7 @@ export default function App() {
                       {activeTab === 'audit' && 'Kiểm Kê Kho Bằng Mã QR'}
                       {activeTab === 'search_logs' && 'Nhật Ký Tìm Kiếm'}
                       {activeTab === 'users' && 'Quản Lý Tài Khoản & Khách'}
+                      {activeTab === 'analytics' && 'Báo Cáo Thống Kê Nhập & Tiêu Hủy'}
                     </span>
                   </div>
                 </div>
@@ -6983,6 +6986,9 @@ export default function App() {
                       </button>
                       <button className={`bento-subnav-tab-pill ${activeTab === 'import' ? 'active' : ''}`} onClick={() => setActiveTab('import')}>
                         <Plus size={13} /> Nhập kho
+                      </button>
+                      <button className={`bento-subnav-tab-pill ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>
+                        <BarChart3 size={13} /> Thống kê
                       </button>
                       <button className={`bento-subnav-tab-pill ${activeTab === 'archives' ? 'active' : ''}`} onClick={() => setActiveTab('archives')}>
                         <Archive size={13} /> Đóng thùng
@@ -10725,6 +10731,17 @@ export default function App() {
                 showToast={showToast}
                 profile={profile}
                 fetchDatabaseData={fetchDatabaseData}
+                onClose={() => setActiveTab('dashboard')}
+              />
+            )}
+
+            {/* BÁO CÁO THỐNG KÊ NHẬP & TIÊU HỦY MẪU HÀNG THÁNG */}
+            {activeTab === 'analytics' && (
+              <MonthlyAnalytics
+                samples={samples}
+                destructionLogs={destructionLogs}
+                transactions={transactions}
+                products={products}
                 onClose={() => setActiveTab('dashboard')}
               />
             )}

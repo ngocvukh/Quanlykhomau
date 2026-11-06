@@ -33,3 +33,4 @@ backup_*/
 rollback_ui.*
 check_all.js
 test_query.js
+scratch/
