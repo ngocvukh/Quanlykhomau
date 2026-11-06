@@ -1776,6 +1776,10 @@ h1, h2, h3, h4, h5, h6 {
     z-index: 999;
   }
 
+  .bento-mobile-thumb-dock.dock-guest {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
   .dock-item {
     display: flex;
     flex-direction: column;

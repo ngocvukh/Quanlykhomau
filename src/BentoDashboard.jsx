@@ -533,7 +533,7 @@ export default function BentoDashboard({
       </div>
 
       {/* ── BOTTOM THUMB DOCK (CỐ ĐỊNH TRÊN MOBILE VIEWPORT) ── */}
-      <div className="bento-mobile-thumb-dock">
+      <div className={`bento-mobile-thumb-dock ${!isAdmin ? 'dock-guest' : ''}`}>
         <button 
           className="dock-item active"
           onClick={() => setActiveTab('dashboard')}

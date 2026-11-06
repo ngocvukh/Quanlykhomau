@@ -7025,7 +7025,7 @@ export default function App() {
               </div>
 
               {/* PERSISTENT MOBILE THUMB DOCK (TRÊN TẤT CẢ SUB-TABS) */}
-              <div className="bento-mobile-thumb-dock">
+              <div className={`bento-mobile-thumb-dock ${profile?.role !== 'admin' ? 'dock-guest' : ''}`}>
                 <button 
                   className="dock-item"
                   onClick={() => setActiveTab('dashboard')}
@@ -7042,29 +7042,41 @@ export default function App() {
                   }}
                 >
                   <Warehouse size={19} />
-                  <span>Sơ đồ</span>
+                  <span>Sơ đồ kệ</span>
                 </button>
 
-                <button 
-                  className="dock-item dock-item-scan"
-                  onClick={() => setActiveTab('audit')}
-                >
-                  <div className="dock-scan-btn-bubble">
-                    <Camera size={16} />
-                  </div>
-                  <span>Quét QR</span>
-                </button>
+                {profile?.role === 'admin' ? (
+                  <>
+                    <button 
+                      className={`dock-item dock-item-scan ${activeTab === 'audit' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('audit')}
+                    >
+                      <div className="dock-scan-btn-bubble">
+                        <Camera size={16} />
+                      </div>
+                      <span>Quét QR</span>
+                    </button>
 
-                <button 
-                  className={`dock-item ${activeTab === 'requests' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('requests')}
-                >
-                  <div className="dock-badge-rel">
-                    <ArrowRightLeft size={19} />
-                    {transactions.filter(t => t.status === 'pending').length > 0 && <span className="dock-dot" />}
-                  </div>
-                  <span>Yêu cầu</span>
-                </button>
+                    <button 
+                      className={`dock-item ${activeTab === 'requests' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('requests')}
+                    >
+                      <div className="dock-badge-rel">
+                        <ArrowRightLeft size={19} />
+                        {transactions.filter(t => t.status === 'pending').length > 0 && <span className="dock-dot" />}
+                      </div>
+                      <span>Yêu cầu</span>
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    className={`dock-item ${activeTab === 'search' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('search')}
+                  >
+                    <Search size={19} />
+                    <span>Tra cứu</span>
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -7463,7 +7475,7 @@ export default function App() {
                 </p>
 
                 {/* ── CHẨN ĐOÁN: Ô bị vượt quá chiều ngang 700mm ── */}
-                {(() => {
+                {profile?.role === 'admin' && (() => {
                   const overloadedSlots = [];
                   const letters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
                   for (let s = 1; s <= 6; s++) {
@@ -7514,7 +7526,7 @@ export default function App() {
                 })()}
 
                 {/* ── CHẨN ĐOÁN: Cột bị lẫn nhiều loại sản phẩm ── */}
-                {(() => {
+                {profile?.role === 'admin' && (() => {
                   // Nhóm samples theo cột (BỎ QUA Ô 5 VÌ ĐÓ LÀ Ô LẺ CHỨA NHIỀU LOẠI)
                   const colMap = {};
                   samples.filter(s => s.status === 'stored' && s.shelf && s.slot && s.slot !== 5 && s.column_number)
@@ -7742,7 +7754,7 @@ export default function App() {
             )}
 
             {/* IMPORT NEW SAMPLES PAGE */}
-            {activeTab === 'import' && (
+            {activeTab === 'import' && profile?.role === 'admin' && (
               <div className="glass-panel">
                 <h2 style={{ fontSize: '20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Plus size={22} color="var(--accent-blue)" /> Nhập Thuốc Lá Mẫu Vào Kho Lưu
@@ -8011,7 +8023,7 @@ export default function App() {
             )}
 
             {/* LABEL PRINTING PAGE */}
-            {activeTab === 'labels' && (
+            {activeTab === 'labels' && profile?.role === 'admin' && (
               <div className="glass-panel">
                 {lastAssignedIds && lastAssignedIds.length > 0 && (
                   <div style={{ background: 'rgba(255, 165, 0, 0.1)', border: '1px solid orange', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -8422,7 +8434,7 @@ export default function App() {
 
 
             {/* PRODUCT CATALOG MANAGEMENT PAGE */}
-            {activeTab === 'catalog' && (
+            {activeTab === 'catalog' && profile?.role === 'admin' && (
               <div className="glass-panel">
                 <h2 style={{ fontSize: '20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <ClipboardList size={22} color="var(--accent-blue)" /> Quản Lý Danh Mục Sản Phẩm Gốc
@@ -8530,7 +8542,7 @@ export default function App() {
             )}
 
             {/* TRANSACTIONS & APPROVALS PAGE */}
-            {activeTab === 'requests' && (
+            {activeTab === 'requests' && profile?.role === 'admin' && (
               <div className="glass-panel">
                 <h2 style={{ fontSize: '20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <ArrowRightLeft size={22} color="var(--accent-blue)" /> Phê Duyệt Yêu Cầu Cấp Lấy Mẫu Thuốc Lá
@@ -9124,7 +9136,7 @@ export default function App() {
             {/* ═══════════════════════════════════════════════════════════════
                  BULK IMPORT TAB
             ═══════════════════════════════════════════════════════════════ */}
-            {activeTab === 'bulk_import' && (
+            {activeTab === 'bulk_import' && profile?.role === 'admin' && (
               <div style={{ display:'flex', flexDirection:'column', gap:'20px' }}>
 
                 {/* ────────────────────────────────
@@ -9886,7 +9898,7 @@ export default function App() {
             )}
 
             {/* SEARCH LOGS PAGE (Admin only) */}
-            {activeTab === 'search_logs' && (
+            {activeTab === 'search_logs' && profile?.role === 'admin' && (
               <div className="glass-panel">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
                   <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
@@ -10055,7 +10067,7 @@ export default function App() {
             )}
 
             {/* USERS & SAVED VISITORS MANAGEMENT PAGE (Admin only) */}
-            {activeTab === 'users' && (
+            {activeTab === 'users' && profile?.role === 'admin' && (
               <div className="glass-panel">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
                   <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
@@ -10558,7 +10570,7 @@ export default function App() {
             )}
 
             {/* OVERCAPACITY BOXES & EXPIRATION REPORTS PAGE */}
-            {activeTab === 'archives' && (
+            {activeTab === 'archives' && profile?.role === 'admin' && (
               <div className="glass-panel">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
                   <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
@@ -10703,7 +10715,7 @@ export default function App() {
             )}
 
             {/* KIỂM KÊ KHO BẰNG QUÉT QR CAMERA LIÊN TỤC */}
-            {activeTab === 'audit' && (
+            {activeTab === 'audit' && profile?.role === 'admin' && (
               <WarehouseAudit
                 samples={samples}
                 boxes={boxes}
