@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Demo Bento Grid Mobile — Kho Lưu Mẫu Thuốc Lá</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --leaf: #0E1511;
+    --leaf-deep: #080D0A;
+    --surface: #17221C;
+    --surface-elevated: #202F27;
+    --surface-card: #1B2821;
+    --line: #293B30;
+    --line-subtle: rgba(255, 255, 255, 0.06);
+    --kraft: #C9A46A;
+    --kraft-soft: rgba(201, 164, 106, 0.14);
+    --kraft-hover: #D8B47C;
+    --text: #EDE8DC;
+    --text-2: #A5B2A7;
+    --text-3: #6F8073;
+    --ok: #5DAA7F;
+    --warn: #E0A236;
+    --bad: #D65A4F;
+    --r-tile: 16px;
+    --r-btn: 10px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
+  body {
+    background: var(--leaf-deep);
+    color: var(--text);
+    font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+  :focus-visible { outline: 2px solid var(--kraft); outline-offset: 2px; }
+
+  /* ── DESKTOP TOOLBAR (Chuyển chế độ xem) ── */
+  .desktop-bar {
+    background: #0B100D;
+    border-bottom: 1px solid var(--line);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 999;
+  }
+  .desktop-bar .title-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .badge-tag {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--kraft-soft);
+    color: var(--kraft);
+    border: 1px solid rgba(201,164,106,0.3);
+  }
+  .view-toggles {
+    display: flex;
+    gap: 4px;
+    background: #151D18;
+    padding: 3px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+  }
+  .view-toggles button {
+    padding: 6px 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+    border-radius: 999px;
+    color: var(--text-2);
+    transition: all 0.15s ease;
+  }
+  .view-toggles button.active {
+    background: var(--kraft);
+    color: #121A15;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+
+  /* ── KHUNG MÔ PHỎNG ĐIỆN THOẠI TRÊN DESKTOP ── */
+  .simulator-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 30px 16px 80px;
+    min-height: calc(100vh - 60px);
+    background: radial-gradient(circle at 50% 20%, #16241C 0%, #080D0A 70%);
+  }
+  .phone-frame {
+    width: 390px;
+    max-width: 100%;
+    height: 820px;
+    background: var(--leaf);
+    border: 10px solid #1E2822;
+    border-radius: 46px;
+    box-shadow: 0 25px 60px -15px rgba(0,0,0,0.9), 0 0 0 1px rgba(255,255,255,0.08);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .phone-notch {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 110px;
+    height: 24px;
+    background: #000;
+    border-radius: 20px;
+    z-index: 100;
+  }
+
+  /* ── NATIVE MOBILE MODE (Khi người dùng mở trực tiếp trên điện thoại thật) ── */
+  @media (max-width: 768px) {
+    .desktop-bar { display: none; }
+    .simulator-wrap { padding: 0; min-height: 100vh; background: var(--leaf); }
+    .phone-frame {
+      width: 100vw;
+      height: 100vh;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
+    .phone-notch { display: none; }
+  }
+
+  /* ── NỘI DUNG MOBILE BENTO SCROLL ── */
+  .mobile-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding: 16px 14px calc(80px + var(--safe-bottom));
+  }
+
+  /* TOP HEADER MOBILE */
+  .m-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 18px;
+    margin-bottom: 14px;
+  }
+  .m-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .m-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--kraft);
+    color: #121A15;
+    font-weight: 900;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    box-shadow: 0 4px 10px rgba(201,164,106,0.3);
+  }
+  .m-title h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.2px;
+  }
+  .m-title p {
+    margin: 1px 0 0;
+    font-size: 11.5px;
+    color: var(--text-3);
+  }
+  .user-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 4px 8px;
+    border-radius: 20px;
+    font-size: 12px;
+  }
+  .user-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--kraft);
+    color: #121A15;
+    font-weight: 800;
+    font-size: 10px;
+    display: grid;
+    place-items: center;
+  }
+
+  /* THANH TÌM KIẾM NHANH + QUÉT BARCODE */
+  .search-action-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .m-search-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-2);
+    font-size: 13.5px;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+  }
+  .m-search-input input {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    outline: none;
+    font: inherit;
+    font-size: 13px;
+  }
+  .btn-quick-scan {
+    background: linear-gradient(135deg, #059669, #10b981);
+    color: #fff;
+    border-radius: 12px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 4px 14px rgba(16,185,129,0.3);
+  }
+  .btn-quick-scan:active { transform: scale(0.96); }
+
+  /* ══════════ BENTO MOBILE GRID ══════════ */
+  .bento-mobile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  /* Ô Bento chung */
+  .m-tile {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-tile);
+    padding: 13px 12px;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.12s, border-color 0.15s;
+  }
+  .m-tile:active {
+    transform: scale(0.98);
+    border-color: var(--kraft);
+  }
+  .m-tile-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .m-tile-title h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text);
+  }
+  .m-tile-title svg {
+    width: 15px;
+    height: 15px;
+    color: var(--kraft);
+    flex-shrink: 0;
+  }
+
+  /* TILE 1: SƠ ĐỒ KỆ (CHIẾM TRỌN 2 CỘT) */
+  .tile-shelf-hero {
+    grid-column: span 2;
+    background: linear-gradient(180deg, #1A2820 0%, #15201A 100%);
+    border-color: #2F4236;
+    padding: 14px 14px 12px;
+  }
+  .shelf-meta-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .shelf-meta-bar span { color: var(--text-2); }
+  .shelf-meta-bar b { color: var(--kraft); }
+
+  /* 6 KỆ A - F TRÊN MOBILE */
+  .m-shelves-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+  }
+  .m-shelf-col {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: rgba(0,0,0,0.25);
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--line-subtle);
+  }
+  .m-shelf-label {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--kraft);
+    padding: 1px 0;
+  }
+  .m-slot-bar {
+    height: 18px;
+    border-radius: 3px;
+    background: #0B100D;
+    position: relative;
+    overflow: hidden;
+    border: 0.5px solid rgba(255,255,255,0.06);
+  }
+  .m-slot-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: var(--ok);
+    opacity: 0.85;
+  }
+  .m-slot-bar.warn .m-slot-fill { background: var(--warn); }
+  .m-slot-bar.full .m-slot-fill { background: var(--bad); }
+  .m-slot-bar.slot-loose {
+    background: repeating-linear-gradient(135deg, #0E1411 0 3px, #1F2C24 3px 6px);
+  }
+  .m-slot-num {
+    position: relative;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    padding-left: 3px;
+    line-height: 18px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+  .shelf-legend-mini {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 9px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--line);
+  }
+
+  /* TILE 2: YÊU CẦU LẤY MẪU */
+  .tile-requests {
+    background: #1C2720;
+  }
+  .req-badge-wait {
+    background: rgba(224,162,54,0.18);
+    color: var(--warn);
+    border: 1px solid rgba(224,162,54,0.3);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 6px;
+  }
+  .req-preview-list {
+    margin: 4px 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .req-preview-item {
+    font-size: 11.5px;
+    line-height: 1.25;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    padding-bottom: 4px;
+  }
+  .req-preview-item b {
+    display: block;
+    color: var(--text);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .req-preview-item span {
+    font-size: 10.5px;
+    color: var(--text-3);
+  }
+  .btn-approve-mini {
+    margin-top: auto;
+    background: var(--kraft-soft);
+    color: var(--kraft);
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 6px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid rgba(201,164,106,0.25);
+  }
+
+  /* TILE 3: IN NHÃN TOMMY 135 */
+  .tile-print {
+    background: #1B2620;
+  }
+  .print-sheets-visual {
+    display: flex;
+    gap: 4px;
+    margin: 6px 0 4px;
+    flex-wrap: wrap;
+  }
+  .mini-sheet {
+    display: grid;
+    grid-template-columns: repeat(3, 4px);
+    grid-template-rows: repeat(7, 3px);
+    gap: 1px;
+    padding: 2px;
+    background: #0B100D;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+  }
+  .mini-sheet i {
+    background: var(--kraft);
+    border-radius: 0.5px;
+  }
+  .mini-sheet i.empty { background: #26332A; }
+  .print-note {
+    font-size: 11px;
+    color: var(--text-3);
+    margin-bottom: 6px;
+  }
+  .btn-print-full {
+    margin-top: auto;
+    background: var(--kraft);
+    color: #121A15;
+    font-size: 11.5px;
+    font-weight: 800;
+    padding: 6px;
+    border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(201,164,106,0.3);
+  }
+
+  /* TILE 4: KIỂM KÊ KHO */
+  .tile-audit {
+    background: #19251F;
+  }
+  .audit-stat-row {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    margin: 4px 0 6px;
+  }
+  .audit-big-num {
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--ok);
+  }
+  .audit-sub-text {
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .audit-mini-progress {
+    height: 6px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .audit-progress-fill {
+    height: 100%;
+    width: 68%;
+    background: linear-gradient(90deg, #10b981, #059669);
+  }
+  .btn-audit-cam {
+    margin-top: auto;
+    background: rgba(16,185,129,0.15);
+    color: #10b981;
+    border: 1px solid rgba(16,185,129,0.3);
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 6px;
+    border-radius: 8px;
+    text-align: center;
+  }
+
+  /* TILE 5: SẮP HẾT HẠN */
+  .tile-expired {
+    background: #1A251E;
+  }
+  .exp-item {
+    font-size: 11.5px;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+  }
+  .exp-item em {
+    font-style: normal;
+    font-weight: 700;
+    color: var(--warn);
+  }
+
+  /* TILE 6: NHẬP KHO & ĐÓNG THÙNG (HÀNG DƯỚI) */
+  .tile-action-compact {
+    background: #16221B;
+    justify-content: space-between;
+  }
+  .action-icon-circle {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--surface-elevated);
+    display: grid;
+    place-items: center;
+    color: var(--kraft);
+    margin-bottom: 6px;
+  }
+  .action-label-bold {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .action-sub {
+    font-size: 10.5px;
+    color: var(--text-3);
+  }
+
+  /* DANH MỤC KHÁC (SCROLL CHIP NGANG) */
+  .more-section-wrap {
+    grid-column: span 2;
+    margin-top: 4px;
+  }
+  .more-section-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .chips-scroll-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .chip-item-pill {
+    white-space: nowrap;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ── BOTTOM THUMB DOCK (CỐ ĐỊNH Ở ĐÁY ĐIỆN THOẠI) ── */
+  .bottom-dock {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(14, 21, 17, 0.94);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    padding: 6px 4px calc(6px + var(--safe-bottom));
+    z-index: 50;
+  }
+  .dock-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-size: 10.5px;
+    color: var(--text-3);
+    padding: 3px 0;
+    position: relative;
+    font-weight: 600;
+  }
+  .dock-btn.active {
+    color: var(--kraft);
+  }
+  .dock-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+  .dock-badge-dot {
+    position: absolute;
+    top: 2px;
+    right: 22px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+    box-shadow: 0 0 6px var(--warn);
+  }
+
+  /* ── MODAL / BOTTOM SHEET TƯƠNG TÁC KHI CHẠM ── */
+  .bottom-sheet-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    display: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .bottom-sheet-overlay.show {
+    display: block;
+    opacity: 1;
+  }
+  .bottom-sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #141E18;
+    border-top: 1px solid var(--kraft);
+    border-radius: 20px 20px 0 0;
+    padding: 16px 18px calc(24px + var(--safe-bottom));
+    transform: translateY(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 201;
+    box-shadow: 0 -10px 30px rgba(0,0,0,0.8);
+  }
+  .bottom-sheet.show {
+    transform: translateY(0);
+  }
+  .sheet-handle {
+    width: 36px;
+    height: 4px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 2px;
+    margin: 0 auto 12px;
+  }
+  .sheet-title {
+    font-size: 16px;
+    font-weight: 800;
+    margin: 0 0 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .sheet-content {
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.5;
+  }
+
+  /* ── CỘT BÊN CẠNH TRÊN DESKTOP: QR ĐỂ QUÉT BẰNG ĐT THẬT ── */
+  .desktop-side-panel {
+    width: 340px;
+    margin-left: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .qr-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-tile);
+    padding: 20px;
+    text-align: center;
+  }
+  .qr-frame {
+    width: 170px;
+    height: 170px;
+    background: #fff;
+    padding: 8px;
+    border-radius: 12px;
+    margin: 12px auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .qr-frame svg { width: 100%; height: 100%; display: block; }
+  .guideline-box {
+    background: #121A15;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 12.5px;
+    color: var(--text-2);
+    line-height: 1.5;
+  }
+  .guideline-box b { color: var(--kraft); }
+  @media (max-width: 900px) {
+    .desktop-side-panel { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- SVG ICONS NỘI TUYẾN -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/><path d="M3 9h7M3 15h7M14 9h7M14 15h7"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M14 9h4M14 13h4M6 9h5v6H6z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
+</svg>
+
+<!-- ── THANH ĐIỀU KHIỂN TRÊN MÁY TÍNH ── -->
+<div class="desktop-bar">
+  <div class="title-group">
+    <div style="font-weight: 800; font-size: 15px;">Mô phỏng Bento Grid trên Mobile</div>
+    <span class="badge-tag">Đã tối ưu ngón tay cái &amp; thao tác kho</span>
+  </div>
+  <div style="display:flex; gap:12px; align-items:center;">
+    <span style="font-size:12px; color:var(--text-3);">Kích thước khung:</span>
+    <div class="view-toggles">
+      <button class="active" onclick="setPhoneWidth(390, this)">iPhone (390px)</button>
+      <button onclick="setPhoneWidth(412, this)">Galaxy (412px)</button>
+      <button onclick="setPhoneWidth(360, this)">Nhỏ (360px)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── KHU VỰC CHÍNH (FRAME MOBILE + PANEL HƯỚNG DẪN) ── -->
+<div class="simulator-wrap">
+  
+  <!-- PHONE FRAME (MÔ PHỎNG ĐIỆN THOẠI) -->
+  <div class="phone-frame" id="phone-frame">
+    <div class="phone-notch"></div>
+
+    <!-- NỘI DUNG CUỘN TRÊN ĐIỆN THOẠI -->
+    <div class="mobile-scroll">
+      
+      <!-- TOP HEADER -->
+      <div class="m-header">
+        <div class="m-brand">
+          <div class="m-logo">QC</div>
+          <div class="m-title">
+            <h1>Kho Mẫu Thuốc Lá</h1>
+            <p>570 cây đang lưu · 6 kệ</p>
+          </div>
+        </div>
+        <div class="user-badge">
+          <div class="user-avatar">NV</div>
+          <span>Thủ kho</span>
+        </div>
+      </div>
+
+      <!-- SEARCH BAR + CAMERA SCAN BUTTON (HÀNG ƯU TIÊN SỐ 1) -->
+      <div class="search-action-bar">
+        <div class="m-search-input" onclick="openSearchModal()">
+          <svg width="16" height="16"><use href="#i-search"/></svg>
+          <input placeholder="Tìm tên mẫu, mã SKU, mẻ..." readonly>
+        </div>
+        <button class="btn-quick-scan" onclick="triggerToast('📷 Đang kích hoạt camera quét QR...')">
+          <svg width="16" height="16"><use href="#i-camera"/></svg>
+          <span>Quét</span>
+        </button>
+      </div>
+
+      <!-- ══════════ BENTO MOBILE GRID ══════════ -->
+      <div class="bento-mobile-grid">
+
+        <!-- TILE 1: SƠ ĐỒ KỆ (HERO 2 CỘT) -->
+        <div class="m-tile tile-shelf-hero" onclick="openShelfSheet('A')">
+          <div class="shelf-meta-bar">
+            <span style="font-weight: 800; color: var(--text); display:flex; align-items:center; gap:5px;">
+              <svg width="15" height="15" style="color:var(--kraft);"><use href="#i-map"/></svg> Sơ đồ 6 kệ kho
+            </span>
+            <span>Chạm để soi ô · <b>Kệ A - F</b></span>
+          </div>
+
+          <!-- 6 KỆ A -> F -->
+          <div class="m-shelves-row" id="mobile-shelves">
+            <!-- Render via JS -->
+          </div>
+
+          <div class="shelf-legend-mini">
+            <span><i style="display:inline-block;width:8px;height:8px;background:var(--ok);border-radius:2px;vertical-align:-1px;"></i> Còn chỗ</span>
+            <span><i style="display:inline-block;width:8px;height:8px;background:var(--warn);border-radius:2px;vertical-align:-1px;"></i> Gần đầy</span>
+            <span><i style="display:inline-block;width:8px;height:8px;background:var(--bad);border-radius:2px;vertical-align:-1px;"></i> Đầy</span>
+            <span><i style="display:inline-block;width:8px;height:8px;background:repeating-linear-gradient(135deg,#0E1411 0 2px,#1F2C24 2px 4px);border-radius:2px;vertical-align:-1px;"></i> Ô 5 lẻ</span>
+          </div>
+        </div>
+
+        <!-- TILE 2: YÊU CẦU LẤY MẪU (1 CỘT) -->
+        <div class="m-tile tile-requests" onclick="openRequestSheet()">
+          <div class="m-tile-title">
+            <h3><svg><use href="#i-swap"/></svg> Yêu cầu</h3>
+            <span class="req-badge-wait">3 chờ</span>
+          </div>
+          <ul class="req-preview-list">
+            <li class="req-preview-item">
+              <b>ZonKing FF</b>
+              <span>Sơn · 2 bao · Kệ A5</span>
+            </li>
+            <li class="req-preview-item">
+              <b>Canyon Blast</b>
+              <span>Quét QR · 1 bao · Kệ A5</span>
+            </li>
+          </ul>
+          <div class="btn-approve-mini">Duyệt nhanh (3)</div>
+        </div>
+
+        <!-- TILE 3: IN NHÃN TOMMY 135 (1 CỘT) -->
+        <div class="m-tile tile-print" onclick="triggerToast('🖨️ Mở hàng đợi 187 nhãn Tommy 135')">
+          <div class="m-tile-title">
+            <h3><svg><use href="#i-tag"/></svg> In nhãn</h3>
+            <span style="font-size:12px; font-weight:800; color:var(--kraft);">187 tem</span>
+          </div>
+          <div class="print-sheets-visual" id="mobile-print-sheets">
+            <!-- 9 tờ A4 mini -->
+          </div>
+          <div class="print-note">8 trang đầy, lẻ 16 tem</div>
+          <div class="btn-print-full">In toàn bộ A4</div>
+        </div>
+
+        <!-- TILE 4: KIỂM KÊ KHO (1 CỘT) -->
+        <div class="m-tile tile-audit" onclick="triggerToast('🔍 Chuyển sang màn hình Kiểm Kê Kho (Zoom 2.5x)')">
+          <div class="m-tile-title">
+            <h3><svg><use href="#i-check"/></svg> Kiểm kê</h3>
+            <span style="font-size:11px; color:var(--text-3);">Đợt 05/11</span>
+          </div>
+          <div class="audit-stat-row">
+            <span class="audit-big-num">68%</span>
+            <span class="audit-sub-text">khớp 387/570</span>
+          </div>
+          <div class="audit-mini-progress">
+            <div class="audit-progress-fill"></div>
+          </div>
+          <div class="btn-audit-cam">Quét liên tục</div>
+        </div>
+
+        <!-- TILE 5: SẮP HẾT HẠN (1 CỘT) -->
+        <div class="m-tile tile-expired" onclick="triggerToast('⚠️ 24 cây thuốc sắp đến hạn hủy 12 tháng')">
+          <div class="m-tile-title">
+            <h3><svg><use href="#i-clock"/></svg> Hạn 12T</h3>
+            <span style="font-size:11px; color:var(--warn); font-weight:700;">24 cây</span>
+          </div>
+          <div style="margin: 4px 0 6px;">
+            <div class="exp-item">
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:85px;">555 Slim</span>
+              <em>còn 27d</em>
+            </div>
+            <div class="exp-item">
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:85px;">American Remote</span>
+              <em>còn 41d</em>
+            </div>
+          </div>
+          <div style="font-size:11px; color:var(--text-3); margin-top:auto;">Hủy tự động thứ 6</div>
+        </div>
+
+        <!-- TILE 6: NHẬP KHO MẪU (1 CỘT) -->
+        <div class="m-tile tile-action-compact" onclick="triggerToast('➕ Mở biểu mẫu nhập kho mẫu mới')">
+          <div>
+            <div class="action-icon-circle"><svg width="16" height="16"><use href="#i-plus"/></svg></div>
+            <div class="action-label-bold">Nhập kho mẫu</div>
+            <div class="action-sub">Tự động gợi ý cột</div>
+          </div>
+        </div>
+
+        <!-- TILE 7: ĐÓNG THÙNG (1 CỘT) -->
+        <div class="m-tile tile-action-compact" onclick="triggerToast('📦 Mở danh sách 3 thùng lưu trữ mẫu cũ')">
+          <div>
+            <div class="action-icon-circle"><svg width="16" height="16"><use href="#i-box"/></svg></div>
+            <div class="action-label-bold">Đóng thùng</div>
+            <div class="action-sub">Thùng 06/2026 (64)</div>
+          </div>
+        </div>
+
+        <!-- DANH MỤC KHÁC (CHIPS CUỘN NGANG) -->
+        <div class="more-section-wrap">
+          <div class="more-section-title">Chức năng quản trị khác</div>
+          <div class="chips-scroll-row">
+            <button class="chip-item-pill" onclick="triggerToast('Mở Danh mục 351 sản phẩm gốc')">
+              <svg width="14" height="14"><use href="#i-book"/></svg> Danh mục gốc (351)
+            </button>
+            <button class="chip-item-pill" onclick="triggerToast('Mở Nhập hàng loạt từ Excel')">
+              <svg width="14" height="14"><use href="#i-upload"/></svg> Nhập Excel
+            </button>
+            <button class="chip-item-pill" onclick="triggerToast('Mở Nhật ký tìm kiếm của nhân viên')">
+              Nhật ký tìm kiếm
+            </button>
+            <button class="chip-item-pill" onclick="triggerToast('Mở Quản lý tài khoản & Khách')">
+              Tài khoản
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── BOTTOM THUMB DOCK (CỐ ĐỊNH NGÓN TAY CÁI) ── -->
+    <div class="bottom-dock">
+      <button class="dock-btn active" onclick="triggerToast('Bạn đang ở màn hình Tổng quan Bento')">
+        <svg><use href="#i-grid"/></svg>
+        <span>Tổng quan</span>
+      </button>
+      <button class="dock-btn" onclick="openShelfSheet('A')">
+        <svg><use href="#i-map"/></svg>
+        <span>Sơ đồ kệ</span>
+      </button>
+      <button class="dock-btn" onclick="triggerToast('📷 Kích hoạt máy quét camera liên tục')">
+        <div style="width:26px; height:26px; background:linear-gradient(135deg,#059669,#10b981); border-radius:50%; display:grid; place-items:center; color:#fff; box-shadow:0 2px 8px rgba(16,185,129,0.5); margin-top:-4px;">
+          <svg style="width:15px; height:15px;"><use href="#i-camera"/></svg>
+        </div>
+        <span>Quét QR</span>
+      </button>
+      <button class="dock-btn" onclick="openRequestSheet()">
+        <svg><use href="#i-swap"/></svg>
+        <span class="dock-badge-dot"></span>
+        <span>Yêu cầu</span>
+      </button>
+    </div>
+
+    <!-- ── BOTTOM SHEET CHI TIẾT TƯƠNG TÁC ── -->
+    <div class="bottom-sheet-overlay" id="sheet-overlay" onclick="closeSheet()"></div>
+    <div class="bottom-sheet" id="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">
+        <span id="sheet-title-text">Chi tiết</span>
+        <button onclick="closeSheet()" style="font-size:13px; color:var(--text-3); padding:4px;">✕ Đóng</button>
+      </div>
+      <div class="sheet-content" id="sheet-content-body">
+        <!-- Render nội dung tương tác -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── CỘT BÊN CẠNH TRÊN DESKTOP: QUÉT QR BẰNG ĐIỆN THOẠI THẬT ── -->
+  <div class="desktop-side-panel">
+    <div class="qr-card">
+      <div style="font-weight: 800; font-size: 15px; color: var(--text);">Mở ngay trên điện thoại thật</div>
+      <p style="font-size: 12px; color: var(--text-3); margin: 4px 0 10px;">
+        Cùng mạng Wifi/LAN. Bạn cầm điện thoại bật camera quét mã QR này:
+      </p>
+      <div class="qr-frame">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 31 31" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h31v31H0z"/><path stroke="#000000" d="M1 1.5h7m1 0h1m2 0h3m1 0h3m2 0h1m1 0h7M1 2.5h1m5 0h1m1 0h2m1 0h6m5 0h1m5 0h1M1 3.5h1m1 0h3m1 0h1m2 0h2m3 0h3m1 0h2m2 0h1m1 0h3m1 0h1M1 4.5h1m1 0h3m1 0h1m1 0h1m3 0h1m3 0h1m2 0h2m1 0h1m1 0h3m1 0h1M1 5.5h1m1 0h3m1 0h1m2 0h2m1 0h2m2 0h1m1 0h1m1 0h1m1 0h1m1 0h3m1 0h1M1 6.5h1m5 0h1m2 0h3m5 0h1m1 0h2m1 0h1m5 0h1M1 7.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M9 8.5h1m1 0h1m3 0h2m2 0h1m1 0h1M1 9.5h1m1 0h2m1 0h3m4 0h2m1 0h1m2 0h1m1 0h1m1 0h1m2 0h1m1 0h2M3 10.5h1m1 0h1m2 0h12m1 0h2m1 0h2m3 0h1M2 11.5h1m1 0h4m1 0h1m2 0h1m4 0h1m6 0h1m2 0h2M1 12.5h2m2 0h1m6 0h4m1 0h5m1 0h1m1 0h2m2 0h1M1 13.5h1m4 0h2m1 0h3m5 0h1m4 0h2m1 0h1m1 0h1M1 14.5h4m3 0h4m2 0h1m4 0h1m1 0h4m2 0h3M2 15.5h1m2 0h1m1 0h2m1 0h2m1 0h1m4 0h1m1 0h2m2 0h1m1 0h1m1 0h2M3 16.5h4m1 0h2m1 0h3m1 0h2m4 0h2m1 0h2m1 0h2M2 17.5h3m2 0h1m2 0h1m5 0h3m1 0h3m3 0h3M3 18.5h2m3 0h1m1 0h3m2 0h1m2 0h2m3 0h1m3 0h2M1 19.5h1m1 0h5m4 0h3m1 0h2m1 0h2m1 0h1m2 0h3M5 20.5h1m2 0h1m3 0h2m2 0h1m1 0h1m2 0h6M2 21.5h3m2 0h1m1 0h1m1 0h1m2 0h1m1 0h2m1 0h1m1 0h7M9 22.5h1m1 0h2m3 0h1m1 0h1m2 0h1m3 0h2m1 0h2M1 23.5h7m1 0h1m2 0h1m2 0h1m1 0h1m1 0h3m1 0h1m1 0h2m1 0h1M1 24.5h1m5 0h1m1 0h4m1 0h1m6 0h1m3 0h1m1 0h1m1 0h1M1 25.5h1m1 0h3m1 0h1m2 0h3m4 0h1m3 0h7M1 26.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m1 0h1m1 0h4m1 0h2m1 0h1M1 27.5h1m1 0h3m1 0h1m1 0h2m4 0h1m2 0h1m1 0h1m2 0h1m1 0h3m1 0h1M1 28.5h1m5 0h1m4 0h3m1 0h3m1 0h1m4 0h1m2 0h1M1 29.5h7m1 0h1m2 0h3m1 0h4m1 0h4m2 0h2"/></svg>
+
+      </div>
+      <div style="font-size: 12px; font-weight: 700; color: var(--kraft); word-break: break-all;">
+        http://10.0.2.225:5180/demo/layout-demo.html
+      </div>
+    </div>
+
+    <div class="guideline-box">
+      <b style="display:block; margin-bottom:6px; font-size:13px;">💡 Điểm nổi bật của Bento Mobile:</b>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div>✓ <b>Không bị cuộn dài vô tận:</b> Bento chia 2 cột nhịp nhàng, thông tin quan trọng gom lại trên 1 màn hình.</div>
+        <div>✓ <b>Thao tác 1 tay (Thumb-zone):</b> Nút Quét Camera, Sơ đồ kệ và Yêu cầu nằm trọn trong tầm với ngón cái ở đáy màn hình.</div>
+        <div>✓ <b>Sơ đồ 6 kệ trực quan:</b> Hiển thị màu sắc còn chỗ/đầy theo % sức chứa, bấm vào kệ nào bung chi tiết kệ đó ngay lập tức.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- TOAST MESSAGE -->
+<div id="toast" style="position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#1D2B22; color:#fff; border:1px solid var(--kraft); border-radius:10px; padding:8px 16px; font-size:13px; font-weight:600; box-shadow:0 10px 30px rgba(0,0,0,0.6); z-index:9999; display:none; animation:fadeIn 0.2s ease;"></div>
+
+<script>
+  // Dữ liệu mẫu 6 kệ A -> F
+  const shelfData = [
+    { name: 'A', fill: [92, 64, 40, 100], items: ['ZonKing FF (18 bao)', 'Atlanta Full Flavor (30 bao)', 'Canyon Blast (9 bao)', 'Cột 4: ĐẦY (40 bao)', 'Ô 5 lẻ: 3 cây bóc lẻ'] },
+    { name: 'B', fill: [55, 80, 71, 30], items: ['555 Slim', 'Hero King', 'American Remote', 'Còn 28 chỗ', 'Ô 5 lẻ: 2 cây'] },
+    { name: 'C', fill: [100, 96, 62, 18], items: ['Craven A', 'White Horse', 'Mild Seven', 'Còn 32 chỗ', 'Ô 5 lẻ: 1 cây'] },
+    { name: 'D', fill: [45, 38, 90, 66], items: ['War Horse', 'State Express', 'Dunhill', 'Còn 14 chỗ', 'Ô 5 lẻ: 4 cây'] },
+    { name: 'E', fill: [70, 100, 52, 24], items: ['Marlboro Gold', 'Esse Lights', 'Kent HD', 'Còn 25 chỗ', 'Ô 5 lẻ: Trống'] },
+    { name: 'F', fill: [33, 58, 85, 97], items: ['Zest Marula', 'Bohem Cigar', 'Raison French', 'Còn 4 chỗ', 'Ô 5 lẻ: 1 cây'] }
+  ];
+
+  function renderMobileShelves() {
+    const container = document.getElementById('mobile-shelves');
+    container.innerHTML = shelfData.map((s, idx) => {
+      const bars = s.fill.map((pct, slotIdx) => {
+        const cls = pct >= 100 ? 'full' : pct >= 80 ? 'warn' : '';
+        return `<div class="m-slot-bar ${cls}"><div class="m-slot-fill" style="width:${pct}%"></div><span class="m-slot-num">${slotIdx+1}</span></div>`;
+      }).join('');
+      return `
+        <div class="m-shelf-col" onclick="event.stopPropagation(); openShelfSheet('${s.name}')">
+          <div class="m-shelf-label">Kệ ${s.name}</div>
+          ${bars}
+          <div class="m-slot-bar slot-loose" title="Ô 5 lẻ"><span class="m-slot-num" style="color:var(--text-3)">5</span></div>
+        </div>
+      `;
+    }).join('');
+  }
+  renderMobileShelves();
+
+  // In nhãn 9 tờ A4 mini
+  const printContainer = document.getElementById('mobile-print-sheets');
+  let leftStickers = 187;
+  for (let i = 0; i < 6; i++) {
+    let cells = '';
+    for (let c = 0; c < 21; c++) {
+      cells += `<i class="${leftStickers-- > 0 ? '' : 'empty'}"></i>`;
+    }
+    printContainer.insertAdjacentHTML('beforeend', `<div class="mini-sheet">${cells}</div>`);
+  }
+
+  // Chuyển độ rộng điện thoại mô phỏng
+  function setPhoneWidth(w, btn) {
+    document.getElementById('phone-frame').style.width = w + 'px';
+    document.querySelectorAll('.view-toggles button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  // Tương tác Bottom Sheet
+  function openShelfSheet(shelfLetter) {
+    const s = shelfData.find(x => x.name === shelfLetter) || shelfData[0];
+    document.getElementById('sheet-title-text').textContent = 'Chi tiết Kệ ' + s.name + ' (Kho mẫu)';
+    let html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+    s.items.forEach((item, i) => {
+      const isSlot5 = i === 4;
+      html += `
+        <div style="background:${isSlot5 ? 'rgba(201,164,106,0.1)' : 'rgba(255,255,255,0.04)'}; border:1px solid ${isSlot5 ? 'var(--kraft)' : 'rgba(255,255,255,0.08)'}; padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <b style="font-size:12px; color:${isSlot5 ? 'var(--kraft)' : 'var(--text)'}">Ô ${i+1} ${isSlot5 ? '(Ô Lẻ)' : ''}:</b>
+            <div style="font-size:12px; color:var(--text-2); margin-top:2px;">${item}</div>
+          </div>
+          <span style="font-size:11px; font-weight:700; color:${isSlot5 ? 'var(--kraft)' : 'var(--ok)'}">${isSlot5 ? 'Cây lẻ' : s.fill[i] + '%'}</span>
+        </div>
+      `;
+    });
+    html += '<button onclick="closeSheet(); triggerToast(\'Đang mở Kệ ' + s.name + ' trên bản đồ lớn\')" style="margin-top:6px; background:var(--kraft); color:#121A15; padding:9px; border-radius:8px; font-weight:800; text-align:center;">Xem vị trí các cột Kệ ' + s.name + '</button>';
+    html += '</div>';
+
+    document.getElementById('sheet-content-body').innerHTML = html;
+    document.getElementById('sheet-overlay').classList.add('show');
+    document.getElementById('bottom-sheet').classList.add('show');
+  }
+
+  function openRequestSheet() {
+    document.getElementById('sheet-title-text').textContent = 'Yêu cầu lấy mẫu chờ duyệt (3)';
+    const html = `
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); padding:10px; border-radius:8px;">
+          <div style="display:flex; justify-content:space-between; font-weight:700;">
+            <span>ZonKing FF</span>
+            <span style="color:var(--warn);">Lấy: 2 bao</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-3); margin:3px 0 6px;">Người yêu cầu: Sơn · Vị trí: Kệ A5 - Cột 1 (Lẻ)</div>
+          <button onclick="closeSheet(); triggerToast('✅ Đã duyệt cấp mẫu ZonKing FF cho Sơn')" style="background:var(--ok); color:#fff; font-size:12px; font-weight:700; padding:5px 12px; border-radius:6px;">Duyệt cấp</button>
+        </div>
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); padding:10px; border-radius:8px;">
+          <div style="display:flex; justify-content:space-between; font-weight:700;">
+            <span>Canyon Blast</span>
+            <span style="color:var(--warn);">Lấy: 1 bao</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-3); margin:3px 0 6px;">Người yêu cầu: Quét QR tem · Kệ A5 - Cột 1</div>
+          <button onclick="closeSheet(); triggerToast('✅ Đã duyệt cấp mẫu Canyon Blast')" style="background:var(--ok); color:#fff; font-size:12px; font-weight:700; padding:5px 12px; border-radius:6px;">Duyệt cấp</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('sheet-content-body').innerHTML = html;
+    document.getElementById('sheet-overlay').classList.add('show');
+    document.getElementById('bottom-sheet').classList.add('show');
+  }
+
+  function openSearchModal() {
+    document.getElementById('sheet-title-text').textContent = 'Tra cứu nhanh mẫu thuốc lá';
+    const html = `
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <input type="text" placeholder="Gõ tên thuốc (vd: Atlanta, 555...)" style="background:#0E1411; border:1px solid var(--kraft); color:#fff; padding:10px 12px; border-radius:8px; font-size:13.5px;" autofocus>
+        <div style="font-size:11.5px; color:var(--text-3);">Mẫu tìm gần đây:</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          <span onclick="triggerToast('Tìm thấy Atlanta Full Flavor ở Kệ B2 - Cột 3'); closeSheet();" style="background:rgba(255,255,255,0.06); padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer;">Atlanta Full Flavor</span>
+          <span onclick="triggerToast('Tìm thấy 555 Slim ở Thùng 06/2026'); closeSheet();" style="background:rgba(255,255,255,0.06); padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer;">555 Slim</span>
+          <span onclick="triggerToast('Tìm thấy ZonKing FF ở Kệ A5 - Cột 1'); closeSheet();" style="background:rgba(255,255,255,0.06); padding:4px 10px; border-radius:20px; font-size:12px; cursor:pointer;">ZonKing FF</span>
+        </div>
+      </div>
+    `;
+    document.getElementById('sheet-content-body').innerHTML = html;
+    document.getElementById('sheet-overlay').classList.add('show');
+    document.getElementById('bottom-sheet').classList.add('show');
+  }
+
+  function closeSheet() {
+    document.getElementById('sheet-overlay').classList.remove('show');
+    document.getElementById('bottom-sheet').classList.remove('show');
+  }
+
+  function triggerToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    clearTimeout(window.toastTimer);
+    window.toastTimer = setTimeout(() => { t.style.display = 'none'; }, 2200);
+  }
+</script>
+</body>
+</html>

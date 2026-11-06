@@ -7,9 +7,10 @@ import {
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save, Tags, Tag, Barcode,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
   UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar,
-  PackageMinus, Ruler, RotateCcw, CheckSquare
+  PackageMinus, Ruler, RotateCcw, CheckSquare, ArrowLeft, Camera
 } from 'lucide-react';
 import WarehouseAudit from './WarehouseAudit';
+import BentoDashboard from './BentoDashboard';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
 Date.prototype.toLocaleDateString = function() {
@@ -434,8 +435,8 @@ export default function App() {
   const [editNote, setEditNote] = useState('');
 
   // Application UI States
-  const [activeTab, setActiveTab] = useState('shelves');
-  const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('shelves');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [previousTabBeforeSearch, setPreviousTabBeforeSearch] = useState('dashboard');
   const [showPackByMonthModal, setShowPackByMonthModal] = useState(false);
   const [showDestroyedSamplesModal, setShowDestroyedSamplesModal] = useState(false);
 
@@ -2892,7 +2893,7 @@ export default function App() {
             .then(({ data: prof }) => {
               if (prof) {
                 setProfile(prof);
-                setActiveTab('shelves');
+                setActiveTab('dashboard');
               }
             });
         }
@@ -3180,7 +3181,7 @@ export default function App() {
       setUser(mockUser);
       setProfile(mockProfile);
       showToast(`Đăng nhập thành công với vai trò: ${authRole}`, 'success');
-      setActiveTab('shelves');
+      setActiveTab('dashboard');
       return;
     }
 
@@ -3201,7 +3202,7 @@ export default function App() {
           .eq('id', data.user.id)
           .maybeSingle();
         if (prof) {
-          setActiveTab('shelves');
+          setActiveTab('dashboard');
         }
       } else {
         const { data, error } = await supabase.auth.signUp({
@@ -3212,7 +3213,7 @@ export default function App() {
         showToast("Đăng ký thành công! Đang tạo thông tin...", "success");
         if (data.user) {
           await createFallbackProfile(data.user.id);
-          setActiveTab('shelves');
+          setActiveTab('dashboard');
         }
       }
     } catch (error) {
@@ -3227,7 +3228,7 @@ export default function App() {
       setUser(null);
       setProfile(null);
       setAuthMode('login');
-      setActiveTab('search');
+      setActiveTab('dashboard');
       showToast("Đã đăng xuất chế độ Demo", "info");
       return;
     }
@@ -3235,7 +3236,7 @@ export default function App() {
     setUser(null);
     setProfile(null);
     setAuthMode('login');
-    setActiveTab('search');
+    setActiveTab('dashboard');
     showToast("Đã đăng xuất", "info");
   };
 
@@ -4220,7 +4221,7 @@ export default function App() {
       setSearchResultSlots([]);
       // Nếu xóa hết ô tìm kiếm và đang ở tab search, tự động trả về tab nghiệp vụ trước đó
       if (activeTab === 'search') {
-        setActiveTab(previousTabBeforeSearch || 'shelves');
+        setActiveTab(previousTabBeforeSearch || 'dashboard');
       }
     }
 
@@ -6648,10 +6649,13 @@ export default function App() {
 
       {/* Header bar */}
       <header className="app-header">
-        <div className="logo-container">
-          <Layers size={28} className="logo-icon" />
-          <h1 className="logo-text">KHO THUỐC LÁ MẪU</h1>
-          {isDemoMode && <span style={{ fontSize: '12px', background: 'rgba(245, 158, 11, 0.2)', color: 'var(--status-warning)', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.4)', fontWeight: 'bold' }}>Offline Demo</span>}
+        <div className="logo-container" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('dashboard')} title="Về màn hình Tổng quan Bento">
+          <div className="app-logo-badge">QC</div>
+          <div>
+            <h1 className="logo-text">KHO LƯU MẪU THUỐC LÁ</h1>
+            <span className="logo-subtext">Hệ Thống Kiểm Soát & Vị Trí Kệ Kho</span>
+          </div>
+          {isDemoMode && <span className="demo-mode-badge">Offline Demo</span>}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -6802,7 +6806,7 @@ export default function App() {
           ) : (
             <div style={{ display: 'flex', gap: '8px' }}>
               {authMode !== 'guest' && (
-                <button className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={() => setAuthMode('guest')}>
+                <button className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={() => { setAuthMode('guest'); setActiveTab('dashboard'); }}>
                   Truy cập Staff (Khách)
                 </button>
               )}
@@ -6879,7 +6883,7 @@ export default function App() {
                     setUser(mockUser);
                     setProfile(mockProfile);
                     showToast("Đăng nhập Thủ kho (Admin) thành công!", "success");
-                    setActiveTab('shelves');
+                    setActiveTab('dashboard');
                   }}>Thủ kho (Admin)</button>
                   
                   <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
@@ -6891,7 +6895,7 @@ export default function App() {
                     setUser(mockUser);
                     setProfile(mockProfile);
                     showToast("Đăng nhập Nhân viên (Staff) thành công!", "success");
-                    setActiveTab('search');
+                    setActiveTab('dashboard');
                   }}>Nhân viên (Staff)</button>
                 </div>
               </div>
@@ -6902,129 +6906,168 @@ export default function App() {
         /* APPLICATION WORKSPACE */
         <div style={{ display: 'flex', flex: 1, gap: '24px', flexDirection: 'column' }}>
           
-          {/* TAB NAVIGATION BAR (Chỉ chứa các nút quản lý, tìm kiếm đã được trích xuất lên trên) */}
-          <div className="glass-panel nav-tabs-bar" style={{ padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <div className="nav-tabs-rail" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center', flex: 1 }}>
-              {/* Nhóm Tra cứu & Sơ đồ kho */}
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', padding: '5px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <button className={`btn ${activeTab === 'search' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('search')}>
-                  <Search size={15} /> Tra Cứu Mẫu
-                  {searchResults.length > 0 && (
-                    <span style={{ background: activeTab === 'search' ? 'rgba(255,255,255,0.25)' : 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
-                      {searchResults.length}
-                    </span>
-                  )}
-                </button>
-                <button className={`btn ${activeTab === 'shelves' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('shelves')}>
-                  <Warehouse size={15} /> Sơ Đồ Kệ Kho
-                </button>
-                {(profile?.role === 'admin') && (
-                  <button className={`btn ${activeTab === 'catalog' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('catalog')}>
-                    <ClipboardList size={15} /> Danh Mục Gốc
+          {/* BENTO GRID HOẶC THANH ĐIỀU HƯỚNG CON */}
+          {activeTab === 'dashboard' ? (
+            <BentoDashboard
+              samples={samples}
+              products={products}
+              boxes={boxes}
+              printQueue={printQueue}
+              transactions={transactions}
+              getExpiredSamples={getExpiredSamples}
+              getApproachingExpiredSamples={getApproachingExpiredSamples}
+              slotConfigs={slotConfigs}
+              setActiveTab={setActiveTab}
+              setMobileShelfFilter={setMobileShelfFilter}
+              setSelectedSlot={setSelectedSlot}
+              handleSearchInputChange={handleSearchInputChange}
+              setPreviousTabBeforeSearch={setPreviousTabBeforeSearch}
+              profile={profile}
+              fetchSearchLogs={fetchSearchLogs}
+              fetchUsersAndVisitors={fetchUsersAndVisitors}
+            />
+          ) : (
+            <>
+              {/* THANH ĐIỀU HƯỚNG TRANG CON (SUB-NAV BAR) */}
+              <div className="bento-subnav-bar">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <button className="bento-back-btn" onClick={() => setActiveTab('dashboard')}>
+                    <ArrowLeft size={15} /> <span>Tổng quan</span>
                   </button>
+                  <div className="bento-subnav-title-group">
+                    <span className="bento-subnav-crumb-sep">/</span>
+                    <span>
+                      {activeTab === 'shelves' && 'Sơ Đồ Kệ Kho'}
+                      {activeTab === 'search' && 'Tra Cứu & Tìm Kiếm Mẫu'}
+                      {activeTab === 'catalog' && 'Danh Mục Sản Phẩm Gốc'}
+                      {activeTab === 'import' && 'Nhập Kho Mẫu Thuốc Lá'}
+                      {activeTab === 'bulk_import' && 'Nhập Excel Hàng Loạt'}
+                      {activeTab === 'labels' && 'In Nhãn Tommy 135 Hàng Loạt'}
+                      {activeTab === 'requests' && 'Yêu Cầu Lấy Mẫu Thuốc Lá'}
+                      {activeTab === 'archives' && 'Đóng Thùng & Tiêu Hủy'}
+                      {activeTab === 'audit' && 'Kiểm Kê Kho Bằng Mã QR'}
+                      {activeTab === 'search_logs' && 'Nhật Ký Tìm Kiếm'}
+                      {activeTab === 'users' && 'Quản Lý Tài Khoản & Khách'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* FAST TAB SWITCHER PILLS */}
+                <div className="bento-subnav-tabs">
+                  <button className={`bento-subnav-tab-pill ${activeTab === 'shelves' ? 'active' : ''}`} onClick={() => setActiveTab('shelves')}>
+                    <Warehouse size={13} /> Sơ đồ
+                  </button>
+                  <button className={`bento-subnav-tab-pill ${activeTab === 'search' ? 'active' : ''}`} onClick={() => setActiveTab('search')}>
+                    <Search size={13} /> Tra cứu
+                  </button>
+                  {profile?.role === 'admin' && (
+                    <>
+                      <button className={`bento-subnav-tab-pill ${activeTab === 'requests' ? 'active' : ''}`} onClick={() => setActiveTab('requests')}>
+                        <ArrowRightLeft size={13} /> Yêu cầu
+                        {transactions.filter(t => t.status === 'pending').length > 0 && (
+                          <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '10px', padding: '0 5px', borderRadius: '8px', fontWeight: 'bold' }}>
+                            {transactions.filter(t => t.status === 'pending').length}
+                          </span>
+                        )}
+                      </button>
+                      <button className={`bento-subnav-tab-pill ${activeTab === 'labels' ? 'active' : ''}`} onClick={() => setActiveTab('labels')}>
+                        <Printer size={13} /> In tem
+                        {printQueue.length > 0 && (
+                          <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '10px', padding: '0 5px', borderRadius: '8px', fontWeight: 'bold' }}>
+                            {printQueue.length}
+                          </span>
+                        )}
+                      </button>
+                      <button className={`bento-subnav-tab-pill ${activeTab === 'audit' ? 'active' : ''}`} onClick={() => setActiveTab('audit')}>
+                        <CheckSquare size={13} /> Kiểm kê
+                      </button>
+                      <button className={`bento-subnav-tab-pill ${activeTab === 'import' ? 'active' : ''}`} onClick={() => setActiveTab('import')}>
+                        <Plus size={13} /> Nhập kho
+                      </button>
+                      <button className={`bento-subnav-tab-pill ${activeTab === 'archives' ? 'active' : ''}`} onClick={() => setActiveTab('archives')}>
+                        <Archive size={13} /> Đóng thùng
+                        {getExpiredSamples().length > 0 && (
+                          <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '10px', padding: '0 5px', borderRadius: '8px', fontWeight: 'bold' }}>
+                            {getExpiredSamples().length}
+                          </span>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Quick search input */}
+                {activeTab !== 'search' && (
+                  <div style={{ position: 'relative', width: '200px' }}>
+                    <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      type="text"
+                      placeholder="Tìm nhanh..."
+                      value={searchName}
+                      onChange={e => {
+                        handleSearchInputChange(e.target.value);
+                        setPreviousTabBeforeSearch(activeTab);
+                        setActiveTab('search');
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px 6px 28px',
+                        fontSize: '12px',
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid var(--glass-border)',
+                        borderRadius: '8px',
+                        color: 'var(--text-primary)',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
                 )}
               </div>
 
-              {/* Admin-only Groups */}
-              {(profile?.role === 'admin') && (
-                <>
-                  {/* Nhóm Nhập & In */}
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <button className={`btn ${activeTab === 'import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('import')}>
-                      <Plus size={16} /> Nhập Kho Mẫu
-                    </button>
-                    <button className={`btn ${activeTab === 'bulk_import' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('bulk_import')}>
-                      <UploadCloud size={16} /> Nhập Hàng Loạt
-                    </button>
-                    <button className={`btn ${activeTab === 'labels' ? 'btn-primary' : 'btn-secondary'}`} style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => setActiveTab('labels')}>
-                      <QrCode size={16} /> In Nhãn Hàng Loạt
-                      {printQueue.length > 0 && (
-                        <span style={{ background: 'var(--accent-blue)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold' }}>
-                          {printQueue.length}
-                        </span>
-                      )}
-                    </button>
-                  </div>
+              {/* PERSISTENT MOBILE THUMB DOCK (TRÊN TẤT CẢ SUB-TABS) */}
+              <div className="bento-mobile-thumb-dock">
+                <button 
+                  className="dock-item"
+                  onClick={() => setActiveTab('dashboard')}
+                >
+                  <Layers size={19} />
+                  <span>Tổng quan</span>
+                </button>
 
-                  {/* Nhóm Xử lý & Hủy */}
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <button className={`btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('requests')}>
-                      <ArrowRightLeft size={16} />
-                      Yêu Cầu Lấy Mẫu
-                      {transactions.filter(t => t.status === 'pending').length > 0 && (
-                        <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
-                          {transactions.filter(t => t.status === 'pending').length}
-                        </span>
-                      )}
-                    </button>
-                    <button className={`btn ${activeTab === 'archives' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('archives')}>
-                      <Archive size={16} /> Đóng Thùng & Hủy
-                      {getExpiredSamples().length > 0 && (
-                        <span style={{ background: 'var(--status-error)', color: '#fff', fontSize: '11px', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold', marginLeft: '4px' }}>
-                          {getExpiredSamples().length} quá hạn
-                        </span>
-                      )}
-                    </button>
-                  </div>
+                <button 
+                  className={`dock-item ${activeTab === 'shelves' ? 'active' : ''}`}
+                  onClick={() => {
+                    if (setMobileShelfFilter) setMobileShelfFilter(0);
+                    setActiveTab('shelves');
+                  }}
+                >
+                  <Warehouse size={19} />
+                  <span>Sơ đồ</span>
+                </button>
 
-                  {/* Nhóm Tiện ích & Kiểm kê */}
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', padding: '6px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <button 
-                      className={`btn ${activeTab === 'audit' ? 'btn-primary' : 'btn-secondary'}`} 
-                      style={{ 
-                        background: activeTab === 'audit' ? 'linear-gradient(135deg, #059669, #10b981)' : '', 
-                        borderColor: activeTab === 'audit' ? '#10b981' : '' 
-                      }} 
-                      onClick={() => setActiveTab('audit')}
-                      title="Kiểm kê kho bằng camera quét mã QR tem liên tục (bỏ qua ô 5 lẻ)"
-                    >
-                      <CheckSquare size={16} /> Kiểm Kê Kho (QR)
-                    </button>
-                    <button className={`btn ${activeTab === 'search_logs' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('search_logs'); fetchSearchLogs(); }}>
-                      <FileText size={16} /> Nhật Ký Tìm Kiếm
-                    </button>
-                    <button className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setActiveTab('users'); fetchUsersAndVisitors(); }}>
-                      <User size={16} /> Tài Khoản & Khách
-                    </button>
+                <button 
+                  className="dock-item dock-item-scan"
+                  onClick={() => setActiveTab('audit')}
+                >
+                  <div className="dock-scan-btn-bubble">
+                    <Camera size={16} />
                   </div>
-                </>
-              )}
-            </div>
+                  <span>Quét QR</span>
+                </button>
 
-            {/* Quick search input on tabs bar when not on search tab */}
-            {activeTab !== 'search' && (
-              <div style={{ position: 'relative', width: '220px', minWidth: '180px' }}>
-                <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input
-                  type="text"
-                  placeholder="Tìm nhanh tên / mã XK..."
-                  value={searchName}
-                  onChange={e => {
-                    handleSearchInputChange(e.target.value);
-                    if (activeTab !== 'search') {
-                      setPreviousTabBeforeSearch(activeTab);
-                      setActiveTab('search');
-                    }
-                  }}
-                  onFocus={() => {
-                    if (searchName) {
-                      setActiveTab('search');
-                    }
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '7px 10px 7px 30px',
-                    fontSize: '12.5px',
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid var(--glass-border)',
-                    borderRadius: 'var(--border-radius-sm)',
-                    color: 'var(--text-primary)',
-                    outline: 'none'
-                  }}
-                />
+                <button 
+                  className={`dock-item ${activeTab === 'requests' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('requests')}
+                >
+                  <div className="dock-badge-rel">
+                    <ArrowRightLeft size={19} />
+                    {transactions.filter(t => t.status === 'pending').length > 0 && <span className="dock-dot" />}
+                  </div>
+                  <span>Yêu cầu</span>
+                </button>
               </div>
-            )}
-          </div>
+            </>
+          )}
 
           {/* GLOBAL SEARCH PANEL (Chỉ hiển thị khi ở tab Tra Cứu) */}
           {activeTab === 'search' && (
@@ -10670,7 +10713,7 @@ export default function App() {
                 showToast={showToast}
                 profile={profile}
                 fetchDatabaseData={fetchDatabaseData}
-                onClose={() => setActiveTab('shelves')}
+                onClose={() => setActiveTab('dashboard')}
               />
             )}
           </div>

@@ -162,3 +162,16 @@ Lưu trữ thông tin các thùng chứa mẫu được đóng gói khi kệ kho
     4. Hệ thống cập nhật trường `shelf = Null`, `slot = Null`, `column_number = Null`, và `box_id = ID Thùng`, đồng thời chuyển trạng thái của các mẫu này thành `boxed`.
     5. Hệ thống xuất ra file **PDF danh sách mẫu đóng thùng** để thủ kho in ra dán lên mặt ngoài của thùng giấy vật lý.
     6. Các mẫu đã đóng thùng vẫn được tìm kiếm bình thường bởi nhân viên (kết quả hiển thị vị trí ở "Thùng MM/YYYY") cho đến khi hết hạn 12 tháng và được hủy.
+
+---
+
+## 4. Yêu Cầu Chung Khi Phát Triển (General Development Rules)
+
+### 4.1. Bắt buộc dùng skill Frontend Design cho mọi thiết kế giao diện
+*   Mọi công việc liên quan đến **thiết kế / chỉnh sửa giao diện frontend** (màn hình, bố cục, tem nhãn in, biểu mẫu, bảng, modal, màu sắc, typography...) **luôn luôn phải áp dụng skill** tại: `.agent/skills/frontend-design/frontend-design/SKILL.md`.
+*   Quy trình bắt buộc theo skill:
+    1. Đọc lại `SKILL.md` trước khi thiết kế.
+    2. Lập kế hoạch thiết kế ngắn (token màu 4–6 mã hex, typography, layout bằng wireframe ASCII, nguyên tắc riêng của màn hình).
+    3. Tự rà soát kế hoạch để loại bỏ các lựa chọn "mặc định / rập khuôn", sau đó mới viết code.
+    4. Với thay đổi giao diện lớn: **làm bản demo chạy local cho người dùng duyệt trước**, chỉ áp dụng vào mã nguồn chính sau khi được chốt.
+*   Giao diện phải responsive trên cả PC và điện thoại.
