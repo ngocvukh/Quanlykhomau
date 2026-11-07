@@ -4,7 +4,7 @@
 > **Tác giả**: Ngọc Vũ  
 > **GitHub**: https://github.com/ngocvukh/Quanlykhomau  
 > **Website chạy thật**: https://quanlykhomau.vercel.app (hoặc link Vercel của bạn)  
-> **Database**: Supabase — `https://obfdrpqnntylboptkwin.supabase.co`
+> **Database**: Supabase — `https://your-project-id.supabase.co`
 
 ---
 
@@ -108,8 +108,8 @@ npm run dev
 
 ```env
 # Supabase Configuration
-VITE_SUPABASE_URL=https://obfdrpqnntylboptkwin.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9iZmRycHFubnR5bGJvcHRrd2luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3OTY1NjgsImV4cCI6MjA5ODM3MjU2OH0.oTJakm0vtd6gQL-qeT1Qna5M_nKb4o1doed1OARfqdo
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your-supabase-anon-key-here
 ```
 
 > ⚠️ **Lưu ý**: File `.env` đã được `.gitignore` bảo vệ — sẽ KHÔNG bị đẩy lên GitHub. Mỗi máy cần tự tạo file `.env` riêng.
@@ -135,7 +135,7 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 1. Supabase Dashboard → **Project Settings** (⚙️ góc dưới trái)
 2. Bấm **API** → Tìm phần **Project API keys**
 3. Copy:
-   - **Project URL**: `https://obfdrpqnntylboptkwin.supabase.co`
+   - **Project URL**: `https://your-project-id.supabase.co`
    - **anon public key**: chuỗi `eyJ...` dài
 
 ---
@@ -151,7 +151,7 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 
 | Key | Value |
 |-----|-------|
-| `VITE_SUPABASE_URL` | `https://obfdrpqnntylboptkwin.supabase.co` |
+| `VITE_SUPABASE_URL` | `https://your-project-id.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | *(anon key của bạn)* |
 
 5. Bấm **Deploy** → Chờ ~30 giây → Xong ✅
@@ -351,7 +351,7 @@ git pull origin main
 ## 📞 Thông tin liên hệ hỗ trợ
 
 - **GitHub Issues**: https://github.com/ngocvukh/Quanlykhomau/issues
-- **Supabase Dashboard**: https://supabase.com/dashboard/project/obfdrpqnntylboptkwin
+- **Supabase Dashboard**: https://supabase.com/dashboard/project/your-project-id
 - **Vercel Dashboard**: https://vercel.com/dashboard
 
 ---

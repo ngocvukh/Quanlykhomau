@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import html2pdf from 'html2pdf.js';
+import DOMPurify from 'dompurify';
 import QRCode from 'qrcode';
 import {
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database, Warehouse, LayoutGrid,
@@ -134,37 +135,6 @@ const escapeHtml = (str) => String(str ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#039;');
 
-// Telegram Integration (via Vercel Serverless Function /api/telegram to keep Bot Token server-side)
-const TELEGRAM_TOKEN = import.meta.env.DEV ? (import.meta.env.VITE_TELEGRAM_TOKEN || '') : '';
-const TELEGRAM_CHAT_ID = import.meta.env.DEV ? (import.meta.env.VITE_TELEGRAM_CHAT_ID || '') : '';
-
-export const sendTelegramNotification = async (message) => {
-  try {
-    // Ưu tiên gọi qua Serverless endpoint /api/telegram (an toàn trên Vercel Production)
-    const apiRes = await fetch('/api/telegram', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
-    });
-    if (apiRes.ok) return;
-
-    // Fallback khi chạy local Vite dev server mà không dùng vercel dev
-    if (import.meta.env.DEV && TELEGRAM_TOKEN && TELEGRAM_CHAT_ID) {
-      const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: TELEGRAM_CHAT_ID,
-          text: message,
-          parse_mode: 'HTML'
-        })
-      });
-    }
-  } catch (error) {
-    console.error("Lỗi gửi thông báo Telegram:", error);
-  }
-};
 
 // Format capacity mapping (Mỗi ô kệ rộng tối đa 700mm)
 const SLOT_MAX_WIDTH_MM = 700;
@@ -2133,7 +2103,7 @@ export default function App() {
     `;
 
     const element = document.createElement('div');
-    element.innerHTML = htmlContent;
+    element.innerHTML = DOMPurify.sanitize(htmlContent);
     html2pdf().from(element).set({
       margin: [8, 10, 8, 10],
       filename: `Phieu_Don_Kho_${new Date().toISOString().slice(0,10)}.pdf`,
@@ -4584,8 +4554,6 @@ export default function App() {
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [newTx, ...prev]);
-      const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER;
-      sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${effectivePurpose}\n- Tình trạng: Đang chờ duyệt`);
       if (isMissingPurpose) {
         showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
       } else {
@@ -4648,8 +4616,6 @@ export default function App() {
             });
           } catch (e) { /* ignore */ }
         }
-        const guestNameForMsg = visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER;
-        sendTelegramNotification(`🔔 <b>CÓ YÊU CẦU XUẤT MẪU</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng: ${qty} bao\n- Người mượn: ${profile?.full_name || guestNameForMsg}\n- Mục đích: ${effectivePurpose}\n- Tình trạng: Đang chờ duyệt`);
         if (isMissingPurpose) {
           showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
         } else {
@@ -4768,7 +4734,6 @@ export default function App() {
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [approveTx, ...prev]);
-      sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT (DEMO)</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng cấp: ${qtyToTake} bao${noteSuffix}\n- Người duyệt: ${profile?.full_name || 'Thủ kho Demo'}`);
       showToast(`Đã duyệt cấp ${qtyToTake} bao thành công!`, "success");
     } else {
       try {
@@ -4813,7 +4778,6 @@ export default function App() {
           note: `Đã duyệt cấp ${qtyToTake} bao${noteSuffix}. Vị trí cũ: ${sample.shelf ? formatLocation(sample.shelf, sample.slot, sample.column_number) : (sample.box_id ? 'Thùng' : 'Chưa có')}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5, 1) : (newQty === 0 ? 'Hết mẫu' : formatLocation(nextShelf, nextSlot, nextColumn))} [RESTORE:${sample.shelf || ''}|${sample.slot || ''}|${sample.column_number || ''}|${sample.box_id || ''}|${sample.status || 'stored'}]`
         });
 
-        sendTelegramNotification(`✅ <b>YÊU CẦU ĐÃ ĐƯỢC DUYỆT</b>\n- Sản phẩm: ${sample.products?.product_name || sample.product_name}\n- Số lượng cấp: ${qtyToTake} bao${noteSuffix}\n- Người duyệt: ${profile?.full_name || 'Admin'}`);
         showToast(`Đã phê duyệt cấp ${qtyToTake} bao thành công!`, "success");
         fetchDatabaseData();
       } catch (e) {
@@ -4868,7 +4832,6 @@ export default function App() {
         if (t.id === txId) return { ...t, status: 'cancelled' };
         return t;
       }));
-      sendTelegramNotification(`❌ <b>YÊU CẦU BỊ TỪ CHỐI (DEMO)</b>\n- Yêu cầu ID: ${txId}\n- Người từ chối: ${profile?.full_name || 'Admin'}`);
       showToast("Đã từ chối/hủy yêu cầu", "info");
     } else {
       try {
@@ -4878,7 +4841,6 @@ export default function App() {
           .update({ status: 'cancelled' })
           .eq('id', txId);
         if (error) throw error;
-        sendTelegramNotification(`❌ <b>YÊU CẦU BỊ TỪ CHỐI</b>\n- Yêu cầu ID: ${txId}\n- Người từ chối: ${profile?.full_name || 'Admin'}`);
         showToast("Đã hủy yêu cầu", "info");
         fetchDatabaseData();
       } catch (e) {
@@ -5050,7 +5012,6 @@ export default function App() {
 
       if (tUpdateErr) throw tUpdateErr;
 
-      sendTelegramNotification(`↩️ <b>HOÀN TÁC YÊU CẦU LẤY MẪU</b>\n- Sản phẩm: ${sampleName}\n- Trạng thái cũ: ${isApproved ? 'Đã cấp' : 'Đã hủy'}\n- Chuyển về: Chờ duyệt\n- Người thực hiện: ${profile?.full_name || 'Admin'}`);
       showToast(`Đã hoàn tác yêu cầu "${sampleName}" về trạng thái Chờ duyệt!`, "success");
       await fetchDatabaseData();
     } catch (e) {
@@ -5398,7 +5359,7 @@ export default function App() {
     printWindow.document.write(`
       <html>
       <head>
-        <title>Danh sách mẫu đóng thùng - ${box.box_name}</title>
+        <title>Danh sách mẫu đóng thùng - ${escapeHtml(box.box_name)}</title>
         <style>
           body { font-family: 'Outfit', sans-serif; padding: 40px; color: #333; }
           h1 { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 30px; }
@@ -5411,7 +5372,7 @@ export default function App() {
       <body>
         <h1>DANH SÁCH MẪU ĐÓNG THÙNG LƯU TRỮ</h1>
         <p><strong>Mã Thùng:</strong> ${box.id}</p>
-        <p><strong>Tên Thùng:</strong> ${box.box_name}</p>
+        <p><strong>Tên Thùng:</strong> ${escapeHtml(box.box_name)}</p>
         <p><strong>Ngày đóng gói:</strong> ${new Date(box.created_at).toLocaleString()}</p>
         <p><strong>Trạng thái:</strong> Đang lưu trữ tại kho phụ</p>
         
@@ -5781,13 +5742,13 @@ export default function App() {
               </div>
               <div class="loc-block">
                 <span class="loc-lbl">VỊ TRÍ:</span>
-                <span class="loc-val">${locText.toUpperCase()}</span>
+                <span class="loc-val">${escapeHtml(locText.toUpperCase())}</span>
               </div>
             </div>
             <div class="qr-section">
               <div class="qr-badge-slot">${trayBadge}</div>
               <div class="qr-box">${qrSvg}</div>
-              <div class="qr-sku">${s.sku}</div>
+              <div class="qr-sku">${escapeHtml(s.sku)}</div>
             </div>
           </div>
         `);
@@ -5816,7 +5777,7 @@ export default function App() {
     printWindow.document.write(`
       <html>
       <head>
-        <title>In Nhãn Tommy 135 — ${groupName}</title>
+        <title>In Nhãn Tommy 135 — ${escapeHtml(groupName)}</title>
         <style>
           @page {
             size: A4;
@@ -6112,13 +6073,13 @@ export default function App() {
               </div>
               <div class="loc-block">
                 <span class="loc-lbl">VỊ TRÍ:</span>
-                <span class="loc-val">${locText.toUpperCase()}</span>
+                <span class="loc-val">${escapeHtml(locText.toUpperCase())}</span>
               </div>
             </div>
             <div class="qr-section">
               <div class="qr-badge-slot">${trayBadge}</div>
               <div class="qr-box">${qrSvg}</div>
-              <div class="qr-sku">${s.sku}</div>
+              <div class="qr-sku">${escapeHtml(s.sku)}</div>
             </div>
           </div>
         `);
@@ -11932,7 +11893,7 @@ export default function App() {
                         qrCodeModal.tray_number ? <span style={{ fontSize: '7.5px', fontWeight: 800, color: '#0284c7', background: '#e0f2fe', padding: '0.5px 3px', borderRadius: '2px' }}>Khay {qrCodeModal.tray_number}</span> : null
                       )}
                     </div>
-                    <div style={{ width: '75px', height: '75px' }} dangerouslySetInnerHTML={{ __html: generateQrSvgMarkup(makeStickerQrUrl(qrCodeModal.sku)) }} />
+                    <div style={{ width: '75px', height: '75px' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(generateQrSvgMarkup(makeStickerQrUrl(qrCodeModal.sku))) }} />
                     <div style={{ fontSize: '7.5px', color: '#000', wordBreak: 'break-all', textAlign: 'center', marginTop: '2px', fontWeight: 800 }}>
                       {qrCodeModal.sku}
                     </div>
@@ -12625,7 +12586,7 @@ export default function App() {
                   printWindow.document.write(`
                     <html>
                     <head>
-                      <title>${destructionBoxTarget ? 'Danh sách mẫu hết hạn - ' + (destructionBoxTarget.name || '') : 'Danh sách mẫu hết hạn'}</title>
+                      <title>${destructionBoxTarget ? 'Danh sách mẫu hết hạn - ' + escapeHtml(destructionBoxTarget.name || '') : 'Danh sách mẫu hết hạn'}</title>
                       <style>
                         body { font-family: 'Outfit', sans-serif; padding: 40px; color: #333; }
                         h1 { border-bottom: 2px solid #dc2626; padding-bottom: 10px; color: #dc2626; margin-bottom: 30px; text-align: center; }
@@ -12636,7 +12597,7 @@ export default function App() {
                       </style>
                     </head>
                     <body>
-                      <h1>${destructionBoxTarget ? 'DANH SÁCH MẪU HẾT HẠN - ' + (destructionBoxTarget.name || '').toUpperCase() : 'DANH SÁCH MẪU HẾT HẠN'}</h1>
+                      <h1>${destructionBoxTarget ? 'DANH SÁCH MẪU HẾT HẠN - ' + escapeHtml((destructionBoxTarget.name || '').toUpperCase()) : 'DANH SÁCH MẪU HẾT HẠN'}</h1>
                       <p><strong>Ngày lập:</strong> ${new Date().toLocaleDateString()}</p>
                       
                       <table>

@@ -1,8 +1,9 @@
 const { createClient } = require('@supabase/supabase-js');
 
 async function main() {
-  const urlMatch = 'https://obfdrpqnntylboptkwin.supabase.co';
-  const keyMatch = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9iZmRycHFubnR5bGJvcHRrd2luIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3OTY1NjgsImV4cCI6MjA5ODM3MjU2OH0.oTJakm0vtd6gQL-qeT1Qna5M_nKb4o1doed1OARfqdo';
+  const env = fs.readFileSync('.env', 'utf8');
+  const urlMatch = (env.match(/VITE_SUPABASE_URL\s*=\s*(.*)/) || [])[1];
+  const keyMatch = (env.match(/VITE_SUPABASE_ANON_KEY\s*=\s*(.*)/) || [])[1];
   
   if(urlMatch && keyMatch) {
     const supabase = createClient(urlMatch, keyMatch);
