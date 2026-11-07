@@ -387,6 +387,9 @@ export default function App() {
   const [scanPurpose, setScanPurpose] = useState('');
   const [rejectModalTx, setRejectModalTx] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [renameModalVisitor, setRenameModalVisitor] = useState(null); // { deviceId, currentName }
+  const [renameNewName, setRenameNewName] = useState('');
+  const [renameLoading, setRenameLoading] = useState(false);
 
   // Tommy 128 Blank QC Template printing states
   const [print128BlankModalOpen, setPrint128BlankModalOpen] = useState(false);
@@ -2513,7 +2516,7 @@ export default function App() {
 
         const { data: resetRow } = await supabase
           .from('visitor_resets')
-          .select('device_id, is_blocked')
+          .select('device_id, is_blocked, reset_by')
           .eq('device_id', did)
           .maybeSingle();
         if (resetRow) {
@@ -2533,9 +2536,22 @@ export default function App() {
             window.location.href = 'https://www.google.com.vn';
             return;
           }
-          // Admin đã reset → xóa tên khỏi localStorage và xóa khỏi bảng
-          localStorage.removeItem('visitor_name');
-          await supabase.from('visitor_resets').delete().eq('device_id', did);
+
+          if (resetRow.reset_by && resetRow.reset_by.startsWith('rename:')) {
+            // Admin đã chủ động đổi tên cho thiết bị này → Tự động cập nhật tên mới
+            const syncName = resetRow.reset_by.replace('rename:', '').trim();
+            if (syncName) {
+              localStorage.setItem('visitor_name', syncName);
+              setVisitorName(syncName);
+              showToast(`Tên của bạn đã được quản trị viên đổi thành: "${syncName}"`, 'info');
+            }
+            await supabase.from('visitor_resets').delete().eq('device_id', did);
+          } else {
+            // Admin đã đặt lệnh bắt khai lại tên → xóa tên khỏi localStorage để kích hoạt popup nhập lại
+            localStorage.removeItem('visitor_name');
+            setVisitorName('');
+            await supabase.from('visitor_resets').delete().eq('device_id', did);
+          }
         }
       } catch (e) { /* bỏ qua nếu không kết nối được */ }
 
@@ -2637,7 +2653,7 @@ export default function App() {
     return () => { supabase.removeChannel(channel); };
   }, [profile, isDemoMode]);
 
-  // Admin reset tên visitor theo device_id (tự động tra cứu thiết bị nếu chưa có, hỗ trợ cả người không xác định)
+  // Admin yêu cầu visitor khai lại tên theo device_id (bắt buộc nhập lại tên vào lần truy cập sau)
   const handleResetVisitor = async (devId, userName) => {
     let targetDevId = devId;
     if (!targetDevId && userName && userName !== UNKNOWN_REQUESTER) {
@@ -2660,17 +2676,115 @@ export default function App() {
       return;
     }
     const displayName = (userName && userName !== UNKNOWN_REQUESTER)
-      ? `người dùng "${userName}" (Thiết bị: ${getDisplayDeviceName(targetDevId)})`
+      ? `khách "${userName}" (Thiết bị: ${getDisplayDeviceName(targetDevId)})`
       : `thiết bị [${getDisplayDeviceName(targetDevId)}] (Người yêu cầu: Không xác định)`;
 
-    if (!window.confirm(`Xác nhận yêu cầu ${displayName} phải khai báo lại tên?\nLần sau thiết bị này truy cập web sẽ bắt buộc phải nhập lại tên mới.`)) return;
+    if (!window.confirm(`Xác nhận yêu cầu ${displayName} phải khai báo lại tên?\nLần sau khi truy cập lại web, thiết bị này sẽ bắt buộc phải nhập lại tên mới.`)) return;
     try {
-      await supabase.from('visitor_resets').upsert({ device_id: targetDevId, is_blocked: false, reset_by: 'admin' });
-      showToast(`Đã reset thiết bị [${getDisplayDeviceName(targetDevId)}]. Thiết bị này sẽ phải nhập lại tên lần sau!`, 'success');
+      await supabase.from('visitor_resets').upsert({ device_id: targetDevId, is_blocked: false, reset_by: 'admin_reset' });
+      showToast(`Đã yêu cầu thiết bị [${getDisplayDeviceName(targetDevId)}] khai lại tên. Lần truy cập sau sẽ bắt buộc nhập tên mới!`, 'success');
       fetchSearchLogs();
       fetchUsersAndVisitors();
     } catch (e) {
-      showToast('Lỗi khi reset. Thử lại.', 'error');
+      showToast('Lỗi khi đặt yêu cầu khai lại tên. Thử lại.', 'error');
+    }
+  };
+
+  // Admin trực tiếp đổi tên cho khách theo device_id (cập nhật hệ thống & tự động đồng bộ sang máy khách)
+  const handleAdminRenameVisitor = async (devId, newName, oldName) => {
+    let targetDevId = devId;
+    if (!targetDevId && oldName && oldName !== UNKNOWN_REQUESTER) {
+      try {
+        const { data } = await supabase
+          .from('search_logs')
+          .select('device_id')
+          .ilike('user_name', oldName)
+          .order('searched_at', { ascending: false })
+          .limit(1);
+        if (data && data[0]?.device_id) {
+          targetDevId = data[0].device_id;
+        }
+      } catch (e) {
+        console.error('Lỗi tra cứu device_id:', e);
+      }
+    }
+
+    const trimmed = (newName || '').trim();
+    if (!trimmed) {
+      showToast('Vui lòng nhập họ và tên mới cho khách!', 'warning');
+      return;
+    }
+    if (oldName && trimmed === oldName) {
+      showToast('Tên mới trùng với tên hiện tại!', 'info');
+      setRenameModalVisitor(null);
+      return;
+    }
+
+    try {
+      setRenameLoading(true);
+
+      if (isDemoMode) {
+        setAllVisitorLogs(prev => prev.map(l => (l.device_id === targetDevId ? { ...l, user_name: trimmed } : l)));
+        setTransactions(prev => prev.map(t => {
+          if (!t.user_id && t.note) {
+            const hasDev = targetDevId && t.note.includes(`[dev: ${targetDevId}]`);
+            const hasName = oldName && t.note.includes(`[Khách: ${oldName}]`);
+            if (hasDev || hasName) {
+              const updatedNote = t.note.replace(/\[(?:Khách|Người yêu cầu):\s*[^\]]*\]/i, `[Khách: ${trimmed}]`);
+              return { ...t, note: updatedNote };
+            }
+          }
+          return t;
+        }));
+        showToast(`Đã đổi tên khách thành "${trimmed}" (Demo)!`, 'success');
+        setRenameModalVisitor(null);
+        return;
+      }
+
+      // 1. Thêm log mới vào search_logs để đảm bảo timestamp mới nhất luôn trỏ về tên này
+      if (targetDevId) {
+        await supabase.from('search_logs').insert({
+          device_id: targetDevId,
+          user_name: trimmed,
+          keyword: '[Admin đổi tên]',
+          results_count: 0
+        });
+        try {
+          await supabase.from('search_logs').update({ user_name: trimmed }).eq('device_id', targetDevId);
+        } catch { /* ignore */ }
+      }
+
+      // 2. Cập nhật ghi chú trên tất cả các giao dịch lấy mẫu của khách này
+      const affectedTxs = transactions.filter(t => !t.user_id && t.note && (
+        (targetDevId && t.note.includes(`[dev: ${targetDevId}]`)) ||
+        (oldName && t.note.includes(`[Khách: ${oldName}]`))
+      ));
+      for (const tx of affectedTxs) {
+        const updatedNote = tx.note.replace(/\[(?:Khách|Người yêu cầu):\s*[^\]]*\]/i, `[Khách: ${trimmed}]`);
+        if (updatedNote !== tx.note) {
+          await supabase.from('transactions').update({ note: updatedNote }).eq('id', tx.id);
+        }
+      }
+
+      // 3. Đặt cờ trong visitor_resets để thiết bị khách tự động cập nhật tên mới trong lần truy cập sau
+      if (targetDevId) {
+        await supabase.from('visitor_resets').upsert({
+          device_id: targetDevId,
+          is_blocked: false,
+          reset_by: `rename:${trimmed}`
+        });
+      }
+
+      showToast(`Đã đổi tên khách thành "${trimmed}" thành công!`, 'success');
+      setRenameModalVisitor(null);
+      fetchUsersAndVisitors();
+      fetchSearchLogs();
+      fetchDatabaseData();
+    } catch (e) {
+      console.error('Lỗi khi đổi tên khách:', e);
+      showToast('Lỗi khi đổi tên: ' + e.message, 'error');
+    } finally {
+      setRenameLoading(false);
     }
   };
 
@@ -2741,7 +2855,7 @@ export default function App() {
       const [{ data: profs }, { data: vLogs }, { data: resets }] = await Promise.all([
         supabase.from('profiles').select('*').order('created_at', { ascending: false }),
         supabase.from('search_logs').select('*').order('searched_at', { ascending: false }).limit(2000),
-        supabase.from('visitor_resets').select('device_id, is_blocked')
+        supabase.from('visitor_resets').select('device_id, is_blocked, reset_by')
       ]);
       setProfilesList(profs || []);
       setAllVisitorLogs(vLogs || []);
@@ -2842,7 +2956,7 @@ export default function App() {
           .gte('searched_at', startIso)
           .lte('searched_at', endIso)
           .order('searched_at', { ascending: false }),
-        supabase.from('visitor_resets').select('device_id, is_blocked')
+        supabase.from('visitor_resets').select('device_id, is_blocked, reset_by')
       ]);
       setSearchLogs(logs || []);
       setResetDevices(resets || []);
@@ -9013,38 +9127,65 @@ export default function App() {
                                       }
 
                                       return (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleResetVisitor(devId, reqName);
-                                          }}
-                                          disabled={isPendingReset}
-                                          style={{
-                                            background: isPendingReset ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)',
-                                            border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
-                                            color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)',
-                                            borderRadius: '6px',
-                                            padding: '2px 8px',
-                                            fontSize: '11px',
-                                            cursor: isPendingReset ? 'not-allowed' : 'pointer',
-                                            fontWeight: 600,
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '4px',
-                                            whiteSpace: 'nowrap',
-                                            transition: 'all 0.2s ease'
-                                          }}
-                                          title={
-                                            isPendingReset
-                                              ? 'Thiết bị này đang ở trạng thái chờ khai lại tên khi truy cập'
-                                              : devId
-                                                ? `Yêu cầu thiết bị [${getDisplayDeviceName(devId)}] phải khai lại tên vào lần truy cập sau`
-                                                : 'Yêu cầu thiết bị này phải khai lại tên vào lần truy cập sau'
-                                          }
-                                        >
-                                          🔄 {isPendingReset ? 'Đang chờ nhập' : 'Yêu cầu khai lại tên'}
-                                        </button>
+                                        <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setRenameModalVisitor({ deviceId: devId, currentName: reqName });
+                                              setRenameNewName(reqName === UNKNOWN_REQUESTER ? '' : reqName);
+                                            }}
+                                            title="Admin trực tiếp đổi tên cho người yêu cầu này"
+                                            style={{
+                                              background: 'rgba(201,164,106,0.12)',
+                                              border: '1px solid rgba(201,164,106,0.3)',
+                                              color: 'var(--bento-kraft)',
+                                              borderRadius: '6px',
+                                              padding: '2px 7px',
+                                              fontSize: '11px',
+                                              cursor: 'pointer',
+                                              fontWeight: 600,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '3px',
+                                              whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            ✏️ Đổi tên
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleResetVisitor(devId, reqName);
+                                            }}
+                                            disabled={isPendingReset}
+                                            style={{
+                                              background: isPendingReset ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)',
+                                              border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
+                                              color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)',
+                                              borderRadius: '6px',
+                                              padding: '2px 7px',
+                                              fontSize: '11px',
+                                              cursor: isPendingReset ? 'not-allowed' : 'pointer',
+                                              fontWeight: 600,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '3px',
+                                              whiteSpace: 'nowrap',
+                                              transition: 'all 0.2s ease'
+                                            }}
+                                            title={
+                                              isPendingReset
+                                                ? 'Thiết bị này đang ở trạng thái chờ khai lại tên khi truy cập'
+                                                : devId
+                                                  ? `Yêu cầu thiết bị [${getDisplayDeviceName(devId)}] phải khai lại tên vào lần truy cập sau`
+                                                  : 'Yêu cầu thiết bị này phải khai lại tên vào lần truy cập sau'
+                                            }
+                                          >
+                                            🔄 {isPendingReset ? 'Chờ khai lại' : 'Khai lại tên'}
+                                          </button>
+                                        </div>
                                       );
                                     })()}
                                   </div>
@@ -10050,6 +10191,24 @@ export default function App() {
                                       return (
                                         <>
                                           <button
+                                            type="button"
+                                            onClick={() => {
+                                              setRenameModalVisitor({ deviceId: log.device_id, currentName: log.user_name });
+                                              setRenameNewName(log.user_name || '');
+                                            }}
+                                            title="Admin trực tiếp đổi tên cho khách này"
+                                            style={{
+                                              background: 'rgba(201,164,106,0.12)',
+                                              border: '1px solid rgba(201,164,106,0.3)',
+                                              color: 'var(--bento-kraft)',
+                                              borderRadius: '8px',
+                                              padding: '4px 8px', fontSize: '11px', cursor: 'pointer',
+                                              fontWeight: 600, whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            ✏️ Đổi tên
+                                          </button>
+                                          <button
                                             onClick={() => handleResetVisitor(log.device_id, log.user_name)}
                                             title="Yêu cầu thiết bị này nhập lại tên vào lần truy cập sau"
                                             disabled={!!status}
@@ -10058,11 +10217,11 @@ export default function App() {
                                               border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
                                               color: status ? 'var(--text-muted)' : 'var(--status-warning)', 
                                               borderRadius: '8px',
-                                              padding: '4px 10px', fontSize: '11px', cursor: status ? 'not-allowed' : 'pointer',
+                                              padding: '4px 8px', fontSize: '11px', cursor: status ? 'not-allowed' : 'pointer',
                                               fontWeight: 600, whiteSpace: 'nowrap'
                                             }}
                                           >
-                                            🔄 {status ? 'Đang chờ nhập' : 'Yêu cầu khai lại'}
+                                            🔄 {status ? (status.reset_by?.startsWith('rename:') ? 'Chờ đổi tên' : 'Chờ khai lại') : 'Khai lại tên'}
                                           </button>
                                           <button
                                             onClick={() => handleBlockVisitor(log.device_id, log.user_name)}
@@ -10070,7 +10229,7 @@ export default function App() {
                                             style={{
                                               background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
                                               color: 'var(--status-error)', borderRadius: '8px',
-                                              padding: '4px 10px', fontSize: '11px', cursor: 'pointer',
+                                              padding: '4px 8px', fontSize: '11px', cursor: 'pointer',
                                               fontWeight: 600, whiteSpace: 'nowrap'
                                             }}
                                           >
@@ -10447,6 +10606,8 @@ export default function App() {
                                         {status ? (
                                           status.is_blocked ? (
                                             <span style={{ fontSize: '11px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>🚫 Đang bị chặn</span>
+                                          ) : status.reset_by?.startsWith('rename:') ? (
+                                            <span style={{ fontSize: '11px', background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>✏️ Chờ đổi tên</span>
                                           ) : (
                                             <span style={{ fontSize: '11px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>⏳ Chờ khai lại tên</span>
                                           )
@@ -10481,11 +10642,48 @@ export default function App() {
                                           ) : (
                                             <>
                                               <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setRenameModalVisitor({ deviceId: v.device_id, currentName: v.user_name });
+                                                  setRenameNewName(v.user_name || '');
+                                                }}
+                                                title="Admin trực tiếp đổi tên cho khách này"
+                                                style={{
+                                                  background: 'rgba(201,164,106,0.12)',
+                                                  border: '1px solid rgba(201,164,106,0.35)',
+                                                  color: 'var(--bento-kraft)',
+                                                  borderRadius: '8px',
+                                                  padding: '4px 10px',
+                                                  fontSize: '11.5px',
+                                                  cursor: 'pointer',
+                                                  fontWeight: 600,
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px'
+                                                }}
+                                              >
+                                                ✏️ Đổi tên
+                                              </button>
+                                              <button
+                                                type="button"
                                                 onClick={() => handleResetVisitor(v.device_id, v.user_name)}
                                                 disabled={!!status}
-                                                style={{ background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)', color: status ? 'var(--text-muted)' : 'var(--status-warning)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: status ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+                                                title="Bắt buộc thiết bị này phải khai lại tên vào lần truy cập sau"
+                                                style={{
+                                                  background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)',
+                                                  border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
+                                                  color: status ? 'var(--text-muted)' : 'var(--status-warning)',
+                                                  borderRadius: '8px',
+                                                  padding: '4px 10px',
+                                                  fontSize: '11.5px',
+                                                  cursor: status ? 'not-allowed' : 'pointer',
+                                                  fontWeight: 600,
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px'
+                                                }}
                                               >
-                                                🔄 {status ? 'Đang chờ nhập' : 'Đổi / Khai lại tên'}
+                                                🔄 {status ? (status.reset_by?.startsWith('rename:') ? 'Chờ đổi tên' : 'Chờ khai lại') : 'Khai lại tên'}
                                               </button>
                                               <button
                                                 onClick={() => handleBlockVisitor(v.device_id, v.user_name)}
@@ -12540,6 +12738,93 @@ export default function App() {
                 }}
               >
                 {loading ? 'Đang xử lý...' : 'Xác nhận từ chối'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN RENAME VISITOR MODAL */}
+      {renameModalVisitor && (
+        <div className="modal-overlay" style={{ zIndex: 10060 }} onClick={() => setRenameModalVisitor(null)}>
+          <div 
+            className="modal-content" 
+            style={{ maxWidth: '460px', width: '92%' }} 
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--bento-kraft)' }}>
+                ✏️ Đổi Tên Khách Truy Cập
+              </h3>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                style={{ padding: '4px 8px', fontSize: '12px' }} 
+                onClick={() => setRenameModalVisitor(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '18px 20px' }}>
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                marginBottom: '16px',
+                fontSize: '13px',
+                lineHeight: 1.6
+              }}>
+                <div><strong>Tên hiện tại:</strong> <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{renameModalVisitor.currentName || 'Không xác định'}</span></div>
+                <div><strong>Thiết bị:</strong> <code style={{ fontSize: '11.5px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>{getDisplayDeviceName(renameModalVisitor.deviceId)}</code> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({renameModalVisitor.deviceId})</span></div>
+              </div>
+
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                Họ và tên mới của khách: <span style={{ color: 'var(--status-error)' }}>*</span>
+              </label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Nhập họ và tên mới..."
+                value={renameNewName}
+                onChange={e => setRenameNewName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    handleAdminRenameVisitor(renameModalVisitor.deviceId, renameNewName, renameModalVisitor.currentName);
+                  }
+                }}
+                style={{ width: '100%', fontSize: '13.5px' }}
+                autoFocus
+              />
+
+              <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+                <span style={{ color: 'var(--bento-kraft)' }}>💡</span>
+                <span>Tên mới sẽ cập nhật ngay trên toàn hệ thống và tự động đồng bộ sang thiết bị của khách trong lần truy cập tiếp theo (không bắt buộc khách nhập lại).</span>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: '12px' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={() => setRenameModalVisitor(null)}
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  background: 'var(--bento-kraft)',
+                  borderColor: 'var(--bento-kraft)',
+                  color: '#121A15',
+                  fontWeight: 700
+                }}
+                disabled={renameLoading || !renameNewName.trim()}
+                onClick={() => handleAdminRenameVisitor(renameModalVisitor.deviceId, renameNewName, renameModalVisitor.currentName)}
+              >
+                {renameLoading ? 'Đang lưu...' : 'Xác nhận đổi tên'}
               </button>
             </div>
           </div>

@@ -96,6 +96,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'search_logs') THEN
     EXECUTE 'CREATE POLICY "Allow insert search logs" ON public.search_logs FOR INSERT WITH CHECK (true)';
     EXECUTE 'CREATE POLICY "Allow admin read search logs" ON public.search_logs FOR SELECT USING (public.is_admin())';
+    EXECUTE 'CREATE POLICY "Allow admin update search logs" ON public.search_logs FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin())';
     EXECUTE 'CREATE POLICY "Allow admin delete search logs" ON public.search_logs FOR DELETE USING (public.is_admin())';
   END IF;
 END $$;
