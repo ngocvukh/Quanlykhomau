@@ -2773,6 +2773,12 @@ export default function App() {
           is_blocked: false,
           reset_by: `rename:${trimmed}`
         });
+
+        // Nếu thiết bị được đổi tên chính là trình duyệt hiện tại thì cập nhật luôn vào máy
+        if (targetDevId === deviceId) {
+          localStorage.setItem('visitor_name', trimmed);
+          setVisitorName(trimmed);
+        }
       }
 
       showToast(`Đã đổi tên khách thành "${trimmed}" thành công!`, 'success');
@@ -10172,7 +10178,10 @@ export default function App() {
                                 <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                                   {(() => {
                                     const status = resetDevices.find(d => d.device_id === log.device_id);
-                                    if (status && status.is_blocked) {
+                                    const isBlocked = !!status && status.is_blocked;
+                                    const isPendingReset = !!status && !status.is_blocked && !status.reset_by?.startsWith('rename:');
+
+                                    if (isBlocked) {
                                       return (
                                         <button
                                           onClick={() => handleUnblockVisitor(log.device_id, log.user_name)}
@@ -10211,17 +10220,17 @@ export default function App() {
                                           <button
                                             onClick={() => handleResetVisitor(log.device_id, log.user_name)}
                                             title="Yêu cầu thiết bị này nhập lại tên vào lần truy cập sau"
-                                            disabled={!!status}
+                                            disabled={isPendingReset}
                                             style={{
-                                              background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', 
-                                              border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
-                                              color: status ? 'var(--text-muted)' : 'var(--status-warning)', 
+                                              background: isPendingReset ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', 
+                                              border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
+                                              color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)', 
                                               borderRadius: '8px',
-                                              padding: '4px 8px', fontSize: '11px', cursor: status ? 'not-allowed' : 'pointer',
+                                              padding: '4px 8px', fontSize: '11px', cursor: isPendingReset ? 'not-allowed' : 'pointer',
                                               fontWeight: 600, whiteSpace: 'nowrap'
                                             }}
                                           >
-                                            🔄 {status ? (status.reset_by?.startsWith('rename:') ? 'Chờ đổi tên' : 'Chờ khai lại') : 'Khai lại tên'}
+                                            🔄 {isPendingReset ? 'Chờ khai lại' : 'Khai lại tên'}
                                           </button>
                                           <button
                                             onClick={() => handleBlockVisitor(log.device_id, log.user_name)}
@@ -10567,6 +10576,8 @@ export default function App() {
                             <tbody>
                               {visitorsList.map((v, idx) => {
                                 const status = resetDevices.find(d => d.device_id === v.device_id);
+                                const isBlocked = !!status && status.is_blocked;
+                                const isPendingReset = !!status && !status.is_blocked && !status.reset_by?.startsWith('rename:');
                                 const isVHistoryOpen = expandedVisitorHistoryId === v.device_id;
                                 const vLogs = allVisitorLogs.filter(l => l.device_id === v.device_id && l.keyword !== '[Khai báo tên]');
                                 const vTxs = transactions.filter(t => !t.user_id && t.note && t.note.includes(`[Khách: ${v.user_name}]`));
@@ -10603,14 +10614,10 @@ export default function App() {
                                         {v.last_active ? new Date(v.last_active).toLocaleString() : '—'}
                                       </td>
                                       <td style={{ padding: '10px 14px' }}>
-                                        {status ? (
-                                          status.is_blocked ? (
-                                            <span style={{ fontSize: '11px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>🚫 Đang bị chặn</span>
-                                          ) : status.reset_by?.startsWith('rename:') ? (
-                                            <span style={{ fontSize: '11px', background: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>✏️ Chờ đổi tên</span>
-                                          ) : (
-                                            <span style={{ fontSize: '11px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>⏳ Chờ khai lại tên</span>
-                                          )
+                                        {isBlocked ? (
+                                          <span style={{ fontSize: '11px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>🚫 Đang bị chặn</span>
+                                        ) : isPendingReset ? (
+                                          <span style={{ fontSize: '11px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>⏳ Chờ khai lại tên</span>
                                         ) : (
                                           <span style={{ fontSize: '11px', background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>✓ Hoạt động</span>
                                         )}
@@ -10632,7 +10639,7 @@ export default function App() {
                                           >
                                             📜 Lịch sử ({totalVActions})
                                           </button>
-                                          {status && status.is_blocked ? (
+                                          {isBlocked ? (
                                             <button
                                               onClick={() => handleUnblockVisitor(v.device_id, v.user_name)}
                                               style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: 'var(--status-success)', borderRadius: '8px', padding: '4px 10px', fontSize: '11.5px', cursor: 'pointer', fontWeight: 600 }}
@@ -10667,23 +10674,23 @@ export default function App() {
                                               <button
                                                 type="button"
                                                 onClick={() => handleResetVisitor(v.device_id, v.user_name)}
-                                                disabled={!!status}
+                                                disabled={isPendingReset}
                                                 title="Bắt buộc thiết bị này phải khai lại tên vào lần truy cập sau"
                                                 style={{
-                                                  background: status ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)',
-                                                  border: status ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
-                                                  color: status ? 'var(--text-muted)' : 'var(--status-warning)',
+                                                  background: isPendingReset ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)',
+                                                  border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
+                                                  color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)',
                                                   borderRadius: '8px',
                                                   padding: '4px 10px',
                                                   fontSize: '11.5px',
-                                                  cursor: status ? 'not-allowed' : 'pointer',
+                                                  cursor: isPendingReset ? 'not-allowed' : 'pointer',
                                                   fontWeight: 600,
                                                   display: 'inline-flex',
                                                   alignItems: 'center',
                                                   gap: '4px'
                                                 }}
                                               >
-                                                🔄 {status ? (status.reset_by?.startsWith('rename:') ? 'Chờ đổi tên' : 'Chờ khai lại') : 'Khai lại tên'}
+                                                🔄 {isPendingReset ? 'Chờ khai lại' : 'Khai lại tên'}
                                               </button>
                                               <button
                                                 onClick={() => handleBlockVisitor(v.device_id, v.user_name)}
