@@ -70,30 +70,123 @@ const getRequesterLabel = (tx) => {
   return name || UNKNOWN_REQUESTER;
 };
 
-// ── Hỗ trợ lấy tên thiết bị từ UserAgent ──
-const getDeviceDescription = () => {
-  const ua = navigator.userAgent;
-  if (/iPhone/i.test(ua)) return 'iPhone';
-  if (/iPad/i.test(ua)) return 'iPad';
+// ── Nhận diện model iPhone chuẩn xác qua thông số phần cứng vật lý (Screen, DPR) ──
+const getIphoneModel = () => {
+  if (typeof window === 'undefined') return 'iPhone';
+  const w = Math.min(window.screen.width, window.screen.height);
+  const h = Math.max(window.screen.width, window.screen.height);
+  const dpr = Math.round(window.devicePixelRatio || 1);
+
+  // 1. iPhone 16 Series
+  if (w === 440 && h === 956) return 'iPhone 16 Pro Max';
+  if (w === 402 && h === 874) return 'iPhone 16 Pro';
+
+  // 2. iPhone 15 / 14 Series (Dynamic Island & Notch)
+  if (w === 430 && h === 932) return 'iPhone 14 Pro Max / 15 Pro Max';
+  if (w === 393 && h === 852) return 'iPhone 14 Pro / 15 / 16';
+
+  // 3. iPhone 12 / 13 / 14 Series
+  if (w === 428 && h === 926) return 'iPhone 12 Pro Max / 13 Pro Max';
+  if (w === 390 && h === 844) return 'iPhone 12 / 12 Pro / 13 / 14';
+
+  // 4. iPhone 11 / X / XS / XR Series
+  if (w === 414 && h === 896) {
+    return dpr === 2 ? 'iPhone 11 / XR' : 'iPhone 11 Pro Max / XS Max';
+  }
+  if (w === 375 && h === 812) return 'iPhone 11 Pro / X / XS';
+  if (w === 360 && h === 780) return 'iPhone 12 mini / 13 mini';
+
+  // 5. iPhone SE / 8 / 7 / 6 Series
+  if (w === 414 && h === 736) return 'iPhone 7 Plus / 8 Plus';
+  if (w === 375 && h === 667) return 'iPhone 7 / 8 / SE';
+  if (w === 320 && h === 568) return 'iPhone 5 / 5s / SE1';
+
+  return 'iPhone';
+};
+
+// ── Nhận diện iPad ──
+const getIpadModel = () => {
+  if (typeof window === 'undefined') return 'iPad';
+  const w = Math.min(window.screen.width, window.screen.height);
+  const h = Math.max(window.screen.width, window.screen.height);
+
+  if (w === 1024 && h === 1366) return 'iPad Pro 12.9"';
+  if (w === 834 && h === 1194) return 'iPad Pro 11"';
+  if (w === 834 && h === 1112) return 'iPad Air / Pro 10.5"';
+  if (w === 820 && h === 1180) return 'iPad Air 4/5 / Gen 10';
+  if (w === 810 && h === 1080) return 'iPad Gen 7/8/9';
+  if (w === 744 && h === 1133) return 'iPad mini 6';
+  if (w === 768 && h === 1024) return 'iPad 9.7" / mini';
+  return 'iPad';
+};
+
+// ── Hỗ trợ lấy tên thiết bị chi tiết & cụ thể ──
+const getDeviceDescription = async () => {
+  if (typeof navigator === 'undefined') return 'Thiết bị không rõ';
+  const ua = navigator.userAgent || '';
+
+  // 1. Apple iPhone
+  if (/iPhone/i.test(ua)) {
+    return getIphoneModel();
+  }
+
+  // 2. Apple iPad (bao gồm cả iPadOS gửi UserAgent Mac)
+  const isIpad = /iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+  if (isIpad) {
+    return getIpadModel();
+  }
+
+  // 3. Android Phone / Tablet
   if (/Android/i.test(ua)) {
-    const match = ua.match(/Android\s+[^;]+;\s+([^;\)]+)/);
+    // Thử lấy model chính xác từ Client Hints API
+    if (navigator.userAgentData && typeof navigator.userAgentData.getHighEntropyValues === 'function') {
+      try {
+        const hints = await navigator.userAgentData.getHighEntropyValues(['model']);
+        if (hints && hints.model) {
+          const m = hints.model.trim();
+          if (/^SM-S928/i.test(m)) return 'Samsung S24 Ultra';
+          if (/^SM-S918/i.test(m)) return 'Samsung S23 Ultra';
+          if (/^SM-S908/i.test(m)) return 'Samsung S22 Ultra';
+          if (/^SM-S92/i.test(m)) return 'Samsung S24 Series';
+          if (/^SM-S91/i.test(m)) return 'Samsung S23 Series';
+          if (/^SM-S90/i.test(m)) return 'Samsung S22 Series';
+          if (/^SM-/i.test(m)) return `Samsung (${m})`;
+          if (/^Pixel/i.test(m)) return `Google ${m}`;
+          return `Android (${m})`;
+        }
+      } catch {}
+    }
+
+    // Fallback qua phân tích UserAgent
+    const match = ua.match(/Android\s+[^;]+;\s+([^;\)]+?)(?:\s+Build|\s*;|\))/i);
     if (match && match[1]) {
-      const model = match[1].replace(/Build\/.+/i, '').trim();
-      return model || 'Android';
+      let rawModel = match[1].replace(/Build\/.+/i, '').trim();
+      if (/^SM-S928/i.test(rawModel)) return 'Samsung S24 Ultra';
+      if (/^SM-S918/i.test(rawModel)) return 'Samsung S23 Ultra';
+      if (/^SM-S908/i.test(rawModel)) return 'Samsung S22 Ultra';
+      if (/^SM-S92/i.test(rawModel)) return 'Samsung S24 Series';
+      if (/^SM-S91/i.test(rawModel)) return 'Samsung S23 Series';
+      if (/^SM-S90/i.test(rawModel)) return 'Samsung S22 Series';
+      if (/^SM-/i.test(rawModel)) return `Samsung (${rawModel})`;
+      if (/^Pixel/i.test(rawModel)) return `Google ${rawModel}`;
+      return `Android (${rawModel})`;
     }
     return 'Android';
   }
+
+  // 4. Máy tính (PC / Mac / Linux)
   let os = 'PC';
-  if (/Windows/i.test(ua)) os = 'Windows';
+  if (/Windows NT 10.0/i.test(ua)) os = 'Windows 10/11';
+  else if (/Windows/i.test(ua)) os = 'Windows';
   else if (/Macintosh|Mac OS X/i.test(ua)) os = 'Mac';
   else if (/Linux/i.test(ua)) os = 'Linux';
-  
+
   let browser = 'Browser';
   if (/Edg/i.test(ua)) browser = 'Edge';
   else if (/Chrome/i.test(ua)) browser = 'Chrome';
   else if (/Firefox/i.test(ua)) browser = 'Firefox';
   else if (/Safari/i.test(ua)) browser = 'Safari';
-  
+
   return `${os} (${browser})`;
 };
 
@@ -126,10 +219,10 @@ const generateDeviceId = async () => {
       hash = ((hash << 5) - hash) + raw.charCodeAt(i);
       hash |= 0;
     }
-    const deviceName = getDeviceDescription();
+    const deviceName = await getDeviceDescription();
     return `dev-${Math.abs(hash).toString(36)} (${deviceName})`;
   } catch {
-    const deviceName = getDeviceDescription();
+    const deviceName = await getDeviceDescription().catch(() => 'Thiết bị');
     return `dev-${Math.random().toString(36).slice(2, 10)} (${deviceName})`;
   }
 };
@@ -2489,10 +2582,18 @@ export default function App() {
   useEffect(() => {
     (async () => {
       let did = localStorage.getItem('visitor_device_id');
-      // Nếu chưa có thiết bị hoặc thiết bị cũ chưa được định danh thân thiện (không chứa dấu ngoặc đơn)
+      const newDesc = await getDeviceDescription();
       if (!did || !did.includes('(')) {
         did = await generateDeviceId();
         localStorage.setItem('visitor_device_id', did);
+      } else {
+        // Tự động nâng cấp tên thiết bị nếu trước đó là tên chung chung (VD: iPhone -> iPhone 12 / 12 Pro, Windows (Chrome) -> Windows 10/11...)
+        const curDesc = did.match(/\(([^)]+)\)/)?.[1] || '';
+        if (curDesc === 'iPhone' || curDesc === 'Android' || curDesc === 'PC' || curDesc === 'Windows (Chrome)' || (newDesc.startsWith('iPhone ') && curDesc === 'iPhone')) {
+          const hashPrefix = did.split(' ')[0] || did;
+          did = `${hashPrefix} (${newDesc})`;
+          localStorage.setItem('visitor_device_id', did);
+        }
       }
       setDeviceId(did);
 
