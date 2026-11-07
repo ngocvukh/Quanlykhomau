@@ -38,7 +38,14 @@ const parseRequestNote = (note) => {
   const raw = (note || '').trim();
   let name = '';
   let deviceId = '';
+  let rejectReason = '';
   let rest = raw;
+
+  const mReject = rest.match(/\[(?:Lý do từ chối|Từ chối):\s*([^\]]*)\]/i);
+  if (mReject) {
+    rejectReason = (mReject[1] || '').trim();
+    rest = rest.replace(mReject[0], '').trim();
+  }
 
   const m = rest.match(/^\[(?:Khách|Người yêu cầu):\s*([^\]]*)\]\s*/i);
   if (m) {
@@ -53,7 +60,7 @@ const parseRequestNote = (note) => {
     rest = rest.replace(mDev[0], '').trim();
   }
 
-  return { name, purpose: rest, deviceId };
+  return { name, purpose: rest, deviceId, rejectReason };
 };
 const getRequesterLabel = (tx) => {
   const fullName = (tx?.profiles?.full_name || '').trim();
@@ -378,6 +385,8 @@ export default function App() {
   const [scanResultModal, setScanResultModal] = useState(null); // sample object | { notFound, sku }
   const [scanQty, setScanQty] = useState('');
   const [scanPurpose, setScanPurpose] = useState('');
+  const [rejectModalTx, setRejectModalTx] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   // Tommy 128 Blank QC Template printing states
   const [print128BlankModalOpen, setPrint128BlankModalOpen] = useState(false);
@@ -2388,6 +2397,22 @@ export default function App() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const notifDropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!showNotifDropdown) return;
+    const handleClickOutside = (e) => {
+      if (notifDropdownRef.current && !notifDropdownRef.current.contains(e.target)) {
+        setShowNotifDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [showNotifDropdown]);
 
   // Bộ lọc tìm kiếm cho Danh mục gốc
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
@@ -4825,23 +4850,35 @@ export default function App() {
     }
   };
 
-  // Cancel Take Request
-  const handleCancelRequest = async (txId) => {
+  // Cancel Take Request (Hỗ trợ kèm lý do từ chối)
+  const handleCancelRequest = async (txId, reason = '') => {
+    const cleanReason = (reason || '').trim();
+    const reasonTag = cleanReason ? ` [Lý do từ chối: ${cleanReason}]` : '';
+
     if (isDemoMode) {
       setTransactions(prev => prev.map(t => {
-        if (t.id === txId) return { ...t, status: 'cancelled' };
+        if (t.id === txId) {
+          const updatedNote = t.note ? `${t.note}${reasonTag}` : (cleanReason ? `Lý do từ chối: ${cleanReason}` : '');
+          return { ...t, status: 'cancelled', note: updatedNote };
+        }
         return t;
       }));
-      showToast("Đã từ chối/hủy yêu cầu", "info");
+      showToast("Đã từ chối yêu cầu", "info");
     } else {
       try {
         setLoading(true);
+        const curTx = transactions.find(t => t.id === txId);
+        const updatedNote = curTx?.note ? `${curTx.note}${reasonTag}` : (cleanReason ? `Lý do từ chối: ${cleanReason}` : '');
+
         const { error } = await supabase
           .from('transactions')
-          .update({ status: 'cancelled' })
+          .update({ 
+            status: 'cancelled',
+            note: updatedNote || curTx?.note || null
+          })
           .eq('id', txId);
         if (error) throw error;
-        showToast("Đã hủy yêu cầu", "info");
+        showToast("Đã từ chối yêu cầu thành công!", "info");
         fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
@@ -6629,7 +6666,7 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               {/* Admin Notification Bell */}
               {profile?.role === 'admin' && (
-                <div style={{ position: 'relative' }}>
+                <div ref={notifDropdownRef} style={{ position: 'relative' }}>
                   <button
                     className="theme-toggle"
                     style={{ position: 'relative', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -6661,9 +6698,9 @@ export default function App() {
                   {showNotifDropdown && (
                     <div style={{
                       position: 'absolute', top: '48px', right: 0,
-                      width: '320px', maxHeight: '420px', overflowY: 'auto',
+                      width: '320px', maxWidth: 'calc(100vw - 32px)', maxHeight: '420px', overflowY: 'auto',
                       background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)',
-                      borderRadius: '12px', boxShadow: '0 8px 32px var(--glass-shadow)',
+                      borderRadius: '12px', boxShadow: '0 12px 36px var(--glass-shadow)',
                       backdropFilter: 'blur(16px)', zIndex: 1000
                     }}>
                       {(() => {
@@ -8894,7 +8931,7 @@ export default function App() {
                                 <div className="request-card-actions">
                                   {tx.status === 'pending' ? (
                                     <>
-                                      <button className="btn btn-secondary" onClick={() => handleCancelRequest(tx.id)}> 
+                                      <button className="btn btn-secondary" onClick={() => { setRejectModalTx(tx); setRejectReason(''); }}> 
                                         Từ chối 
                                       </button>
                                       {isPendingQtyChanged && (
@@ -9033,6 +9070,28 @@ export default function App() {
                                 <div className="request-card-body-item">
                                   <strong>Hạn lưu của mẫu:</strong> {ageMonths} tháng tuổi
                                 </div>
+                                {tx.status === 'cancelled' && (
+                                  <div className="request-card-body-item" style={{ gridColumn: '1 / -1', marginTop: '4px' }}>
+                                    <div style={{
+                                      background: 'rgba(239, 68, 68, 0.08)',
+                                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                                      borderRadius: '8px',
+                                      padding: '8px 12px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                      fontSize: '13px'
+                                    }}>
+                                      <AlertTriangle size={16} style={{ color: '#ef4444', flexShrink: 0 }} />
+                                      <span>
+                                        <strong style={{ color: '#ef4444' }}>Lý do từ chối:</strong>{' '}
+                                        <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                          {parseRequestNote(tx.note).rejectReason || 'Không ghi rõ lý do'}
+                                        </span>
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
@@ -12387,6 +12446,106 @@ export default function App() {
         </div>
       )}
 
+      {/* ── REJECT REQUEST MODAL (Điền lý do từ chối yêu cầu lấy mẫu) ── */}
+      {rejectModalTx && (
+        <div className="modal-overlay" style={{ zIndex: 10060 }} onClick={() => setRejectModalTx(null)}>
+          <div className="modal-content" style={{ maxWidth: '440px', border: '1px solid rgba(239, 68, 68, 0.35)' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 'bold', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={18} /> Từ chối yêu cầu lấy mẫu
+              </h3>
+              <button className="close-btn" onClick={() => setRejectModalTx(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '18px 20px' }}>
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                marginBottom: '16px',
+                fontSize: '13px',
+                lineHeight: 1.5
+              }}>
+                <div><strong>Sản phẩm:</strong> <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>{rejectModalTx.samples?.products?.product_name || rejectModalTx.samples?.product_name || 'Mẫu thuốc lá'}</span></div>
+                <div><strong>Số lượng:</strong> {rejectModalTx.quantity} bao • <strong>Người mượn:</strong> {getRequesterLabel(rejectModalTx)}</div>
+              </div>
+
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                Lý do từ chối: <span style={{ color: 'var(--status-error)' }}>*</span>
+              </label>
+
+              {/* Gợi ý lý do nhanh */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
+                {[
+                  'Hết tồn kho thực tế',
+                  'Mẫu đang kiểm nghiệm',
+                  'Sai mục đích sử dụng',
+                  'Vượt định mức cấp'
+                ].map(tag => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setRejectReason(tag)}
+                    style={{
+                      background: rejectReason === tag ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                      border: rejectReason === tag ? '1px solid #ef4444' : '1px solid var(--glass-border)',
+                      color: rejectReason === tag ? '#fca5a5' : 'var(--text-secondary)',
+                      padding: '3px 8px',
+                      borderRadius: '14px',
+                      fontSize: '11.5px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                className="form-input"
+                rows={3}
+                placeholder="Nhập chi tiết lý do từ chối để người mượn được biết..."
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                style={{ resize: 'vertical', width: '100%', fontSize: '13px' }}
+                autoFocus
+              />
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: '12px' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={() => setRejectModalTx(null)}
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                  borderColor: '#dc2626',
+                  color: '#ffffff',
+                  fontWeight: 600
+                }}
+                disabled={loading || !rejectReason.trim()}
+                onClick={() => {
+                  handleCancelRequest(rejectModalTx.id, rejectReason);
+                  setRejectModalTx(null);
+                  setRejectReason('');
+                }}
+              >
+                {loading ? 'Đang xử lý...' : 'Xác nhận từ chối'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* NAME PROMPT MODAL */}
       {showNamePrompt && (
         <div className="modal-overlay" style={{ zIndex: 10050 }}>
@@ -12410,11 +12569,8 @@ export default function App() {
                 autoFocus
               />
             </div>
-            <div className="modal-footer" style={{ display: 'flex', gap: '12px' }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { window.location.href = 'https://www.google.com.vn'; }}>
-                Bỏ qua
-              </button>
-              <button className="btn btn-primary" style={{ flex: 2 }} onClick={saveVisitorName}>
+            <div className="modal-footer" style={{ display: 'flex', paddingTop: '12px' }}>
+              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={saveVisitorName}>
                 <Check size={16} /> Xác nhận
               </button>
             </div>
