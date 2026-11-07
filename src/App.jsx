@@ -2488,6 +2488,7 @@ export default function App() {
   };
   const [logFilterStartDate, setLogFilterStartDate] = useState(() => getOffsetDateString(30));
   const [logFilterEndDate, setLogFilterEndDate] = useState(() => getOffsetDateString(0));
+  const [searchLogsPage, setSearchLogsPage] = useState(1);
 
   // Admin Notifications
   const [notifications, setNotifications] = useState([]);
@@ -3067,6 +3068,7 @@ export default function App() {
       ]);
       setSearchLogs(logs || []);
       setResetDevices(resets || []);
+      setSearchLogsPage(1);
     } catch (e) {
       console.error('Error fetching search logs:', e);
     } finally {
@@ -4271,12 +4273,16 @@ export default function App() {
       } else if (trimmedName) {
         const prodName = (s.products?.product_name || s.product_name || '').toLowerCase();
         const warnCode = (s.products?.warning_code || '').toLowerCase();
+        const sSku = String(s.sku || s.products?.sku || '').toLowerCase();
+        const sBatch = s.blend_batch ? `mẻ ${s.blend_batch} ${s.blend_batch}`.toLowerCase() : '';
         const sOrder = String(s.order_number || '').toLowerCase();
-        const combined = `${prodName} ${warnCode}`.trim();
+        const combined = `${prodName} ${warnCode} ${sSku} ${sBatch} ${sOrder}`.trim();
 
-        // Khớp trực tiếp cả cụm (tên sp, mã cảnh báo, hoặc số ĐH)
+        // Khớp trực tiếp cả cụm (tên sp, mã cảnh báo, SKU, mẻ sợi hoặc số ĐH)
         const directMatch = prodName.includes(searchLower) ||
                             warnCode.includes(searchLower) ||
+                            sSku.includes(searchLower) ||
+                            sBatch.includes(searchLower) ||
                             combined.includes(searchClean) ||
                             sOrder.includes(searchLower);
 
@@ -4378,6 +4384,7 @@ export default function App() {
 
   const handleSearch = (e) => {
     if (e) e.preventDefault();
+    setSearchSuggestions([]);
     const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
     executeSearch(searchName, monthVal, searchOrderNumber, selectedProduct);
   };
@@ -4388,12 +4395,6 @@ export default function App() {
     const trimmed = searchName.trim();
     const trimmedOrder = searchOrderNumber.trim();
     if (trimmed.length >= 1 || trimmedOrder.length >= 1 || selectedProduct) {
-      // Lưu lại tab nghiệp vụ trước đó (nếu không phải search) và chuyển ngay sang tab search
-      if (activeTab !== 'search') {
-        setPreviousTabBeforeSearch(activeTab);
-        setActiveTab('search');
-      }
-
       const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
       const filtered = filterSamplesList(samples, searchName, searchOrderNumber, monthVal, selectedProduct);
 
@@ -4436,16 +4437,13 @@ export default function App() {
 
     } else {
       setSearchResultSlots([]);
-      // Nếu xóa hết ô tìm kiếm và đang ở tab search, tự động trả về tab nghiệp vụ trước đó
-      if (activeTab === 'search') {
-        setActiveTab(previousTabBeforeSearch || 'dashboard');
-      }
+      setSearchResults([]);
     }
 
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [searchName, searchOrderNumber, searchSelMonth, searchSelYear, selectedProduct]);
+  }, [searchName, searchOrderNumber, searchSelMonth, searchSelYear, selectedProduct, samples]);
 
   const handleSearchInputChange = (val) => {
     setSearchName(val);
@@ -4458,7 +4456,7 @@ export default function App() {
       }
     }
     const trimmed = val.trim().toLowerCase();
-    if (trimmed.length >= 1) {
+    if (trimmed.length >= 1 && activeTab === 'search') {
       const matches = products.filter(p => {
         const pName = (p.product_name || '').toLowerCase();
         const pWarn = (p.warning_code || '').toLowerCase();
@@ -7223,17 +7221,29 @@ export default function App() {
 
                 {/* Quick search input */}
                 {activeTab !== 'search' && (
-                  <div style={{ position: 'relative', width: '200px' }}>
-                    <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                    <input
-                      type="text"
-                      placeholder="Tìm nhanh..."
-                      value={searchName}
-                      onChange={e => {
-                        handleSearchInputChange(e.target.value);
+                  <form
+                    onSubmit={e => {
+                      e.preventDefault();
+                      setPreviousTabBeforeSearch(activeTab);
+                      setActiveTab('search');
+                      handleSearch(e);
+                    }}
+                    style={{ position: 'relative', width: '210px', margin: 0 }}
+                  >
+                    <Search
+                      size={13}
+                      onClick={e => {
                         setPreviousTabBeforeSearch(activeTab);
                         setActiveTab('search');
+                        if (searchName.trim()) handleSearch(e);
                       }}
+                      style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Tìm nhanh (nhấn Enter)..."
+                      value={searchName}
+                      onChange={e => handleSearchInputChange(e.target.value)}
                       style={{
                         width: '100%',
                         padding: '6px 8px 6px 28px',
@@ -7245,7 +7255,7 @@ export default function App() {
                         outline: 'none'
                       }}
                     />
-                  </div>
+                  </form>
                 )}
               </div>
 
@@ -10215,10 +10225,47 @@ export default function App() {
                     <FileText size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
                     <p>Chưa có nhật ký tìm kiếm nào.</p>
                   </div>
-                ) : (
+                ) : (() => {
+                  const SEARCH_LOGS_PAGE_SIZE = 30;
+                  const totalLogPages = Math.max(1, Math.ceil(searchLogs.length / SEARCH_LOGS_PAGE_SIZE));
+                  const currentLogPage = Math.min(searchLogsPage, totalLogPages);
+                  const startLogIdx = (currentLogPage - 1) * SEARCH_LOGS_PAGE_SIZE;
+                  const paginatedLogs = searchLogs.slice(startLogIdx, startLogIdx + SEARCH_LOGS_PAGE_SIZE);
+
+                  return (
                   <>
-                    <div style={{ marginBottom: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      Tổng cộng <strong style={{ color: 'var(--accent-blue)' }}>{searchLogs.length}</strong> lượt tìm kiếm được ghi nhận.
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      <div>
+                        Tổng cộng <strong style={{ color: 'var(--accent-blue)' }}>{searchLogs.length}</strong> lượt tìm kiếm được ghi nhận
+                        {totalLogPages > 1 && (
+                          <span style={{ color: 'var(--text-muted)', marginLeft: '8px', fontVariantNumeric: 'tabular-nums' }}>
+                            (Hiển thị {startLogIdx + 1} – {Math.min(startLogIdx + SEARCH_LOGS_PAGE_SIZE, searchLogs.length)})
+                          </span>
+                        )}
+                      </div>
+                      {totalLogPages > 1 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontVariantNumeric: 'tabular-nums' }}>
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginRight: '4px' }}>
+                            Trang {currentLogPage} / {totalLogPages}
+                          </span>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '12px', opacity: currentLogPage === 1 ? 0.4 : 1, cursor: currentLogPage === 1 ? 'not-allowed' : 'pointer' }}
+                            disabled={currentLogPage === 1}
+                            onClick={() => setSearchLogsPage(p => Math.max(1, p - 1))}
+                          >
+                            ← Trước
+                          </button>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '12px', opacity: currentLogPage === totalLogPages ? 0.4 : 1, cursor: currentLogPage === totalLogPages ? 'not-allowed' : 'pointer' }}
+                            disabled={currentLogPage === totalLogPages}
+                            onClick={() => setSearchLogsPage(p => Math.min(totalLogPages, p + 1))}
+                          >
+                            Sau →
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
@@ -10230,7 +10277,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {searchLogs.map((log, i) => (
+                          {paginatedLogs.map((log, i) => (
                             <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
                               <td style={{ padding: '9px 14px', color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: '12px' }}>
                                 {new Date(log.searched_at).toLocaleString()}
@@ -10244,7 +10291,7 @@ export default function App() {
                                     if (status) {
                                       if (status.is_blocked) {
                                         return <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(239,68,68,0.3)' }}>🚫 Bị chặn</span>;
-                                      } else {
+                                      } else if (!status.reset_by?.startsWith('rename:')) {
                                         return <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)' }}>⏳ Chờ nhập lại</span>;
                                       }
                                     }
@@ -10356,8 +10403,65 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Phân trang: 30 mục / trang */}
+                    {totalLogPages > 1 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', padding: '12px 18px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--glass-border)', flexWrap: 'wrap', gap: '12px', fontVariantNumeric: 'tabular-nums' }}>
+                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          Hiển thị <strong>{startLogIdx + 1}</strong> – <strong>{Math.min(startLogIdx + SEARCH_LOGS_PAGE_SIZE, searchLogs.length)}</strong> trong tổng số <strong>{searchLogs.length}</strong> lượt tìm kiếm (Trang {currentLogPage}/{totalLogPages})
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '6px 12px', fontSize: '12.5px', opacity: currentLogPage === 1 ? 0.4 : 1, cursor: currentLogPage === 1 ? 'not-allowed' : 'pointer' }}
+                            disabled={currentLogPage === 1}
+                            onClick={() => setSearchLogsPage(p => Math.max(1, p - 1))}
+                          >
+                            ← Trước
+                          </button>
+
+                          {Array.from({ length: totalLogPages }, (_, i) => i + 1)
+                            .filter(p => p === 1 || p === totalLogPages || Math.abs(p - currentLogPage) <= 2)
+                            .map((p, idx, arr) => {
+                              const prev = arr[idx - 1];
+                              return (
+                                <React.Fragment key={p}>
+                                  {prev && p - prev > 1 && (
+                                    <span style={{ color: 'var(--text-muted)', padding: '0 4px', fontSize: '12px' }}>...</span>
+                                  )}
+                                  <button
+                                    className={`btn ${currentLogPage === p ? 'btn-primary' : 'btn-secondary'}`}
+                                    style={{
+                                      minWidth: '34px',
+                                      height: '32px',
+                                      padding: '0 8px',
+                                      fontSize: '12.5px',
+                                      fontWeight: currentLogPage === p ? 'bold' : 'normal',
+                                      borderColor: currentLogPage === p ? 'var(--accent-blue)' : 'rgba(255,255,255,0.1)'
+                                    }}
+                                    onClick={() => setSearchLogsPage(p)}
+                                  >
+                                    {p}
+                                  </button>
+                                </React.Fragment>
+                              );
+                            })}
+
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '6px 12px', fontSize: '12.5px', opacity: currentLogPage === totalLogPages ? 0.4 : 1, cursor: currentLogPage === totalLogPages ? 'not-allowed' : 'pointer' }}
+                            disabled={currentLogPage === totalLogPages}
+                            onClick={() => setSearchLogsPage(p => Math.min(totalLogPages, p + 1))}
+                          >
+                            Sau →
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </>
-                )}
+                  );
+                })()}
               </div>
             )}
 

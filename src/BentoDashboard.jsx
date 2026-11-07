@@ -43,6 +43,7 @@ export default function BentoDashboard({
 }) {
   const [selectedShelfSheet, setSelectedShelfSheet] = useState(null);
   const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const [showQuickSuggestions, setShowQuickSuggestions] = useState(false);
 
   const isAdmin = profile?.role === 'admin';
   const shelfLetters = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -203,13 +204,39 @@ export default function BentoDashboard({
     };
   }, [samples, destructionLogs, transactions]);
 
+  // Gợi ý tìm kiếm trực tiếp ngay tại thanh tìm kiếm Tổng quan (không tự nhảy trang gây mất focus)
+  const quickMatches = useMemo(() => {
+    const q = localSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const tokens = q.replace(/[\[\]\(\)]/g, ' ').split(/\s+/).filter(Boolean);
+
+    return (samples || [])
+      .filter(s => {
+        if (s.status === 'destroyed') return false;
+        const pObj = s.products || products.find(pr => pr.id === s.product_id);
+        const pName = (pObj?.product_name || s.product_name || '').toLowerCase();
+        const warnCode = (pObj?.warning_code || '').toLowerCase();
+        const sku = String(s.sku || pObj?.sku || '').toLowerCase();
+        const batch = s.blend_batch ? `mẻ ${s.blend_batch} ${s.blend_batch}`.toLowerCase() : '';
+        const order = String(s.order_number || '').toLowerCase();
+        const combined = `${pName} ${warnCode} ${sku} ${batch} ${order}`;
+
+        const direct = combined.includes(q);
+        const tokenMatch = tokens.length > 1 && tokens.every(t => combined.includes(t));
+        return direct || tokenMatch;
+      })
+      .slice(0, 8);
+  }, [samples, products, localSearchQuery]);
+
   const handleQuickSearchSubmit = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    setShowQuickSuggestions(false);
     if (localSearchQuery.trim()) {
       handleSearchInputChange(localSearchQuery.trim());
       setPreviousTabBeforeSearch('dashboard');
       setActiveTab('search');
     } else {
+      setPreviousTabBeforeSearch('dashboard');
       setActiveTab('search');
     }
   };
@@ -218,26 +245,147 @@ export default function BentoDashboard({
     <div className="bento-dashboard-wrap">
       
       {/* ── TOP ACTION BAR: TÌM KIẾM NHANH & QUÉT QR ── */}
-      <div className="bento-top-bar">
-        <form onSubmit={handleQuickSearchSubmit} className="bento-search-box">
+      <div className="bento-top-bar" style={{ position: 'relative', zIndex: 120 }}>
+        <form onSubmit={handleQuickSearchSubmit} className="bento-search-box" style={{ position: 'relative' }}>
           <Search size={16} className="bento-search-icon" />
           <input
             type="text"
             placeholder="Tìm nhanh tên mẫu thuốc lá, mã SKU, mẻ sợi, đơn hàng..."
             value={localSearchQuery}
+            onFocus={() => setShowQuickSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowQuickSuggestions(false), 200)}
             onChange={(e) => {
-              const val = e.target.value;
-              setLocalSearchQuery(val);
-              if (val.trim().length >= 2) {
-                handleSearchInputChange(val);
-                setPreviousTabBeforeSearch('dashboard');
-                setActiveTab('search');
-              }
+              setLocalSearchQuery(e.target.value);
+              setShowQuickSuggestions(true);
             }}
           />
+          {localSearchQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setLocalSearchQuery('');
+                setShowQuickSuggestions(false);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--bento-text-3)',
+                cursor: 'pointer',
+                padding: '2px 4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              title="Xóa từ khóa"
+            >
+              <X size={15} />
+            </button>
+          )}
           <button type="submit" className="bento-search-submit-btn">
             Tra cứu
           </button>
+
+          {/* Dropdown kết quả gợi ý trực tiếp khi đang gõ */}
+          {showQuickSuggestions && localSearchQuery.trim().length > 0 && (
+            <div style={{
+              position: 'absolute',
+              top: 'calc(100% + 6px)',
+              left: 0,
+              right: 0,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--bento-line)',
+              borderRadius: '12px',
+              boxShadow: '0 14px 36px rgba(0, 0, 0, 0.7)',
+              zIndex: 999,
+              maxHeight: '360px',
+              overflowY: 'auto'
+            }}>
+              {quickMatches.length > 0 ? (
+                <>
+                  {quickMatches.map(s => {
+                    const pObj = s.products || products.find(pr => pr.id === s.product_id);
+                    const pName = getProductName(s);
+                    const warnCode = pObj?.warning_code;
+                    const locLabel = s.shelf
+                      ? `Kệ ${shelfLetters[(s.shelf || 1) - 1] || s.shelf}${s.slot} - Cột ${s.column_number}`
+                      : 'Trong thùng lưu trữ';
+                    return (
+                      <div
+                        key={s.id}
+                        onMouseDown={() => {
+                          setShowQuickSuggestions(false);
+                          handleSearchInputChange(localSearchQuery.trim());
+                          setPreviousTabBeforeSearch('dashboard');
+                          setActiveTab('search');
+                        }}
+                        style={{
+                          padding: '10px 14px',
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '12px',
+                          transition: 'background 0.15s ease'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(201, 164, 106, 0.08)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--bento-text)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span>{pName}</span>
+                            {warnCode && (
+                              <span style={{ fontSize: '11px', background: 'rgba(201, 164, 106, 0.16)', color: 'var(--bento-kraft)', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                {warnCode}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: 'var(--bento-text-2)', marginTop: '2px' }}>
+                            {s.blend_batch ? `Mẻ sợi: Mẻ ${s.blend_batch}` : 'Không rõ mẻ'}
+                            {s.order_number ? ` • ĐH: ${s.order_number}` : ''}
+                            {(s.sku || pObj?.sku) ? ` • SKU: ${s.sku || pObj?.sku}` : ''}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--bento-kraft)' }}>{locLabel}</div>
+                          <div style={{ fontSize: '11px', color: (s.available_qty || 0) > 0 ? '#10b981' : 'var(--status-error)', fontWeight: 600 }}>
+                            Tồn: {s.available_qty || 0} bao
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div
+                    onMouseDown={handleQuickSearchSubmit}
+                    style={{
+                      padding: '10px 14px',
+                      textAlign: 'center',
+                      fontSize: '12.5px',
+                      fontWeight: 700,
+                      color: 'var(--bento-kraft)',
+                      background: 'rgba(201, 164, 106, 0.06)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🔍 Xem tất cả kết quả chi tiết cho "{localSearchQuery.trim()}" →
+                  </div>
+                </>
+              ) : (
+                <div
+                  onMouseDown={handleQuickSearchSubmit}
+                  style={{
+                    padding: '14px 16px',
+                    textAlign: 'center',
+                    fontSize: '12.5px',
+                    color: 'var(--bento-text-2)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Nhấn <strong>Enter</strong> hoặc bấm <strong>Tra cứu</strong> để tìm nâng cao từ khóa "{localSearchQuery.trim()}" →
+                </div>
+              )}
+            </div>
+          )}
         </form>
 
         {isAdmin && (
