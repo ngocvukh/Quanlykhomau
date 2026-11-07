@@ -7035,58 +7035,153 @@ export default function App() {
 
       {/* LOGIN OR SIGNUP OVERLAY FOR ADMIN/STAFF */}
       {(!user && !profile && authMode !== 'guest') ? (
-        <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, padding: '40px 0' }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '420px' }}>
-            <h2 style={{ marginBottom: '24px', textAlign: 'center', fontSize: '24px', fontWeight: 'bold' }}>
-              {authMode === 'login' ? 'Đăng Nhập Hệ Thống' : 'Tạo Tài Khoản'}
-            </h2>
+        <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, padding: '30px 16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '440px', padding: '28px 24px' }}>
             
-            <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Header Tabs: Đăng nhập vs Đăng ký (đặt lên trên) */}
+            <div style={{
+              display: 'flex',
+              background: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '12px',
+              padding: '4px',
+              marginBottom: '24px',
+              gap: '4px'
+            }}>
+              <button
+                type="button"
+                onClick={() => setAuthMode('login')}
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  background: authMode === 'login' ? 'var(--accent-blue)' : 'transparent',
+                  color: authMode === 'login' ? '#ffffff' : 'var(--text-secondary)'
+                }}
+              >
+                🔐 Đăng Nhập
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMode('signup')}
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  background: authMode === 'signup' ? 'var(--accent-blue)' : 'transparent',
+                  color: authMode === 'signup' ? '#ffffff' : 'var(--text-secondary)'
+                }}
+              >
+                📝 Đăng Ký
+              </button>
+            </div>
+
+            {/* PHẦN ƯU TIÊN TRUY CẬP KHÁCH - ĐẶT NỔI BẬT Ở VỊ TRÍ TRUNG TÂM */}
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(6, 95, 70, 0.15))',
+              border: '1.5px solid rgba(16, 185, 129, 0.45)',
+              borderRadius: '14px',
+              padding: '18px 16px',
+              textAlign: 'center',
+              marginBottom: '24px',
+              boxShadow: '0 8px 24px rgba(16, 185, 129, 0.12)'
+            }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#10b981', background: 'rgba(16, 185, 129, 0.18)', padding: '3px 10px', borderRadius: '12px', marginBottom: '10px' }}>
+                ⭐ Khuyến nghị sử dụng
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: '1.5' }}>
+                Dành cho nhân viên, QC, khách tra cứu vị trí kệ mẫu và gửi yêu cầu lấy mẫu không cần tài khoản
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => { setAuthMode('guest'); setActiveTab('dashboard'); }}
+                style={{
+                  width: '100%',
+                  padding: '13px 20px',
+                  fontSize: '15px',
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  borderColor: '#10b981',
+                  borderRadius: '10px',
+                  boxShadow: '0 4px 16px rgba(16, 185, 129, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '9px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Search size={18} /> TRUY CẬP KHÁCH / TRA CỨU NGAY
+              </button>
+            </div>
+
+            {/* Dải phân cách ngăn giữa Truy cập khách và Đăng nhập Admin */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              margin: '20px 0',
+              color: 'var(--text-muted)',
+              fontSize: '12px'
+            }}>
+              <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
+              <span style={{ padding: '0 12px', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: '11.5px', fontWeight: 600 }}>
+                {authMode === 'login' ? 'Hoặc đăng nhập Admin / Thủ kho' : 'Hoặc đăng ký tài khoản mới'}
+              </span>
+              <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
+            </div>
+
+            {/* FORM ĐĂNG NHẬP / ĐĂNG KÝ */}
+            <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {authMode === 'signup' && (
                 <>
-                  <div className="form-group">
-                    <label className="form-label">Họ và tên</label>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '12.5px' }}>Họ và tên</label>
                     <input className="form-input" type="text" required value={authFullName} onChange={e => setAuthFullName(e.target.value)} placeholder="Nguyễn Văn A" />
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Mã nhân viên</label>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '12.5px' }}>Mã nhân viên</label>
                     <input className="form-input" type="text" required value={authEmployeeCode} onChange={e => setAuthEmployeeCode(e.target.value)} placeholder="QC-001" />
                   </div>
                 </>
               )}
 
-              <div className="form-group">
-                <label className="form-label">Email đăng nhập</label>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '12.5px' }}>Email đăng nhập</label>
                 <input className="form-input" type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="email@gmail.com" />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Mật khẩu</label>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '12.5px' }}>Mật khẩu</label>
                 <input className="form-input" type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" />
               </div>
 
-              <button className="btn btn-primary" type="submit" style={{ marginTop: '8px' }} disabled={loading}>
-                {loading ? <Loader className="logo-icon" size={18} /> : (authMode === 'login' ? 'Đăng Nhập' : 'Đăng Ký')}
+              <button
+                className="btn btn-secondary"
+                type="submit"
+                style={{
+                  marginTop: '6px',
+                  padding: '11px',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  borderColor: 'rgba(255, 255, 255, 0.15)',
+                  background: 'rgba(255, 255, 255, 0.04)'
+                }}
+                disabled={loading}
+              >
+                {loading ? <Loader className="logo-icon spin" size={16} /> : (authMode === 'login' ? 'Đăng Nhập Quản Trị' : 'Tạo Tài Khoản')}
               </button>
             </form>
-
-            <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '14px', color: 'var(--text-secondary)' }}>
-              {authMode === 'login' ? (
-                <p>
-                  Chưa có tài khoản?{' '}
-                  <span style={{ color: 'var(--accent-blue)', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => setAuthMode('signup')}>
-                    Đăng ký ngay
-                  </span>
-                </p>
-              ) : (
-                <p>
-                  Đã có tài khoản?{' '}
-                  <span style={{ color: 'var(--accent-blue)', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => setAuthMode('login')}>
-                    Đăng nhập
-                  </span>
-                </p>
-              )}
-            </div>
 
             {isDemoMode && authMode === 'login' && (
               <div style={{ marginTop: '20px', padding: '12px', border: '1px dashed var(--status-warning)', borderRadius: '8px', background: 'rgba(245,158,11,0.03)', fontSize: '13px' }}>
