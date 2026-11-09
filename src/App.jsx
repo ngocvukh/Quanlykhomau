@@ -2570,6 +2570,7 @@ export default function App() {
   const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [takeQuantities, setTakeQuantities] = useState({});
   const [takeNotes, setTakeNotes] = useState({});
+  const [loosePackEditQty, setLoosePackEditQty] = useState({});
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   const lastSearchLogRef = useRef({ keyword: "", timestamp: 0 });
@@ -5707,6 +5708,70 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       } finally {
         setLoading(false);
       }
+    }
+  };
+
+  // Cập nhật số lượng bao còn lại khi kiểm kê ô lẻ (Kệ 5)
+  const handleUpdateLoosePackStock = async (sample, newQty) => {
+    if (newQty < 0 || isNaN(newQty)) {
+      showToast("Số lượng bao còn lại không hợp lệ!", "error");
+      return;
+    }
+
+    if (newQty === 0) {
+      const confirmed = window.confirm(
+        `Xác nhận số lượng còn lại là 0 bao?\nLô mẫu "${sample.products?.product_name || sample.product_name}" sẽ được đánh dấu đã hết và gỡ khỏi kệ lẻ.`
+      );
+      if (!confirmed) return;
+    }
+
+    setLoading(true);
+    try {
+      const isZero = newQty === 0;
+      const updates = {
+        available_qty: newQty,
+        status: isZero ? 'destroyed' : 'stored',
+        shelf: isZero ? null : sample.shelf,
+        slot: isZero ? null : sample.slot,
+        column_number: isZero ? null : sample.column_number,
+        updated_at: new Date().toISOString()
+      };
+
+      if (isDemoMode) {
+        setSamples(prev => prev.map(s => s.id === sample.id ? { ...s, ...updates } : s));
+      } else {
+        const { error } = await supabase.from('samples').update(updates).eq('id', sample.id);
+        if (error) throw error;
+
+        const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+        const sL = shelfLetters[sample.shelf] || sample.shelf;
+        await supabase.from('transactions').insert({
+          sample_id: sample.id,
+          user_id: user?.id || null,
+          type: 'inventory_adjust',
+          quantity: Math.abs(newQty - sample.available_qty),
+          status: 'approved',
+          note: `Kiểm kê Ô lẻ Kệ ${sL}5: Cập nhật còn lại ${newQty} bao (Trước đó: ${sample.available_qty} bao)${isZero ? ' — Đã hết mẫu, gỡ khỏi kệ lẻ' : ''}`
+        });
+        await fetchDatabaseData();
+      }
+
+      setLoosePackEditQty(prev => {
+        const next = { ...prev };
+        delete next[sample.id];
+        return next;
+      });
+
+      showToast(
+        isZero 
+          ? 'Đã cập nhật: Hết mẫu và gỡ khỏi Kệ lẻ thành công!' 
+          : `Đã cập nhật số lượng còn lại: ${newQty} bao thành công!`, 
+        'success'
+      );
+    } catch (err) {
+      showToast(err.message || 'Lỗi cập nhật số lượng tồn kho', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -12229,25 +12294,213 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                     Nơi lưu giữ các bao thuốc lá lẻ được bóc ra từ cây thuốc nguyên.
                   </p>
                   
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored').map(s => (
-                      <div key={s.id} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '6px', fontSize: '13px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {s.products?.product_name || s.product_name}
-                            {s.products?.warning_code && (
-                              <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                                {s.products.warning_code}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored').map(s => {
+                      const effShelfAvail = getSampleEffectiveAvailable(s);
+                      const isEditingLoose = loosePackEditQty[s.id] !== undefined;
+                      const isTakingLoose = takeQuantities[s.id] !== undefined;
+
+                      return (
+                        <div key={s.id} style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                            <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
+                                <span>{s.products?.product_name || s.product_name}</span>
+                                {s.products?.warning_code && (
+                                  <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                                    {s.products.warning_code}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                Mẻ sợi: <strong>{formatBlendBatch(s.blend_batch)}</strong> | Ngày SX bao: <strong>{new Date(s.packaging_date).toLocaleDateString('vi-VN')}</strong> {formatSamplingBox(s.blend_batch)}
+                              </div>
+                              <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                Mã QR: <strong style={{ color: 'var(--accent-blue)' }}>{s.sku}</strong> • Tồn kho: <strong style={{ color: 'var(--status-warning)' }}>{s.available_qty} bao lẻ</strong>
+                                {effShelfAvail !== s.available_qty && (
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '6px' }}>
+                                    (Khả dụng: <strong style={{ color: '#10b981' }}>{effShelfAvail}</strong>, chờ duyệt: {s.available_qty - effShelfAvail})
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              {profile?.role === 'admin' && !isEditingLoose && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  style={{
+                                    padding: '4px 9px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    background: 'rgba(201,164,106,0.12)',
+                                    border: '1px solid rgba(201,164,106,0.35)',
+                                    color: 'var(--bento-kraft)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    borderRadius: '5px'
+                                  }}
+                                  onClick={() => setLoosePackEditQty(prev => ({ ...prev, [s.id]: s.available_qty }))}
+                                  title="Kiểm kê & cập nhật số bao thực tế còn lại trong ô này"
+                                >
+                                  📦 Còn lại
+                                </button>
+                              )}
+
+                              {effShelfAvail > 0 && !isTakingLoose && (
+                                <button
+                                  type="button"
+                                  className="btn btn-primary"
+                                  style={{
+                                    padding: '4px 9px',
+                                    fontSize: '11px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    background: 'var(--accent-gradient)',
+                                    border: 'none',
+                                    color: '#fff',
+                                    fontWeight: 600,
+                                    borderRadius: '5px'
+                                  }}
+                                  onClick={() => setTakeQuantities(prev => ({ ...prev, [s.id]: '' }))}
+                                >
+                                  <PackageMinus size={13} /> Lấy mẫu
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--text-secondary)' }}
+                                onClick={() => setQrCodeModal(s)}
+                                title="Xem mã QR"
+                              >
+                                <QrCode size={13} /> QR
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Form Còn lại (Kiểm kê số lượng thực tế) */}
+                          {isEditingLoose && (
+                            <div style={{ marginTop: '10px', padding: '10px 12px', background: 'rgba(201,164,106,0.08)', border: '1px solid rgba(201,164,106,0.3)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '12px', color: 'var(--bento-kraft)', fontWeight: 600 }}>
+                                📦 Kiểm kê số bao còn lại:
                               </span>
-                            )}
-                          </span>
-                          <span style={{ color: 'var(--status-warning)' }}>{s.available_qty} bao lẻ</span>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', background: '#0b1120', borderRadius: '6px', border: '1px solid var(--accent-blue)', overflow: 'hidden' }}>
+                                <button
+                                  type="button"
+                                  style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', width: '28px', height: '28px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold' }}
+                                  onClick={() => setLoosePackEditQty(prev => ({ ...prev, [s.id]: Math.max(0, (Number(prev[s.id]) || 0) - 1) }))}
+                                  title="Giảm 1 bao"
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={loosePackEditQty[s.id]}
+                                  onChange={e => {
+                                    const raw = e.target.value;
+                                    if (raw === '') {
+                                      setLoosePackEditQty(prev => ({ ...prev, [s.id]: '' }));
+                                    } else {
+                                      const val = parseInt(raw, 10);
+                                      setLoosePackEditQty(prev => ({ ...prev, [s.id]: isNaN(val) ? 0 : Math.max(0, val) }));
+                                    }
+                                  }}
+                                  style={{ width: '48px', height: '28px', textAlign: 'center', background: 'transparent', border: 'none', color: '#38bdf8', fontWeight: 'bold', fontSize: '14px', outline: 'none' }}
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', width: '28px', height: '28px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold' }}
+                                  onClick={() => setLoosePackEditQty(prev => ({ ...prev, [s.id]: (Number(prev[s.id]) || 0) + 1 }))}
+                                  title="Tăng 1 bao"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>bao lẻ</span>
+
+                              <div style={{ display: 'inline-flex', gap: '6px', marginLeft: 'auto' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-primary"
+                                  style={{ padding: '4px 12px', fontSize: '12px', background: 'var(--qc-emerald)', borderColor: 'var(--qc-emerald)', color: '#fff', fontWeight: 600 }}
+                                  disabled={loosePackEditQty[s.id] === '' || loading}
+                                  onClick={() => handleUpdateLoosePackStock(s, Number(loosePackEditQty[s.id]))}
+                                >
+                                  ✓ Lưu
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  style={{ padding: '4px 10px', fontSize: '12px' }}
+                                  onClick={() => setLoosePackEditQty(prev => { const c = { ...prev }; delete c[s.id]; return c; })}
+                                >
+                                  ✕ Hủy
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Inline Lấy mẫu form */}
+                          {isTakingLoose && (
+                            <div
+                              className="slot-sample-take-form"
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '10px', padding: '10px 12px', background: 'rgba(15,135,255,0.06)', border: '1px solid rgba(15,135,255,0.25)', borderRadius: '6px', flexWrap: 'wrap' }}
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <input
+                                type="number"
+                                min="1"
+                                max={effShelfAvail}
+                                placeholder={`Tối đa ${effShelfAvail} bao...`}
+                                value={takeQuantities[s.id]}
+                                onChange={e => setTakeQuantities(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                style={{ width: '120px', padding: '5px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
+                                autoFocus
+                              />
+                              <input
+                                type="text"
+                                placeholder="Mục đích lấy mẫu..."
+                                value={takeNotes[s.id] || ''}
+                                onChange={e => setTakeNotes(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                style={{ flex: '1 1 150px', minWidth: '130px', padding: '5px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
+                              />
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                style={{ padding: '5px 12px', fontSize: '11.5px', background: 'var(--accent-gradient)', border: 'none', color: '#fff', whiteSpace: 'nowrap', fontWeight: 600, borderRadius: '5px' }}
+                                disabled={!takeQuantities[s.id] || parseInt(takeQuantities[s.id]) <= 0 || parseInt(takeQuantities[s.id]) > effShelfAvail || loading}
+                                onClick={() => {
+                                  handleTakeRequest(s, parseInt(takeQuantities[s.id]), takeNotes[s.id] || '');
+                                  setTakeQuantities(prev => { const c = { ...prev }; delete c[s.id]; return c; });
+                                  setTakeNotes(prev => { const c = { ...prev }; delete c[s.id]; return c; });
+                                }}
+                              >
+                                Xác nhận
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ padding: '5px 8px', fontSize: '11.5px' }}
+                                onClick={() => {
+                                  setTakeQuantities(prev => { const c = { ...prev }; delete c[s.id]; return c; });
+                                  setTakeNotes(prev => { const c = { ...prev }; delete c[s.id]; return c; });
+                                }}
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          Mẻ sợi: {formatBlendBatch(s.blend_batch)} | Ngày SX bao: {new Date(s.packaging_date).toLocaleDateString()} {formatSamplingBox(s.blend_batch)}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored').length === 0 && (
                       <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px', fontSize: '13px' }}>Không có bao lẻ nào ở ô này.</div>
                     )}
