@@ -3469,6 +3469,13 @@ export default function App() {
             setLastAssignedIdsState(null);
             localStorage.removeItem('last_assigned_ids');
           }
+
+          const checkedRow = globalStates.find(r => r.id === 'global-checked-loose-samples');
+          if (checkedRow && checkedRow.rows_data) {
+            const remoteChecked = typeof checkedRow.rows_data === 'object' && !Array.isArray(checkedRow.rows_data) ? checkedRow.rows_data : {};
+            setCheckedSamples(remoteChecked);
+            try { localStorage.setItem('checked_loose_samples', JSON.stringify(remoteChecked)); } catch { /* ignore */ }
+          }
         }
       } catch (e) { /* ignore */ }
 
@@ -5769,15 +5776,23 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
         return next;
       });
 
-      // Tự động đánh dấu đã kiểm tra khi admin cập nhật số lượng
+      // Tự động đánh dấu đã kiểm tra khi admin cập nhật số lượng (đồng bộ Supabase)
       if (!isZero) {
-        setCheckedSamples(prev => {
-          const now = new Date();
-          const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-          const next = { ...prev, [sample.id]: { time: timeStr, date: now.toLocaleDateString('vi-VN'), at: now.toISOString() } };
-          try { localStorage.setItem('checked_loose_samples', JSON.stringify(next)); } catch {}
-          return next;
-        });
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const nextChecked = { ...checkedSamples, [sample.id]: { time: timeStr, date: now.toLocaleDateString('vi-VN'), at: now.toISOString() } };
+        setCheckedSamples(nextChecked);
+        try { localStorage.setItem('checked_loose_samples', JSON.stringify(nextChecked)); } catch {}
+
+        if (!isDemoMode) {
+          try {
+            await supabase.from('bulk_import_drafts').upsert({
+              id: 'global-checked-loose-samples',
+              rows_data: nextChecked,
+              updated_at: new Date().toISOString()
+            });
+          } catch (e) { /* ignore */ }
+        }
       }
 
       showToast(
@@ -5793,38 +5808,59 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
     }
   };
 
-  // Đánh dấu / Bỏ đánh dấu xác nhận đã kiểm tra mẫu ô lẻ
-  const handleToggleCheckSample = (sampleId, prodName) => {
-    setCheckedSamples(prev => {
-      const isCurrentlyChecked = !!prev[sampleId];
-      const next = { ...prev };
-      if (isCurrentlyChecked) {
-        delete next[sampleId];
-        showToast(`Đã bỏ tick kiểm tra mẫu "${prodName}"`, 'info');
-      } else {
-        const now = new Date();
-        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        next[sampleId] = { time: timeStr, date: now.toLocaleDateString('vi-VN'), at: now.toISOString() };
-        showToast(`✓ Đã xác nhận kiểm tra mẫu "${prodName}"!`, 'success');
-      }
+  // Đánh dấu / Bỏ đánh dấu xác nhận đã kiểm tra mẫu ô lẻ (đồng bộ Supabase)
+  const handleToggleCheckSample = async (sampleId, prodName) => {
+    const isCurrentlyChecked = !!checkedSamples[sampleId];
+    const next = { ...checkedSamples };
+    if (isCurrentlyChecked) {
+      delete next[sampleId];
+      showToast(`Đã bỏ tick kiểm tra mẫu "${prodName}"`, 'info');
+    } else {
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      next[sampleId] = { time: timeStr, date: now.toLocaleDateString('vi-VN'), at: now.toISOString() };
+      showToast(`✓ Đã xác nhận kiểm tra mẫu "${prodName}"!`, 'success');
+    }
+
+    setCheckedSamples(next);
+    try {
+      localStorage.setItem('checked_loose_samples', JSON.stringify(next));
+    } catch {}
+
+    if (!isDemoMode) {
       try {
-        localStorage.setItem('checked_loose_samples', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+        await supabase.from('bulk_import_drafts').upsert({
+          id: 'global-checked-loose-samples',
+          rows_data: next,
+          updated_at: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn('Sync checked sample err:', err);
+      }
+    }
   };
 
-  // Đặt lại trạng thái kiểm tra cho các mẫu trong ô lẻ này
-  const handleResetCheckedInSlot = (slotSampleIds) => {
+  // Đặt lại trạng thái kiểm tra cho các mẫu trong ô lẻ này (đồng bộ Supabase)
+  const handleResetCheckedInSlot = async (slotSampleIds) => {
     if (!window.confirm("Bạn có muốn đặt lại trạng thái đã kiểm của các mẫu trong ô lẻ này để bắt đầu đợt kiểm mới?")) return;
-    setCheckedSamples(prev => {
-      const next = { ...prev };
-      slotSampleIds.forEach(id => delete next[id]);
+    const next = { ...checkedSamples };
+    slotSampleIds.forEach(id => delete next[id]);
+    setCheckedSamples(next);
+    try {
+      localStorage.setItem('checked_loose_samples', JSON.stringify(next));
+    } catch {}
+
+    if (!isDemoMode) {
       try {
-        localStorage.setItem('checked_loose_samples', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+        await supabase.from('bulk_import_drafts').upsert({
+          id: 'global-checked-loose-samples',
+          rows_data: next,
+          updated_at: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn('Sync reset checked err:', err);
+      }
+    }
     showToast("Đã đặt lại trạng thái kiểm tra cho ô này!", "info");
   };
 
