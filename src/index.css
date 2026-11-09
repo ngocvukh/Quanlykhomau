@@ -4264,3 +4264,125 @@ h1, h2, h3, h4, h5, h6 {
     min-width: 0 !important;
   }
 }
+
+/* ==========================================================================
+   RESPONSIVE SEARCH LOGS VIEW (Table on Desktop, Cards on Mobile/Tablet)
+   ========================================================================== */
+.search-logs-desktop-view {
+  display: block;
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--bg-card);
+}
+
+.search-logs-desktop-view table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.search-logs-desktop-view th,
+.search-logs-desktop-view td {
+  white-space: nowrap;
+}
+
+.search-logs-mobile-view {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 860px) {
+  .search-logs-desktop-view {
+    display: none !important;
+  }
+  .search-logs-mobile-view {
+    display: flex !important;
+  }
+}
+
+.search-log-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--card-shadow, 0 2px 8px rgba(0,0,0,0.04));
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.search-log-card:hover {
+  border-color: var(--accent-blue);
+}
+
+.search-log-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.search-log-card-user {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--text-main);
+}
+
+.search-log-card-time {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.search-log-card-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-log-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.search-log-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-wrap: wrap;
+}
+
+.search-log-card-actions button {
+  flex: 1 1 80px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.search-log-card-actions button:active {
+  transform: scale(0.98);
+}
