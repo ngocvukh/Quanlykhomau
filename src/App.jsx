@@ -198,6 +198,45 @@ const getDisplayDeviceName = (did) => {
   return match ? match[1] : did.slice(0, 12) + '...';
 };
 
+// ── Rút gọn tên thiết bị để hiển thị gọn gàng trong bảng dữ liệu ──
+const formatCompactDeviceName = (name) => {
+  if (!name || typeof name !== 'string') return name || '—';
+  const s = name.trim();
+  const directMap = {
+    'iPhone 12 / 12 Pro / 13 / 14': 'iP 12-14',
+    'iPhone 14 Pro Max / 15 Pro Max': 'iP 14/15 PM',
+    'iPhone 12 Pro Max / 13 Pro Max': 'iP 12/13 PM',
+    'iPhone 14 Pro / 15 / 16': 'iP 14P/15/16',
+    'iPhone 16 Pro Max': 'iP 16 PM',
+    'iPhone 16 Pro': 'iP 16 Pro',
+    'iPhone 11 Pro Max / XS Max': 'iP 11PM/XS',
+    'iPhone 11 Pro / X / XS': 'iP 11P/X/XS',
+    'iPhone 11 / XR': 'iP 11/XR',
+    'iPhone 12 mini / 13 mini': 'iP 12/13m',
+    'iPhone 7 Plus / 8 Plus': 'iP 7+/8+',
+    'iPhone 7 / 8 / SE': 'iP 7/8/SE',
+    'iPhone 5 / 5s / SE1': 'iP 5/SE',
+    'iPad Pro 12.9"': 'iPad P12',
+    'iPad Pro 11"': 'iPad P11',
+    'iPad Air / Pro 10.5"': 'iPad Air/P',
+    'iPad Air 4/5 / Gen 10': 'iPad Air/G10',
+    'iPad Gen 7/8/9': 'iPad G7-9',
+    'Samsung S24 Ultra': 'SS S24U',
+    'Samsung S23 Ultra': 'SS S23U',
+    'Samsung S22 Ultra': 'SS S22U',
+    'Samsung S24 Series': 'SS S24',
+    'Samsung S23 Series': 'SS S23',
+    'Samsung S22 Series': 'SS S22'
+  };
+  if (directMap[s]) return directMap[s];
+
+  return s
+    .replace(/^iPhone\b/i, 'iP')
+    .replace(/^Samsung\b/i, 'SS')
+    .replace(/^Windows\s*10\/11/i, 'Win')
+    .replace(/^Windows\b/i, 'Win');
+};
+
 // ── Device Fingerprint (thuần JS, không cần thư viện ngoài) ──
 const generateDeviceId = async () => {
   try {
@@ -9981,42 +10020,55 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
                   {/* Table */}
                   <div style={{ overflowX:'auto', borderRadius:'10px', border:'1px solid var(--glass-border)', paddingBottom: bulkRows.some(r => r.suggestions?.length > 0) ? '220px' : '0', transition: 'padding-bottom 0.2s' }}>
-                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'1100px' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px', minWidth:'940px' }}>
                       <thead>
                         <tr style={{ background:'rgba(255,255,255,0.04)' }}>
-                          {['#','Sản phẩm','Mẻ sợi','Ngày SX sợi','Ngày SX bao','Ngày lấy mẫu','Giờ lấy mẫu','Thùng','Đơn hàng','Số cây','Ghi chú',''].map(h => (
-                            <th key={h} style={{ padding:'10px 12px', textAlign:'left', borderBottom:'1px solid var(--glass-border)', color:'var(--text-secondary)', fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
+                          {[
+                            { label: '#', width: '28px', align: 'center' },
+                            { label: 'Sản phẩm', width: '190px', align: 'left' },
+                            { label: 'Mẻ sợi', width: '56px', align: 'center' },
+                            { label: 'Ngày SX sợi', width: '90px', align: 'center' },
+                            { label: 'Ngày SX bao', width: '90px', align: 'center' },
+                            { label: 'Ngày lấy mẫu', width: '90px', align: 'center' },
+                            { label: 'Giờ lấy mẫu', width: '74px', align: 'center' },
+                            { label: 'Thùng', width: '58px', align: 'center' },
+                            { label: 'Đơn hàng', width: '85px', align: 'left' },
+                            { label: 'Số cây', width: '52px', align: 'center' },
+                            { label: 'Ghi chú', width: '105px', align: 'left' },
+                            { label: '', width: '32px', align: 'center' }
+                          ].map((col, cIdx) => (
+                            <th key={cIdx} style={{ padding:'8px 4px', textAlign: col.align, borderBottom:'1px solid var(--glass-border)', color:'var(--text-secondary)', fontWeight:600, width: col.width, whiteSpace:'nowrap', fontSize:'11.5px' }}>{col.label}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {bulkRows.map((row, idx) => (
                           <tr key={row.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
-                            <td style={{ padding:'8px 12px', color:'var(--text-muted)', width:'32px' }}>{idx+1}</td>
+                            <td style={{ padding:'6px 4px', color:'var(--text-muted)', width:'28px', textAlign:'center', fontSize:'11.5px' }}>{idx+1}</td>
 
                             {/* Product search */}
-                            <td style={{ padding:'8px 12px', minWidth:'240px', position:'relative', zIndex: row.suggestions.length > 0 ? 100 : 'auto' }}>
+                            <td style={{ padding:'6px 6px', width:'190px', minWidth:'170px', position:'relative', zIndex: row.suggestions.length > 0 ? 100 : 'auto' }}>
                               <input
                                 type="text" placeholder="Nhập tên sản phẩm..."
                                 value={row.searchQuery}
                                 onChange={e => handleBulkProductSearch(idx, e.target.value)}
                                 onKeyDown={e => handleBulkSearchKeyDown(e, idx)}
                                 onBlur={() => setTimeout(() => updateBulkRow(idx,'suggestions',[]), 200)}
-                                style={{ width:'100%', padding:'6px 10px', background:'var(--glass-bg)', border:`1px solid ${row.suggestions.length > 0 ? 'var(--accent-blue)' : row.productObj ? 'var(--status-success)' : 'var(--glass-border)'}`, borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', boxSizing:'border-box', outline:'none' }}
+                                style={{ width:'100%', padding:'5px 8px', background:'var(--glass-bg)', border:`1px solid ${row.suggestions.length > 0 ? 'var(--accent-blue)' : row.productObj ? 'var(--status-success)' : 'var(--glass-border)'}`, borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', boxSizing:'border-box', outline:'none' }}
                               />
                               {row.productObj && !row.suggestions.length && (
-                                <span style={{ position:'absolute', top:'50%', right:'16px', transform:'translateY(-50%)', color:'var(--status-success)', fontSize:'14px' }}>✓</span>
+                                <span style={{ position:'absolute', top:'50%', right:'14px', transform:'translateY(-50%)', color:'var(--status-success)', fontSize:'13px' }}>✓</span>
                               )}
                               {row.suggestions.length > 0 && (
-                                <div style={{ position:'absolute', top:'calc(100% + 2px)', left:0, right:0, background:'var(--bg-secondary)', border:'1px solid var(--accent-blue)', borderRadius:'8px', zIndex:9999, maxHeight:'220px', overflowY:'auto', boxShadow:'0 12px 32px rgba(0,0,0,0.6)' }}>
+                                <div style={{ position:'absolute', top:'calc(100% + 2px)', left:0, minWidth:'240px', width:'100%', background:'var(--bg-secondary)', border:'1px solid var(--accent-blue)', borderRadius:'8px', zIndex:9999, maxHeight:'220px', overflowY:'auto', boxShadow:'0 12px 32px rgba(0,0,0,0.6)' }}>
                                   {row.suggestions.map((p, pIdx) => (
                                     <div key={p.id} 
                                       onMouseDown={() => selectBulkProduct(idx, p)}
                                       onMouseEnter={() => setBulkActiveSuggestIdx(pIdx)}
                                       style={{ 
-                                        padding:'10px 16px', 
+                                        padding:'8px 12px', 
                                         cursor:'pointer', 
-                                        fontSize:'13px', 
+                                        fontSize:'12px', 
                                         borderBottom:'1px solid rgba(255,255,255,0.03)', 
                                         display:'flex', 
                                         justifyContent:'space-between', 
@@ -10029,9 +10081,9 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                       <span style={{ fontWeight: 600, color: pIdx === bulkActiveSuggestIdx ? 'var(--accent-blue)' : 'var(--text-primary)' }}>{p.product_name}</span>
                                       {p.warning_code && (
                                         <span style={{ 
-                                          fontSize: '11px', 
+                                          fontSize: '10.5px', 
                                           background: pIdx === bulkActiveSuggestIdx ? 'rgba(37,99,235,0.1)' : 'rgba(255,255,255,0.06)', 
-                                          padding: '2px 6px', 
+                                          padding: '1px 5px', 
                                           borderRadius: '4px', 
                                           color: pIdx === bulkActiveSuggestIdx ? 'var(--accent-blue)' : 'var(--text-secondary)' 
                                         }}>{p.warning_code}</span>
@@ -10042,18 +10094,18 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                               )}
                             </td>
 
-                            <td style={{ padding:'8px 12px', width:'80px' }}>
+                            <td style={{ padding:'6px 4px', width:'56px' }}>
                               <input type="number" min="1" max="999" placeholder="123" value={row.blendBatch}
                                 onChange={e => updateBulkRow(idx,'blendBatch',e.target.value)}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                                style={{ width:'100%', padding:'5px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', textAlign:'center', boxSizing:'border-box' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                            <td style={{ padding:'6px 4px', width:'90px' }}>
                               <input type="text" placeholder="dd/mm/yyyy" value={row.blendDate}
                                 onChange={e => updateBulkRow(idx,'blendDate', liveFormatDate(e.target.value, row.blendDate))}
                                 onBlur={e => updateBulkRow(idx,'blendDate', autoFormatDate(e.target.value))}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                                style={{ width:'100%', padding:'5px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', textAlign:'center', boxSizing:'border-box' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                            <td style={{ padding:'6px 4px', width:'90px' }}>
                               <input type="text" placeholder="dd/mm/yyyy" value={row.packagingDate}
                                 onChange={e => {
                                   const val = liveFormatDate(e.target.value, row.packagingDate);
@@ -10071,16 +10123,16 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                     updateBulkRow(idx,'samplingDate', formatted);
                                   }
                                 }}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.packagingDate && !parseDMY(row.packagingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
+                                style={{ width:'100%', padding:'5px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', textAlign:'center', boxSizing:'border-box', borderColor: row.packagingDate && !parseDMY(row.packagingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'120px' }}>
+                            <td style={{ padding:'6px 4px', width:'90px' }}>
                               <input type="text" placeholder="dd/mm/yyyy" value={row.samplingDate}
                                 onChange={e => updateBulkRow(idx,'samplingDate', liveFormatDate(e.target.value, row.samplingDate))}
                                 onBlur={e => updateBulkRow(idx,'samplingDate', autoFormatDate(e.target.value))}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', borderColor: row.samplingDate && !parseDMY(row.samplingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
+                                style={{ width:'100%', padding:'5px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', textAlign:'center', boxSizing:'border-box', borderColor: row.samplingDate && !parseDMY(row.samplingDate) ? 'var(--status-error)' : 'var(--glass-border)' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'120px' }}>
-                              <div style={{ display:'flex', gap:'4px', alignItems:'center' }}>
+                            <td style={{ padding:'6px 4px', width:'74px' }}>
+                              <div style={{ display:'flex', gap:'2px', alignItems:'center', justifyContent:'center' }}>
                                 <input 
                                   type="text" 
                                   maxLength="2" 
@@ -10094,9 +10146,9 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                     if (isNaN(h) || h < 0 || h > 23) h = 8;
                                     updateBulkRow(idx, 'samplingHour', String(h).padStart(2, '0'));
                                   }}
-                                  style={{ width:'42px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none' }}
+                                  style={{ width:'27px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', textAlign:'center', outline:'none', boxSizing:'border-box' }}
                                 />
-                                <span style={{ color:'var(--text-muted)' }}>:</span>
+                                <span style={{ color:'var(--text-muted)', fontSize:'11px' }}>:</span>
                                 <input 
                                   type="text" 
                                   maxLength="2" 
@@ -10110,16 +10162,16 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                     if (isNaN(m) || m < 0 || m > 59) m = 0;
                                     updateBulkRow(idx, 'samplingMinute', String(m).padStart(2, '0'));
                                   }}
-                                  style={{ width:'42px', padding:'6px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px', textAlign:'center', outline:'none' }}
+                                  style={{ width:'27px', padding:'5px 2px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', textAlign:'center', outline:'none', boxSizing:'border-box' }}
                                 />
                               </div>
                             </td>
-                            <td style={{ padding:'8px 12px', width:'85px' }}>
+                            <td style={{ padding:'6px 4px', width:'58px' }}>
                               <input type="text" placeholder="0025" value={row.boxSeq}
                                 onChange={e => updateBulkRow(idx,'boxSeq',e.target.value)}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                                style={{ width:'100%', padding:'5px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', textAlign:'center', boxSizing:'border-box' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'110px' }}>
+                            <td style={{ padding:'6px 4px', width:'85px' }}>
                               <input 
                                 type="text" 
                                 placeholder={row.productObj ? (row.productObj.is_export ? 'Bắt buộc' : 'Không có') : 'Tùy chọn'} 
@@ -10128,30 +10180,31 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                 onChange={e => updateBulkRow(idx,'orderNumber',e.target.value)}
                                 style={{ 
                                   width:'100%', 
-                                  padding:'6px 8px', 
+                                  padding:'5px 6px', 
                                   background: row.productObj && !row.productObj.is_export ? 'rgba(255,255,255,0.02)' : 'var(--glass-bg)', 
                                   border:`1px solid ${row.productObj?.is_export && !row.orderNumber ? 'var(--status-error)' : 'var(--glass-border)'}`, 
                                   borderRadius:'6px', 
                                   color: row.productObj && !row.productObj.is_export ? 'var(--text-muted)' : 'var(--text-primary)', 
-                                  fontSize:'12px',
+                                  fontSize:'11.5px',
                                   cursor: row.productObj && !row.productObj.is_export ? 'not-allowed' : 'text',
-                                  opacity: row.productObj && !row.productObj.is_export ? 0.5 : 1
+                                  opacity: row.productObj && !row.productObj.is_export ? 0.5 : 1,
+                                  boxSizing:'border-box'
                                 }} 
                               />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'80px' }}>
+                            <td style={{ padding:'6px 4px', width:'52px' }}>
                               <input type="number" min="1" placeholder="10" value={row.qty}
                                 onChange={e => updateBulkRow(idx,'qty',e.target.value)}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                                style={{ width:'100%', padding:'5px 4px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', textAlign:'center', boxSizing:'border-box' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'150px' }}>
+                            <td style={{ padding:'6px 4px', width:'105px' }}>
                               <input type="text" placeholder="Ghi chú..." value={row.note}
                                 onChange={e => updateBulkRow(idx,'note',e.target.value)}
-                                style={{ width:'100%', padding:'6px 8px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'12px' }} />
+                                style={{ width:'100%', padding:'5px 6px', background:'var(--glass-bg)', border:'1px solid var(--glass-border)', borderRadius:'6px', color:'var(--text-primary)', fontSize:'11.5px', boxSizing:'border-box' }} />
                             </td>
-                            <td style={{ padding:'8px 12px', width:'36px' }}>
-                              <button onClick={() => removeBulkRow(idx)} style={{ background:'none', border:'none', color:'var(--status-error)', cursor:'pointer', padding:'4px', borderRadius:'4px' }}>
-                                <X size={16} />
+                            <td style={{ padding:'6px 4px', width:'32px', textAlign:'center' }}>
+                              <button onClick={() => removeBulkRow(idx)} style={{ background:'none', border:'none', color:'var(--status-error)', cursor:'pointer', padding:'2px', borderRadius:'4px', display:'inline-flex', alignItems:'center', justifyContent:'center' }} title="Xóa hàng này">
+                                <X size={15} />
                               </button>
                             </td>
                           </tr>
@@ -10811,7 +10864,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                     textOverflow: 'ellipsis',
                                     verticalAlign: 'middle'
                                   }}>
-                                    {getDisplayDeviceName(log.device_id)}
+                                    {formatCompactDeviceName(getDisplayDeviceName(log.device_id))}
                                   </code>
                                 </td>
                                 <td style={{ padding: '8px 10px', width: '135px', maxWidth: '135px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
@@ -11486,12 +11539,12 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', tableLayout: 'fixed' }}>
                             <thead>
                               <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
-                                <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '125px', whiteSpace: 'nowrap' }}>Tên khách</th>
-                                <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '110px', whiteSpace: 'nowrap' }}>Thiết bị</th>
-                                <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '120px', whiteSpace: 'nowrap' }}>Lượt hoạt động</th>
-                                <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '95px', whiteSpace: 'nowrap' }}>Gần nhất</th>
-                                <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '95px', whiteSpace: 'nowrap' }}>Trạng thái</th>
-                                <th style={{ padding: '8px 10px', textAlign: 'right', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '215px', whiteSpace: 'nowrap' }}>Thao tác</th>
+                                <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '115px', whiteSpace: 'nowrap' }}>Tên khách</th>
+                                <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '85px', whiteSpace: 'nowrap' }}>Thiết bị</th>
+                                <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '95px', whiteSpace: 'nowrap' }}>Lượt hoạt động</th>
+                                <th style={{ padding: '8px 8px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '85px', whiteSpace: 'nowrap' }}>Gần nhất</th>
+                                <th style={{ padding: '8px 8px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '75px', whiteSpace: 'nowrap' }}>Trạng thái</th>
+                                <th style={{ padding: '8px 8px', textAlign: 'right', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '285px', whiteSpace: 'nowrap' }}>Thao tác</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -11507,7 +11560,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                 return (
                                   <React.Fragment key={v.device_id}>
                                     <tr style={{ borderBottom: isVHistoryOpen ? 'none' : '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                      <td style={{ padding: '8px 10px', fontWeight: 600, width: '125px', maxWidth: '125px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                      <td style={{ padding: '8px 8px', fontWeight: 600, width: '115px', maxWidth: '115px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', maxWidth: '100%' }}>
                                           <User size={13} color="#10b981" style={{ flexShrink: 0 }} />
                                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={v.user_name}>
@@ -11515,24 +11568,24 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                           </span>
                                         </div>
                                       </td>
-                                      <td style={{ padding: '8px 10px', color: 'var(--text-secondary)', width: '110px', maxWidth: '110px', overflow: 'hidden', whiteSpace: 'nowrap' }} title={`${getDisplayDeviceName(v.device_id)} (${v.device_id})`}>
-                                        <code style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', fontSize: '10.5px', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle' }}>
-                                          {getDisplayDeviceName(v.device_id)}
+                                      <td style={{ padding: '8px 8px', color: 'var(--text-secondary)', width: '85px', maxWidth: '85px', overflow: 'hidden', whiteSpace: 'nowrap' }} title={`${getDisplayDeviceName(v.device_id)} (${v.device_id})`}>
+                                        <code style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 5px', borderRadius: '4px', fontSize: '10.5px', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle' }}>
+                                          {formatCompactDeviceName(getDisplayDeviceName(v.device_id))}
                                         </code>
                                       </td>
-                                      <td style={{ padding: '8px 10px', width: '120px', whiteSpace: 'nowrap' }}>
+                                      <td style={{ padding: '8px 8px', width: '95px', whiteSpace: 'nowrap' }}>
                                         <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'nowrap' }}>
-                                          <span style={{ background: 'rgba(15, 135, 255, 0.12)', color: 'var(--accent-blue)', padding: '2px 6px', borderRadius: '5px', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                          <span style={{ background: 'rgba(15, 135, 255, 0.12)', color: 'var(--accent-blue)', padding: '2px 5px', borderRadius: '5px', fontSize: '10.5px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                             {v.search_count} tra cứu
                                           </span>
                                           {vTxs.length > 0 && (
-                                            <span style={{ background: 'rgba(125, 190, 255, 0.12)', color: '#7DBEFF', padding: '2px 6px', borderRadius: '5px', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                            <span style={{ background: 'rgba(125, 190, 255, 0.12)', color: '#7DBEFF', padding: '2px 5px', borderRadius: '5px', fontSize: '10.5px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                               {vTxs.length} mẫu
                                             </span>
                                           )}
                                         </div>
                                       </td>
-                                      <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontSize: '11.5px', textAlign: 'center', width: '95px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={v.last_active ? new Date(v.last_active).toLocaleString() : ''}>
+                                      <td style={{ padding: '8px 8px', color: 'var(--text-muted)', fontSize: '11px', textAlign: 'center', width: '85px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={v.last_active ? new Date(v.last_active).toLocaleString() : ''}>
                                         {(() => {
                                           if (!v.last_active) return '—';
                                           const d = new Date(v.last_active);
@@ -11544,16 +11597,16 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                           return `${hh}:${mm} ${DD}/${MM}/${YY}`;
                                         })()}
                                       </td>
-                                      <td style={{ padding: '8px 10px', textAlign: 'center', width: '95px', whiteSpace: 'nowrap' }}>
+                                      <td style={{ padding: '8px 8px', textAlign: 'center', width: '75px', whiteSpace: 'nowrap' }}>
                                         {isBlocked ? (
-                                          <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 5px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>🚫 Bị chặn</span>
+                                          <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 4px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>🚫 Bị chặn</span>
                                         ) : isPendingReset ? (
-                                          <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '2px 5px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>⏳ Chờ khai</span>
+                                          <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '2px 4px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>⏳ Chờ</span>
                                         ) : (
-                                          <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '2px 5px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>✓ Tốt</span>
+                                          <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '2px 4px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>✓ Tốt</span>
                                         )}
                                       </td>
-                                      <td style={{ padding: '8px 10px', textAlign: 'right', width: '215px', whiteSpace: 'nowrap' }}>
+                                      <td style={{ padding: '8px 8px', textAlign: 'right', width: '285px', whiteSpace: 'nowrap' }}>
                                         <div style={{ display: 'inline-flex', gap: '3px', justifyContent: 'flex-end', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
                                           <button
                                             type="button"
@@ -11564,8 +11617,8 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                               border: '1px solid var(--accent-blue)',
                                               color: isVHistoryOpen ? '#fff' : 'var(--accent-blue)',
                                               borderRadius: '5px',
-                                              padding: '3px 6px',
-                                              fontSize: '11px',
+                                              padding: '2.5px 5.5px',
+                                              fontSize: '10.5px',
                                               cursor: 'pointer',
                                               fontWeight: 600,
                                               whiteSpace: 'nowrap'
@@ -11577,7 +11630,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                             <button
                                               type="button"
                                               onClick={() => handleUnblockVisitor(v.device_id, v.user_name)}
-                                              style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: 'var(--status-success)', borderRadius: '5px', padding: '3px 6px', fontSize: '11px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                              style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: 'var(--status-success)', borderRadius: '5px', padding: '2.5px 5.5px', fontSize: '10.5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
                                             >
                                               🟢 Gỡ
                                             </button>
@@ -11595,8 +11648,8 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                                   border: '1px solid rgba(201,164,106,0.35)',
                                                   color: 'var(--bento-kraft)',
                                                   borderRadius: '5px',
-                                                  padding: '3px 6px',
-                                                  fontSize: '11px',
+                                                  padding: '2.5px 5.5px',
+                                                  fontSize: '10.5px',
                                                   cursor: 'pointer',
                                                   fontWeight: 600,
                                                   whiteSpace: 'nowrap'
@@ -11614,8 +11667,8 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                                   border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
                                                   color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)',
                                                   borderRadius: '5px',
-                                                  padding: '3px 6px',
-                                                  fontSize: '11px',
+                                                  padding: '2.5px 5.5px',
+                                                  fontSize: '10.5px',
                                                   cursor: isPendingReset ? 'not-allowed' : 'pointer',
                                                   fontWeight: 600,
                                                   whiteSpace: 'nowrap'
@@ -11627,7 +11680,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                                 type="button"
                                                 onClick={() => handleBlockVisitor(v.device_id, v.user_name)}
                                                 title="Chặn thiết bị này truy cập"
-                                                style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-error)', borderRadius: '5px', padding: '3px 6px', fontSize: '11px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                                style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-error)', borderRadius: '5px', padding: '2.5px 5.5px', fontSize: '10.5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
                                               >
                                                 🚫 Chặn
                                               </button>
@@ -11637,7 +11690,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                             type="button"
                                             onClick={() => handleDeleteSavedVisitor(v.device_id, v.user_name)}
                                             title="Xóa khách này khỏi danh sách đã lưu"
-                                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', borderRadius: '5px', padding: '3px 6px', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', borderRadius: '5px', padding: '2.5px 5.5px', fontSize: '10.5px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                                           >
                                             🗑️ Xóa
                                           </button>
