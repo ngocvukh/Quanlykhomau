@@ -5,7 +5,7 @@ import {
   Search, Volume2, VolumeX, Printer, Check, X, ArrowRight,
   Warehouse, Layers, QrCode, Sliders, ShieldAlert, FileText, ChevronRight,
   Radio, Smartphone, Monitor, ZoomIn
-} from 'lucide-react';
+} from './GoogleIcons';
 import { supabase } from './supabaseClient';
 
 const SHELF_LETTERS = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
@@ -624,7 +624,7 @@ export default function WarehouseAudit({
                 </span>
               </div>
               <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                Quét lia liên tục mã QR trên cây thuốc nguyên. <strong style={{ color: '#f59e0b' }}>Tự động bỏ qua Ô 5 lẻ</strong>.
+                Quét lia liên tục mã QR trên cây thuốc nguyên. <strong style={{ color: 'var(--status-warning)' }}>Tự động bỏ qua Ô 5 lẻ</strong>.
               </p>
             </div>
           </div>
@@ -771,7 +771,7 @@ export default function WarehouseAudit({
               position: 'relative',
               borderRadius: '12px',
               overflow: 'hidden',
-              background: '#070b14',
+              background: 'var(--bg-primary)',
               border: '2px solid rgba(255,255,255,0.08)',
               minHeight: '280px',
               display: 'flex',
@@ -800,9 +800,9 @@ export default function WarehouseAudit({
                     padding: '10px 24px',
                     fontSize: '14px',
                     fontWeight: 600,
-                    background: 'linear-gradient(135deg, #059669, #10b981)',
-                    borderColor: '#10b981',
-                    boxShadow: '0 4px 14px rgba(16,185,129,0.3)',
+                    background: 'var(--accent-gradient)',
+                    borderColor: 'var(--accent-blue)',
+                    boxShadow: '0 4px 14px rgba(15, 135, 255, 0.35)',
                     marginTop: '8px'
                   }}
                 >
@@ -832,8 +832,8 @@ export default function WarehouseAudit({
                     boxShadow: '0 4px 14px rgba(0,0,0,0.5)'
                   }}
                 >
-                  <span style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', marginRight: '4px' }}>
-                    <ZoomIn size={13} color="#10b981" /> Zoom:
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', marginRight: '4px' }}>
+                    <ZoomIn size={13} color="var(--accent-blue)" /> Zoom:
                   </span>
                   {[1, 1.5, 2, 2.5, 3].map(z => (
                     <button
@@ -848,9 +848,9 @@ export default function WarehouseAudit({
                         fontSize: '11.5px',
                         fontWeight: 700,
                         transition: 'all 0.15s ease',
-                        background: currentZoom === z ? '#10b981' : 'rgba(255, 255, 255, 0.12)',
-                        color: currentZoom === z ? '#ffffff' : '#e2e8f0',
-                        boxShadow: currentZoom === z ? '0 0 10px rgba(16,185,129,0.7)' : 'none'
+                        background: currentZoom === z ? 'var(--accent-blue)' : 'rgba(255, 255, 255, 0.12)',
+                        color: currentZoom === z ? '#ffffff' : 'var(--text-secondary)',
+                        boxShadow: currentZoom === z ? '0 0 10px rgba(15, 135, 255, 0.6)' : 'none'
                       }}
                     >
                       {z}x
@@ -958,8 +958,8 @@ export default function WarehouseAudit({
                   width: `${progressPercent}%`,
                   height: '100%',
                   background: progressPercent === 100
-                    ? 'linear-gradient(90deg, #10b981, #059669)'
-                    : 'linear-gradient(90deg, #38bdf8, #0284c7)',
+                    ? 'linear-gradient(90deg, #059669, #047857)'
+                    : 'var(--accent-gradient)',
                   transition: 'width 0.3s ease'
                 }}
               />
@@ -972,17 +972,17 @@ export default function WarehouseAudit({
             <div
               onClick={() => setFilterView('matched')}
               style={{
-                background: filterView === 'matched' ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.08)',
-                border: `1px solid ${filterView === 'matched' ? 'var(--status-success)' : 'rgba(16,185,129,0.2)'}`,
+                background: filterView === 'matched' ? 'rgba(5,150,105,0.2)' : 'rgba(5,150,105,0.08)',
+                border: `1px solid ${filterView === 'matched' ? 'var(--status-success)' : 'rgba(5,150,105,0.2)'}`,
                 padding: '12px 14px',
                 borderRadius: '10px',
                 cursor: 'pointer'
               }}
             >
-              <div style={{ fontSize: '12px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--status-success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <CheckCircle2 size={14} /> Đã quét đủ
               </div>
-              <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '4px', color: '#10b981' }}>
+              <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '4px', color: 'var(--status-success)' }}>
                 {matchedItems.length} <span style={{ fontSize: '12px', fontWeight: 400 }}>cây</span>
               </div>
             </div>
@@ -991,17 +991,17 @@ export default function WarehouseAudit({
             <div
               onClick={() => setFilterView('missing')}
               style={{
-                background: filterView === 'missing' ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.08)',
-                border: `1px solid ${filterView === 'missing' ? 'var(--status-error)' : 'rgba(239,68,68,0.2)'}`,
+                background: filterView === 'missing' ? 'rgba(220,38,38,0.2)' : 'rgba(220,38,38,0.08)',
+                border: `1px solid ${filterView === 'missing' ? 'var(--status-error)' : 'rgba(220,38,38,0.2)'}`,
                 padding: '12px 14px',
                 borderRadius: '10px',
                 cursor: 'pointer'
               }}
             >
-              <div style={{ fontSize: '12px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--status-error)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <AlertCircle size={14} /> Chưa quét / Thiếu
               </div>
-              <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '4px', color: '#ef4444' }}>
+              <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '4px', color: 'var(--status-error)' }}>
                 {missingItems.length} <span style={{ fontSize: '12px', fontWeight: 400 }}>cây</span>
               </div>
             </div>
@@ -1010,17 +1010,17 @@ export default function WarehouseAudit({
             <div
               onClick={() => setFilterView('misplaced')}
               style={{
-                background: filterView === 'misplaced' ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.08)',
-                border: `1px solid ${filterView === 'misplaced' ? 'var(--status-warning)' : 'rgba(245,158,11,0.2)'}`,
+                background: filterView === 'misplaced' ? 'rgba(217,119,6,0.2)' : 'rgba(217,119,6,0.08)',
+                border: `1px solid ${filterView === 'misplaced' ? 'var(--status-warning)' : 'rgba(217,119,6,0.2)'}`,
                 padding: '12px 14px',
                 borderRadius: '10px',
                 cursor: 'pointer'
               }}
             >
-              <div style={{ fontSize: '12px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--status-warning)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <AlertTriangle size={14} /> Để sai kệ
               </div>
-              <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '4px', color: '#f59e0b' }}>
+              <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '4px', color: 'var(--status-warning)' }}>
                 {misplacedItems.length} <span style={{ fontSize: '12px', fontWeight: 400 }}>cây</span>
               </div>
             </div>
@@ -1063,9 +1063,9 @@ export default function WarehouseAudit({
               style={{
                 fontSize: '12.5px',
                 padding: '6px 12px',
-                background: filterView === 'missing' ? 'rgba(239,68,68,0.25)' : '',
+                background: filterView === 'missing' ? 'rgba(220,38,38,0.25)' : '',
                 borderColor: filterView === 'missing' ? 'var(--status-error)' : '',
-                color: filterView === 'missing' ? '#ef4444' : ''
+                color: filterView === 'missing' ? 'var(--status-error)' : ''
               }}
               onClick={() => setFilterView('missing')}
             >
@@ -1076,9 +1076,9 @@ export default function WarehouseAudit({
               style={{
                 fontSize: '12.5px',
                 padding: '6px 12px',
-                background: filterView === 'misplaced' ? 'rgba(245,158,11,0.25)' : '',
+                background: filterView === 'misplaced' ? 'rgba(217,119,6,0.25)' : '',
                 borderColor: filterView === 'misplaced' ? 'var(--status-warning)' : '',
-                color: filterView === 'misplaced' ? '#f59e0b' : ''
+                color: filterView === 'misplaced' ? 'var(--status-warning)' : ''
               }}
               onClick={() => setFilterView('misplaced')}
             >
@@ -1089,9 +1089,9 @@ export default function WarehouseAudit({
               style={{
                 fontSize: '12.5px',
                 padding: '6px 12px',
-                background: filterView === 'matched' ? 'rgba(16,185,129,0.25)' : '',
+                background: filterView === 'matched' ? 'rgba(5,150,105,0.25)' : '',
                 borderColor: filterView === 'matched' ? 'var(--status-success)' : '',
-                color: filterView === 'matched' ? '#10b981' : ''
+                color: filterView === 'matched' ? 'var(--status-success)' : ''
               }}
               onClick={() => setFilterView('matched')}
             >
@@ -1184,8 +1184,8 @@ export default function WarehouseAudit({
                             fontWeight: 700,
                             padding: '2px 8px',
                             borderRadius: '4px',
-                            background: isMissing ? 'rgba(239,68,68,0.2)' : isMisplaced ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)',
-                            color: isMissing ? '#ef4444' : isMisplaced ? '#f59e0b' : '#10b981'
+                            background: isMissing ? 'rgba(220,38,38,0.2)' : isMisplaced ? 'rgba(217,119,6,0.2)' : 'rgba(5,150,105,0.2)',
+                            color: isMissing ? 'var(--status-error)' : isMisplaced ? 'var(--status-warning)' : 'var(--status-success)'
                           }}
                         >
                           {isMissing ? '🔴 THIẾU / CHƯA QUÉT' : isMisplaced ? '🟡 ĐỂ SAI KỆ' : '🟢 ĐÃ KHỚP'}
@@ -1224,7 +1224,7 @@ export default function WarehouseAudit({
                       {isMisplaced && selectedScope !== 'all' && selectedScope !== 'box' && (
                         <button
                           className="btn btn-secondary"
-                          style={{ fontSize: '12px', padding: '5px 12px', color: '#f59e0b', borderColor: '#f59e0b' }}
+                          style={{ fontSize: '12px', padding: '5px 12px', color: 'var(--status-warning)', borderColor: 'var(--status-warning)' }}
                           onClick={() => handleRelocateToCurrentShelf(item)}
                         >
                           Đổi về Kệ {SHELF_LETTERS[selectedScope]}
@@ -1237,9 +1237,9 @@ export default function WarehouseAudit({
                             style={{
                               fontSize: '12px',
                               padding: '6px 14px',
-                              color: '#10b981',
-                              borderColor: 'rgba(16, 185, 129, 0.4)',
-                              background: 'rgba(16, 185, 129, 0.1)',
+                              color: 'var(--status-success)',
+                              borderColor: 'rgba(5, 150, 105, 0.4)',
+                              background: 'rgba(5, 150, 105, 0.1)',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '6px',
@@ -1252,7 +1252,7 @@ export default function WarehouseAudit({
                           >
                             <Check size={14} /> Xác nhận đã thấy (Tem mờ)
                           </button>
-                          <span style={{ fontSize: '11px', color: '#ef4444', fontStyle: 'italic' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--status-error)', fontStyle: 'italic' }}>
                             Ô {item.slot} - Cột {item.column_number}
                           </span>
                         </div>
@@ -1262,12 +1262,12 @@ export default function WarehouseAudit({
                           <span
                             style={{
                               fontSize: '12px',
-                              color: '#10b981',
+                              color: 'var(--status-success)',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '5px',
                               fontWeight: 600,
-                              background: 'rgba(16, 185, 129, 0.08)',
+                              background: 'rgba(5, 150, 105, 0.08)',
                               padding: '4px 10px',
                               borderRadius: '6px',
                               border: '1px solid rgba(16, 185, 129, 0.25)'

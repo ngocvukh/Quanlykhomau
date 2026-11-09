@@ -3,26 +3,47 @@ import React, { useState, useMemo } from 'react';
 import {
   BarChart3, TrendingUp, TrendingDown, Calendar, FileText,
   ExternalLink, Download, ArrowLeft, Layers, Package,
-  ChevronDown, ChevronUp, Factory, Boxes, Clock, AlertTriangle, CheckCircle2
-} from 'lucide-react';
+  ChevronDown, ChevronUp, Factory, Boxes, Clock, AlertTriangle, CheckCircle2, ArrowRightLeft
+} from './GoogleIcons';
 
 export default function MonthlyAnalytics({
   samples = [],
   destructionLogs = [],
   transactions = [],
-  _products = [],
+  products = [],
   onClose = () => {}
 }) {
   // Chế độ góc nhìn: 'import' (Theo tháng nhập kho) | 'packaging' (Theo ngày sản xuất bao)
   const [viewPerspective, setViewPerspective] = useState('import');
   const [selectedYear, setSelectedYear] = useState('all');
-  const [metricMode, setMetricMode] = useState('samples'); // 'samples' (số lô mẫu) | 'cartons' (số cây)
+  const [marketFilter, setMarketFilter] = useState('all'); // 'all' | 'domestic' (nội địa) | 'export' (xuất khẩu)
+  const [metricMode] = useState('cartons'); // Mặc định hiển thị theo số cây thực tế
   const [expandedMonth, setExpandedMonth] = useState(null);
+  const [drawerStatusFilter, setDrawerStatusFilter] = useState('all'); // 'all' | 'stored' | 'dispatched' | 'destroyed'
   const [hoveredData, setHoveredData] = useState(null);
 
   // ═════════════════════════════════════════════════════════════════════════════
   // 1. DỮ LIỆU GÓC NHÌN A: THEO THÁNG NHẬP KHO & TIÊU HỦY
   // ═════════════════════════════════════════════════════════════════════════════
+  // Tra cứu sản phẩm để xác định Hàng Xuất khẩu vs Nội địa
+  const isSampleExport = (s) => {
+    if (s.is_export !== undefined) return !!s.is_export;
+    if (s.products?.is_export !== undefined) return !!s.products.is_export;
+    if (s.product?.is_export !== undefined) return !!s.product.is_export;
+    const prodId = s.product_id;
+    if (prodId && products && products.length > 0) {
+      const p = products.find(prod => prod.id === prodId);
+      if (p) return !!p.is_export;
+    }
+    const name = s.product_name || s.products?.product_name || s.name || '';
+    if (s.order_number) return true;
+    if (name && products && products.length > 0) {
+      const p = products.find(prod => prod.product_name === name);
+      if (p) return !!p.is_export;
+    }
+    return false;
+  };
+
   const { allMonthsData, availableYears } = useMemo(() => {
     const map = {};
     const yearsSet = new Set();
@@ -39,6 +60,11 @@ export default function MonthlyAnalytics({
 
     // A. Mẫu Nhập kho (từ bảng samples)
     (samples || []).forEach(s => {
+      // Lọc theo Thị trường: Nội địa vs Xuất khẩu
+      const isExp = isSampleExport(s);
+      if (marketFilter === 'domestic' && isExp) return;
+      if (marketFilter === 'export' && !isExp) return;
+
       const dateKey = s.entry_date || s.created_at;
       const mKey = getMonthKey(dateKey);
       if (!mKey) return;
@@ -52,6 +78,8 @@ export default function MonthlyAnalytics({
           importedPacks: 0,
           destroyedSamples: 0,
           destroyedPacks: 0,
+          dispatchedSamples: 0,
+          dispatchedPacks: 0,
           destructionReports: [],
           importedSampleList: [],
           packagingDates: []
@@ -81,6 +109,8 @@ export default function MonthlyAnalytics({
           importedPacks: 0,
           destroyedSamples: 0,
           destroyedPacks: 0,
+          dispatchedSamples: 0,
+          dispatchedPacks: 0,
           destructionReports: [],
           importedSampleList: [],
           packagingDates: []
@@ -105,12 +135,46 @@ export default function MonthlyAnalytics({
       }
     });
 
+    // C2. Thống kê Lấy mẫu sử dụng (QC cấp phát) từ transactions (take_approve)
+    const approvedSampleIdsPerMonth = {};
+    (transactions || []).filter(t => t.type === 'take_approve' && t.status === 'approved').forEach(t => {
+      const mKey = getMonthKey(t.created_at);
+      if (!mKey) return;
+      if (!map[mKey]) {
+        map[mKey] = {
+          key: mKey,
+          year: mKey.split('-')[0],
+          month: parseInt(mKey.split('-')[1], 10),
+          importedSamples: 0,
+          importedPacks: 0,
+          destroyedSamples: 0,
+          destroyedPacks: 0,
+          dispatchedSamples: 0,
+          dispatchedPacks: 0,
+          destructionReports: [],
+          importedSampleList: [],
+          packagingDates: []
+        };
+      }
+      const packs = Number(t.quantity) || 1;
+      map[mKey].dispatchedPacks += packs;
+      if (!approvedSampleIdsPerMonth[mKey]) approvedSampleIdsPerMonth[mKey] = new Set();
+      if (t.sample_id) approvedSampleIdsPerMonth[mKey].add(t.sample_id);
+    });
+
+    Object.keys(approvedSampleIdsPerMonth).forEach(mKey => {
+      if (map[mKey]) {
+        map[mKey].dispatchedSamples = approvedSampleIdsPerMonth[mKey].size;
+      }
+    });
+
     // D. Tính toán các chỉ số
     const list = Object.values(map).map(m => {
       const impCartons = Math.round(m.importedPacks / 10);
       const destCartons = Math.round(m.destroyedPacks / 10);
-      const netSamples = m.importedSamples - m.destroyedSamples;
-      const netCartons = impCartons - destCartons;
+      const dispCartons = Math.round((m.dispatchedPacks || 0) / 10);
+      const netSamples = m.importedSamples - m.destroyedSamples - (m.dispatchedSamples || 0);
+      const netCartons = impCartons - destCartons - dispCartons;
       const destructionRate = m.importedSamples > 0 
         ? ((m.destroyedSamples / m.importedSamples) * 100).toFixed(1)
         : (m.destroyedSamples > 0 ? '100.0' : '0.0');
@@ -131,6 +195,7 @@ export default function MonthlyAnalytics({
         ...m,
         importedCartons: impCartons,
         destroyedCartons: destCartons,
+        dispatchedCartons: dispCartons,
         netSamples,
         netCartons,
         destructionRate,
@@ -143,7 +208,7 @@ export default function MonthlyAnalytics({
     if (!yearsArr.includes('2026')) yearsArr.unshift('2026');
 
     return { allMonthsData: list, availableYears: yearsArr };
-  }, [samples, destructionLogs, transactions]);
+  }, [samples, destructionLogs, transactions, products, marketFilter]);
 
   // Lọc theo năm cho góc nhìn Nhập kho
   const filteredImportMonths = useMemo(() => {
@@ -157,7 +222,10 @@ export default function MonthlyAnalytics({
     const totalImportCartons = filteredImportMonths.reduce((s, m) => s + m.importedCartons, 0);
     const totalDestroySamples = filteredImportMonths.reduce((s, m) => s + m.destroyedSamples, 0);
     const totalDestroyCartons = filteredImportMonths.reduce((s, m) => s + m.destroyedCartons, 0);
-    const netCartons = totalImportCartons - totalDestroyCartons;
+    const totalDispatchSamples = filteredImportMonths.reduce((s, m) => s + (m.dispatchedSamples || 0), 0);
+    const totalDispatchCartons = filteredImportMonths.reduce((s, m) => s + (m.dispatchedCartons || 0), 0);
+    const totalDispatchPacks = filteredImportMonths.reduce((s, m) => s + (m.dispatchedPacks || 0), 0);
+    const netCartons = totalImportCartons - totalDestroyCartons - totalDispatchCartons;
     const rate = totalImportSamples > 0 
       ? ((totalDestroySamples / totalImportSamples) * 100).toFixed(1) 
       : '0.0';
@@ -167,6 +235,9 @@ export default function MonthlyAnalytics({
       totalImportCartons,
       totalDestroySamples,
       totalDestroyCartons,
+      totalDispatchSamples,
+      totalDispatchCartons,
+      totalDispatchPacks,
       netCartons,
       rate
     };
@@ -181,6 +252,11 @@ export default function MonthlyAnalytics({
     const now = new Date();
 
     (samples || []).forEach(s => {
+      // Lọc theo Thị trường: Nội địa vs Xuất khẩu
+      const isExp = isSampleExport(s);
+      if (marketFilter === 'domestic' && isExp) return;
+      if (marketFilter === 'export' && !isExp) return;
+
       const pkg = s.packaging_date;
       let key = 'Không rõ NSX';
       let year = 'Khác';
@@ -204,6 +280,8 @@ export default function MonthlyAnalytics({
           storedPacks: 0,
           boxedSamples: 0,
           boxedPacks: 0,
+          dispatchedSamples: 0,
+          dispatchedPacks: 0,
           destroyedSamples: 0,
           destroyedPacks: 0,
           validCount: 0,
@@ -215,19 +293,26 @@ export default function MonthlyAnalytics({
 
       const item = map[key];
       item.totalSamples += 1;
-      const packs = s.available_qty || 10;
-      item.totalPacks += packs;
+      const packs = s.available_qty !== undefined ? s.available_qty : 10;
+      item.totalPacks += (s.total_qty || 10);
       item.sampleList.push(s);
 
       if (s.status === 'destroyed') {
         item.destroyedSamples += 1;
-        item.destroyedPacks += packs;
+        item.destroyedPacks += 10;
+      } else if (s.status === 'dispatched') {
+        item.dispatchedSamples += 1;
+        item.dispatchedPacks += 10;
       } else if (s.status === 'boxed' || s.box_id) {
         item.boxedSamples += 1;
         item.boxedPacks += packs;
       } else {
         item.storedSamples += 1;
         item.storedPacks += packs;
+        if (packs < 10) {
+          item.dispatchedSamples += 1;
+          item.dispatchedPacks += (10 - packs);
+        }
       }
 
       // Đánh giá hạn sử dụng 12 tháng từ ngày sản xuất bao
@@ -248,6 +333,7 @@ export default function MonthlyAnalytics({
       const totalCartons = Math.round(item.totalPacks / 10);
       const storedCartons = Math.round(item.storedPacks / 10);
       const boxedCartons = Math.round(item.boxedPacks / 10);
+      const dispatchedCartons = Math.round((item.dispatchedPacks || 0) / 10);
       const destroyedCartons = Math.round(item.destroyedPacks / 10);
 
       let ageMonths = 0;
@@ -261,6 +347,7 @@ export default function MonthlyAnalytics({
         totalCartons,
         storedCartons,
         boxedCartons,
+        dispatchedCartons,
         destroyedCartons,
         ageMonths
       };
@@ -271,7 +358,7 @@ export default function MonthlyAnalytics({
     if (!yearsArr.includes('2026')) yearsArr.unshift('2026');
 
     return { allPackagingCohorts: list, packagingYears: yearsArr };
-  }, [samples]);
+  }, [samples, products, marketFilter]);
 
   // Lọc theo năm cho góc nhìn Ngày SX bao
   const filteredPackagingCohorts = useMemo(() => {
@@ -287,6 +374,9 @@ export default function MonthlyAnalytics({
     const storedCartons = filteredPackagingCohorts.reduce((s, m) => s + m.storedCartons, 0);
     const boxedSamples = filteredPackagingCohorts.reduce((s, m) => s + m.boxedSamples, 0);
     const boxedCartons = filteredPackagingCohorts.reduce((s, m) => s + m.boxedCartons, 0);
+    const dispatchedSamples = filteredPackagingCohorts.reduce((s, m) => s + (m.dispatchedSamples || 0), 0);
+    const dispatchedCartons = filteredPackagingCohorts.reduce((s, m) => s + (m.dispatchedCartons || 0), 0);
+    const dispatchedPacks = filteredPackagingCohorts.reduce((s, m) => s + (m.dispatchedPacks || 0), 0);
     const destroyedSamples = filteredPackagingCohorts.reduce((s, m) => s + m.destroyedSamples, 0);
     const destroyedCartons = filteredPackagingCohorts.reduce((s, m) => s + m.destroyedCartons, 0);
     const validCount = filteredPackagingCohorts.reduce((s, m) => s + m.validCount, 0);
@@ -300,6 +390,9 @@ export default function MonthlyAnalytics({
       storedCartons,
       boxedSamples,
       boxedCartons,
+      dispatchedSamples,
+      dispatchedCartons,
+      dispatchedPacks,
       destroyedSamples,
       destroyedCartons,
       validCount,
@@ -328,11 +421,11 @@ export default function MonthlyAnalytics({
     }
 
     if (viewPerspective === 'import') {
-      // Biểu đồ cột đôi Nhập vs Hủy
+      // Biểu đồ 3 cột: Nhập kho vs Lấy mẫu sử dụng vs Tiêu hủy
       const maxValRaw = Math.max(
         ...activeList.map(m => metricMode === 'samples' 
-          ? Math.max(m.importedSamples, m.destroyedSamples)
-          : Math.max(m.importedCartons, m.destroyedCartons)
+          ? Math.max(m.importedSamples, m.destroyedSamples, m.dispatchedSamples || 0)
+          : Math.max(m.importedCartons, m.destroyedCartons, m.dispatchedCartons || 0)
         ),
         10
       );
@@ -343,17 +436,22 @@ export default function MonthlyAnalytics({
       const maxVal = Math.ceil((maxValRaw * 1.15) / step) * step;
 
       const groupWidth = plotWidth / activeList.length;
-      const barWidth = Math.min(26, Math.max(12, (groupWidth - 20) / 2));
-      const gap = 3;
+      const barWidth = Math.min(18, Math.max(8, (groupWidth - 18) / 3));
+      const gap = 2;
 
       const groups = activeList.map((m, idx) => {
         const groupX = padLeft + idx * groupWidth;
         const center = groupX + groupWidth / 2;
         const impVal = metricMode === 'samples' ? m.importedSamples : m.importedCartons;
+        const dispVal = metricMode === 'samples' ? (m.dispatchedSamples || 0) : (m.dispatchedCartons || 0);
         const destVal = metricMode === 'samples' ? m.destroyedSamples : m.destroyedCartons;
 
         const impHeight = Math.max(0, (impVal / maxVal) * plotHeight);
+        const dispHeight = Math.max(0, (dispVal / maxVal) * plotHeight);
         const destHeight = Math.max(0, (destVal / maxVal) * plotHeight);
+
+        const totalWidth = barWidth * 3 + gap * 2;
+        const startX = center - totalWidth / 2;
 
         return {
           data: m,
@@ -363,11 +461,15 @@ export default function MonthlyAnalytics({
           groupWidth,
           center,
           impVal,
+          dispVal,
           destVal,
-          impX: center - barWidth - gap / 2,
+          impX: startX,
           impY: padTop + plotHeight - impHeight,
           impHeight,
-          destX: center + gap / 2,
+          dispX: startX + barWidth + gap,
+          dispY: padTop + plotHeight - dispHeight,
+          dispHeight,
+          destX: startX + (barWidth + gap) * 2,
           destY: padTop + plotHeight - destHeight,
           destHeight,
           barWidth
@@ -397,18 +499,21 @@ export default function MonthlyAnalytics({
 
         const storedVal = metricMode === 'samples' ? m.storedSamples : m.storedCartons;
         const boxedVal = metricMode === 'samples' ? m.boxedSamples : m.boxedCartons;
+        const dispatchedVal = metricMode === 'samples' ? (m.dispatchedSamples || 0) : (m.dispatchedCartons || 0);
         const destroyedVal = metricMode === 'samples' ? m.destroyedSamples : m.destroyedCartons;
         const totalVal = metricMode === 'samples' ? m.totalSamples : m.totalCartons;
 
         const storedH = Math.max(0, (storedVal / maxVal) * plotHeight);
         const boxedH = Math.max(0, (boxedVal / maxVal) * plotHeight);
+        const dispatchedH = Math.max(0, (dispatchedVal / maxVal) * plotHeight);
         const destroyedH = Math.max(0, (destroyedVal / maxVal) * plotHeight);
         const totalH = Math.max(0, (totalVal / maxVal) * plotHeight);
 
         const yBottom = padTop + plotHeight;
         const storedY = yBottom - storedH;
         const boxedY = storedY - boxedH;
-        const destroyedY = boxedY - destroyedH;
+        const dispatchedY = boxedY - dispatchedH;
+        const destroyedY = dispatchedY - destroyedH;
 
         return {
           data: m,
@@ -421,12 +526,15 @@ export default function MonthlyAnalytics({
           barWidth,
           storedVal,
           boxedVal,
+          dispatchedVal,
           destroyedVal,
           totalVal,
           storedY,
           storedH,
           boxedY,
           boxedH,
+          dispatchedY,
+          dispatchedH,
           destroyedY,
           destroyedH,
           totalH,
@@ -450,12 +558,14 @@ export default function MonthlyAnalytics({
     let filename = '';
 
     if (viewPerspective === 'import') {
-      headers = ['Kỳ/Tháng', 'Năm', 'Lô nhập (mẫu)', 'SL nhập (cây)', 'Lô hủy (mẫu)', 'SL hủy (cây)', 'Tồn ròng (cây)', 'Tỷ lệ hủy (%)', 'Khoảng Ngày SX bao', 'Link biên bản hủy'];
+      headers = ['Kỳ/Tháng', 'Năm', 'Mẫu nhập', 'SL nhập (cây)', 'Mẫu lấy sử dụng', 'SL lấy (bao)', 'Mẫu hủy', 'SL hủy (cây)', 'Tồn ròng (cây)', 'Tỷ lệ hủy (%)', 'Khoảng Ngày SX bao', 'Link biên bản hủy'];
       rows = filteredImportMonths.map(m => [
         `Tháng ${m.month}`,
         m.year,
         m.importedSamples,
         m.importedCartons,
+        m.dispatchedSamples || 0,
+        m.dispatchedPacks || 0,
         m.destroyedSamples,
         m.destroyedCartons,
         m.netCartons,
@@ -463,9 +573,9 @@ export default function MonthlyAnalytics({
         `"${m.pkgRangeStr}"`,
         m.destructionReports.join(' ; ')
       ]);
-      filename = `Bao_cao_nhap_huy_mau_${selectedYear}.csv`;
+      filename = `Bao_cao_nhap_xuat_mau_${selectedYear}.csv`;
     } else {
-      headers = ['Tháng SX bao (NSX)', 'Năm', 'Tổng lô mẫu', 'Tổng SL (cây)', 'Đang lưu kệ (mẫu)', 'Đang lưu kệ (cây)', 'Đóng thùng (mẫu)', 'Đóng thùng (cây)', 'Đã tiêu hủy (mẫu)', 'Đã tiêu hủy (cây)', 'Tuổi mẫu (tháng)', 'Tình trạng hạn'];
+      headers = ['Tháng SX bao (NSX)', 'Năm', 'Tổng mẫu', 'Tổng SL (cây)', 'Đang lưu kệ (mẫu)', 'Đang lưu kệ (cây)', 'Đóng thùng (mẫu)', 'Đóng thùng (cây)', 'Đã tiêu hủy (mẫu)', 'Đã tiêu hủy (cây)', 'Tuổi mẫu (tháng)', 'Tình trạng hạn'];
       rows = filteredPackagingCohorts.map(m => {
         let statusStr = 'Còn hạn';
         if (m.destroyedSamples === m.totalSamples) statusStr = 'Đã hủy hết';
@@ -513,19 +623,11 @@ export default function MonthlyAnalytics({
             <span>Tổng quan</span>
           </button>
           <div className="analytics-heading">
-            <div className="analytics-tag-pill">
-              <BarChart3 size={14} /> Báo Cáo Lưu Chuyển & Kho Mẫu
-            </div>
             <h2>
               {viewPerspective === 'import' 
-                ? 'Thống Kê Nhập & Tiêu Hủy Mẫu Thuốc Lá'
+                ? 'Thống Kê Lưu Chuyển Mẫu (Nhập - Lấy Mẫu - Tiêu Hủy)'
                 : 'Thống Kê Số Lượng Mẫu Theo Ngày Sản Xuất Bao'}
             </h2>
-            <p className="analytics-subtitle">
-              {viewPerspective === 'import'
-                ? 'Đối chiếu số lượng nhập kho mới và số lượng tiêu hủy theo chu kỳ hàng tháng'
-                : 'Phân tích số lượng mẫu theo từng tháng sản xuất bao bì (NSX), vị trí lưu trữ và tuổi mẫu 12 tháng'}
-            </p>
           </div>
         </div>
 
@@ -538,7 +640,6 @@ export default function MonthlyAnalytics({
               onClick={() => { setViewPerspective('import'); setExpandedMonth(null); }}
               title="Xem theo chu kỳ tháng nhập kho và tiêu hủy"
             >
-              <Layers size={14} />
               <span>Theo Tháng Nhập Kho</span>
             </button>
             <button
@@ -546,49 +647,49 @@ export default function MonthlyAnalytics({
               onClick={() => { setViewPerspective('packaging'); setExpandedMonth(null); }}
               title="Xem số lượng mẫu phân bổ theo Ngày/Tháng sản xuất bao (NSX)"
             >
-              <Factory size={14} />
               <span>Theo Ngày SX Bao</span>
             </button>
           </div>
 
-          {/* LỌC THEO NĂM */}
-          <div className="analytics-segmented-control" title="Chọn năm thống kê">
+          {/* LỌC THỊ TRƯỜNG: NỘI ĐỊA vs XUẤT KHẨU */}
+          <div className="analytics-segmented-control" title="Lọc theo phân loại thị trường">
             <button
-              className={`segment-btn ${selectedYear === 'all' ? 'active' : ''}`}
-              onClick={() => setSelectedYear('all')}
+              className={`segment-btn ${marketFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setMarketFilter('all')}
             >
-              Tất cả
+              Tất cả thị trường
             </button>
-            {currentYearsList.map(yr => (
-              <button
-                key={yr}
-                className={`segment-btn ${selectedYear === yr ? 'active' : ''}`}
-                onClick={() => setSelectedYear(yr)}
-              >
-                Năm {yr}
-              </button>
-            ))}
+            <button
+              className={`segment-btn ${marketFilter === 'domestic' ? 'active' : ''}`}
+              onClick={() => setMarketFilter('domestic')}
+              style={{ color: marketFilter === 'domestic' ? '#10B981' : undefined }}
+            >
+              Nội địa
+            </button>
+            <button
+              className={`segment-btn ${marketFilter === 'export' ? 'active' : ''}`}
+              onClick={() => setMarketFilter('export')}
+              style={{ color: marketFilter === 'export' ? '#8B5CF6' : undefined }}
+            >
+              Xuất khẩu
+            </button>
           </div>
 
-          {/* ĐƠN VỊ LÔ MẪU / SỐ CÂY */}
-          <div className="analytics-segmented-control" title="Chuyển đổi hiển thị số lô hoặc số cây">
-            <button
-              className={`segment-btn ${metricMode === 'samples' ? 'active' : ''}`}
-              onClick={() => setMetricMode('samples')}
-            >
-              Lô mẫu
-            </button>
-            <button
-              className={`segment-btn ${metricMode === 'cartons' ? 'active' : ''}`}
-              onClick={() => setMetricMode('cartons')}
-            >
-              Cây thuốc
-            </button>
-          </div>
+          {/* LỌC THEO NĂM (DẠNG DROPDOWN / ENUM LIST) */}
+          <select
+            className="analytics-select-control"
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+            title="Chọn năm thống kê"
+          >
+            <option value="all">Tất cả năm</option>
+            {currentYearsList.map(yr => (
+              <option key={yr} value={yr}>Năm {yr}</option>
+            ))}
+          </select>
 
           {/* NÚT XUẤT CSV */}
           <button className="analytics-export-btn" onClick={handleExportCsv} title="Tải file Excel / CSV">
-            <Download size={14} />
             <span>Xuất CSV</span>
           </button>
         </div>
@@ -596,8 +697,8 @@ export default function MonthlyAnalytics({
 
       {/* ── 3 THẺ CHỈ SỐ KPI TỔNG KẾT THEO GÓC NHÌN ĐƯỢC CHỌN ── */}
       {viewPerspective === 'import' ? (
-        /* KPI GÓC NHÌN NHẬP KHO & TIÊU HỦY */
-        <div className="analytics-kpi-grid">
+        /* KPI GÓC NHÌN NHẬP KHO, LẤY MẪU & TIÊU HỦY (PHÂN RÕ 2 LUỒNG) */
+        <div className="analytics-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           <div className="analytics-kpi-card kpi-import">
             <div className="kpi-icon-wrap">
               <TrendingUp size={22} />
@@ -606,10 +707,28 @@ export default function MonthlyAnalytics({
               <span className="kpi-label">Tổng Mẫu Nhập Kho</span>
               <div className="kpi-number-row">
                 <span className="kpi-number tabular">{importKpi.totalImportSamples.toLocaleString('vi-VN')}</span>
-                <span className="kpi-unit">lô mẫu</span>
+                <span className="kpi-unit">mẫu</span>
               </div>
               <span className="kpi-secondary-info tabular">
-                Quy đổi: {importKpi.totalImportCartons.toLocaleString('vi-VN')} cây ({(importKpi.totalImportCartons * 10).toLocaleString('vi-VN')} bao)
+                Quy đổi: <strong>{importKpi.totalImportCartons.toLocaleString('vi-VN')} cây</strong> ({(importKpi.totalImportCartons * 10).toLocaleString('vi-VN')} bao)
+              </span>
+            </div>
+          </div>
+
+          <div className="analytics-kpi-card kpi-dispatch">
+            <div className="kpi-icon-wrap">
+              <ArrowRightLeft size={22} />
+            </div>
+            <div className="kpi-data">
+              <span className="kpi-label">Mẫu Đã Lấy Sử Dụng (QC)</span>
+              <div className="kpi-number-row">
+                <span className="kpi-number tabular" style={{ color: '#8B5CF6' }}>
+                  {importKpi.totalDispatchSamples.toLocaleString('vi-VN')}
+                </span>
+                <span className="kpi-unit">mẫu</span>
+              </div>
+              <span className="kpi-secondary-info tabular">
+                Đã cấp: <strong>{importKpi.totalDispatchPacks.toLocaleString('vi-VN')} bao</strong> (~{importKpi.totalDispatchCartons} cây)
               </span>
             </div>
           </div>
@@ -619,13 +738,13 @@ export default function MonthlyAnalytics({
               <TrendingDown size={22} />
             </div>
             <div className="kpi-data">
-              <span className="kpi-label">Tổng Mẫu Tiêu Hủy Hết Hạn</span>
+              <span className="kpi-label">Mẫu Tiêu Hủy Hết Hạn</span>
               <div className="kpi-number-row">
                 <span className="kpi-number tabular">{importKpi.totalDestroySamples.toLocaleString('vi-VN')}</span>
-                <span className="kpi-unit">lô mẫu</span>
+                <span className="kpi-unit">mẫu</span>
               </div>
               <span className="kpi-secondary-info tabular">
-                Quy đổi: {importKpi.totalDestroyCartons.toLocaleString('vi-VN')} cây ({(importKpi.totalDestroyCartons * 10).toLocaleString('vi-VN')} bao)
+                Đã hủy: <strong>{importKpi.totalDestroyCartons.toLocaleString('vi-VN')} cây</strong> ({(importKpi.totalDestroyCartons * 10).toLocaleString('vi-VN')} bao)
               </span>
             </div>
           </div>
@@ -635,7 +754,7 @@ export default function MonthlyAnalytics({
               <Layers size={22} />
             </div>
             <div className="kpi-data">
-              <span className="kpi-label">Chênh Lệch Tồn Ròng & Tỷ Lệ Hủy</span>
+              <span className="kpi-label">Tồn Ròng Thực Tế</span>
               <div className="kpi-number-row">
                 <span className={`kpi-number tabular ${importKpi.netCartons >= 0 ? 'text-positive' : 'text-negative'}`}>
                   {importKpi.netCartons >= 0 ? `+${importKpi.netCartons.toLocaleString('vi-VN')}` : importKpi.netCartons.toLocaleString('vi-VN')}
@@ -643,7 +762,7 @@ export default function MonthlyAnalytics({
                 <span className="kpi-unit">cây tồn</span>
               </div>
               <span className="kpi-secondary-info tabular">
-                Tỷ lệ tiêu hủy/nhập: <strong style={{ color: 'var(--kraft-gold)' }}>{importKpi.rate}%</strong>
+                Tỷ lệ hủy: <strong style={{ color: 'var(--kraft-gold)' }}>{importKpi.rate}%</strong> · Đã dùng QC: <strong>{importKpi.totalDispatchSamples} mẫu</strong>
               </span>
             </div>
           </div>
@@ -656,14 +775,12 @@ export default function MonthlyAnalytics({
               <Factory size={22} />
             </div>
             <div className="kpi-data">
-              <span className="kpi-label">Tổng Lô Mẫu Theo Ngày SX Bao</span>
+              <span className="kpi-label">Tổng Mẫu Theo Ngày SX Bao</span>
               <div className="kpi-number-row">
                 <span className="kpi-number tabular">{packagingKpi.totalSamples.toLocaleString('vi-VN')}</span>
-                <span className="kpi-unit">lô mẫu</span>
+                <span className="kpi-unit">mẫu</span>
               </div>
-              <span className="kpi-secondary-info tabular">
-                Quy đổi: {packagingKpi.totalCartons.toLocaleString('vi-VN')} cây ({filteredPackagingCohorts.length} kỳ sản xuất)
-              </span>
+
             </div>
           </div>
 
@@ -671,21 +788,40 @@ export default function MonthlyAnalytics({
             <div className="kpi-icon-wrap">
               <Boxes size={22} />
             </div>
-            <div className="kpi-data">
-              <span className="kpi-label">Phân Bổ Vị Trí Kho Hiện Tại</span>
-              <div className="kpi-number-row">
-                <span className="kpi-number tabular text-positive">{packagingKpi.storedSamples}</span>
-                <span className="kpi-unit">kệ</span>
-                <span style={{ color: '#72857A', margin: '0 4px' }}>·</span>
-                <span className="kpi-number tabular text-kraft">{packagingKpi.boxedSamples}</span>
-                <span className="kpi-unit">thùng</span>
-                <span style={{ color: '#72857A', margin: '0 4px' }}>·</span>
-                <span className="kpi-number tabular text-negative">{packagingKpi.destroyedSamples}</span>
-                <span className="kpi-unit">hủy</span>
+            <div className="kpi-data" style={{ width: '100%' }}>
+              <span className="kpi-label">Vị Trí Lưu Trữ Hiện Tại</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', fontSize: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>• Trên kệ:</span>
+                  <span className="tabular">
+                    <strong className="text-positive" style={{ fontSize: '13px' }}>{packagingKpi.storedCartons.toLocaleString('vi-VN')} cây</strong>
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>• Trong thùng:</span>
+                  <span className="tabular">
+                    <strong className="text-kraft" style={{ fontSize: '13px' }}>{packagingKpi.boxedCartons.toLocaleString('vi-VN')} cây</strong>
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>• Đã lấy mẫu:</span>
+                  <span className="tabular">
+                    <strong style={{ fontSize: '13px', color: '#8B5CF6' }}>{packagingKpi.dispatchedCartons.toLocaleString('vi-VN')} cây ({packagingKpi.dispatchedSamples} mẫu)</strong>
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>• Đã tiêu hủy:</span>
+                  <span className="tabular">
+                    <strong className="text-negative" style={{ fontSize: '13px' }}>{packagingKpi.destroyedCartons.toLocaleString('vi-VN')} cây</strong>
+                  </span>
+                </div>
               </div>
-              <span className="kpi-secondary-info tabular">
-                Đang lưu thực tế: <strong>{(packagingKpi.storedCartons + packagingKpi.boxedCartons).toLocaleString('vi-VN')} cây</strong>
-              </span>
+              <div style={{ marginTop: '5px', paddingTop: '4px', borderTop: '1px dashed var(--bento-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '11.5px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Tổng đang lưu:</span>
+                <span className="tabular" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                  <strong style={{ color: 'var(--accent-blue)', fontSize: '13px' }}>{(packagingKpi.storedCartons + packagingKpi.boxedCartons).toLocaleString('vi-VN')} cây</strong>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -700,7 +836,7 @@ export default function MonthlyAnalytics({
                 <span className="kpi-unit">an toàn</span>
                 {packagingKpi.approachingCount > 0 && (
                   <>
-                    <span style={{ color: '#72857A', margin: '0 4px' }}>·</span>
+                    <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>·</span>
                     <span className="kpi-number tabular text-warn">{packagingKpi.approachingCount}</span>
                     <span className="kpi-unit">sắp hạn 11T</span>
                   </>
@@ -710,7 +846,7 @@ export default function MonthlyAnalytics({
                 {packagingKpi.expiredCount > 0 ? (
                   <span style={{ color: 'var(--status-error)' }}>⚠️ Có {packagingKpi.expiredCount} mẫu quá hạn 12 tháng!</span>
                 ) : (
-                  <span style={{ color: '#5DAA7F' }}>✓ Tất cả các mẫu đang lưu đều trong hạn 12 tháng</span>
+                  <span style={{ color: 'var(--status-success)' }}>✓ Tất cả các mẫu đang lưu đều trong hạn 12 tháng</span>
                 )}
               </span>
             </div>
@@ -724,12 +860,10 @@ export default function MonthlyAnalytics({
           <div className="chart-title-box">
             <h3>
               {viewPerspective === 'import'
-                ? 'Biểu Đồ So Sánh Nhập vs Tiêu Hủy Hàng Tháng'
+                ? 'Biểu Đồ So Sánh Nhập Kho · Lấy Mẫu Sử Dụng · Tiêu Hủy'
                 : 'Biểu Đồ Phân Bổ Số Lượng Mẫu Theo Ngày Sản Xuất Bao'}
             </h3>
-            <span className="chart-note">
-              Hiển thị theo: <strong>{metricMode === 'samples' ? 'Số lượng lô mẫu' : 'Số cây thuốc lá'}</strong> · Rê chuột/chạm vào cột để xem chi tiết
-            </span>
+
           </div>
 
           {/* CHÚ THÍCH BIỂU ĐỒ (LEGEND) */}
@@ -737,12 +871,16 @@ export default function MonthlyAnalytics({
             {viewPerspective === 'import' ? (
               <>
                 <div className="legend-item">
-                  <span className="legend-color-box bar-import-color" />
-                  <span>Mẫu nhập kho</span>
+                  <span className="legend-color-box bar-import-color" style={{ background: "linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%)" }} />
+                  <span>Nhập kho</span>
                 </div>
                 <div className="legend-item">
-                  <span className="legend-color-box bar-destroy-color" />
-                  <span>Mẫu tiêu hủy</span>
+                  <span className="legend-color-box bar-dispatch-color" style={{ background: "linear-gradient(180deg, #8B5CF6 0%, #6D28D9 100%)" }} />
+                  <span>Lấy mẫu sử dụng (QC)</span>
+                </div>
+                <div className="legend-item">
+                  <span className="legend-color-box bar-destroy-color" style={{ background: "linear-gradient(180deg, #EF4444 0%, #B91C1C 100%)" }} />
+                  <span>Tiêu hủy</span>
                 </div>
               </>
             ) : (
@@ -754,6 +892,10 @@ export default function MonthlyAnalytics({
                 <div className="legend-item">
                   <span className="legend-color-box bar-boxed-color" />
                   <span>Đóng thùng lưu</span>
+                </div>
+                <div className="legend-item">
+                  <span className="legend-color-box bar-dispatch-color" style={{ background: "linear-gradient(180deg, #8B5CF6 0%, #6D28D9 100%)" }} />
+                  <span>Đã lấy mẫu</span>
                 </div>
                 <div className="legend-item">
                   <span className="legend-color-box bar-destroy-color" />
@@ -772,17 +914,25 @@ export default function MonthlyAnalytics({
             preserveAspectRatio="xMidYMid meet"
           >
             <defs>
+              {/* Gradient Nhập kho: Xanh tươi thương hiệu */}
               <linearGradient id="gradImport" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6BC490" />
-                <stop offset="100%" stopColor="#3E8C63" />
+                <stop offset="0%" stopColor="#2563EB" />
+                <stop offset="100%" stopColor="#1D4ED8" />
               </linearGradient>
+              {/* Gradient Lấy mẫu sử dụng (QC): Tím/Chàm công nghệ */}
+              <linearGradient id="gradDispatch" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#8B5CF6" />
+                <stop offset="100%" stopColor="#6D28D9" />
+              </linearGradient>
+              {/* Gradient Tiêu hủy: Đỏ trầm sắc nét */}
               <linearGradient id="gradDestroy" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#EB6D61" />
-                <stop offset="100%" stopColor="#B33E33" />
+                <stop offset="0%" stopColor="#EF4444" />
+                <stop offset="100%" stopColor="#B91C1C" />
               </linearGradient>
+              {/* Gradient Đóng thùng: Vàng Kraft */}
               <linearGradient id="gradBoxed" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#DFB77D" />
-                <stop offset="100%" stopColor="#A67C43" />
+                <stop offset="0%" stopColor="#F59E0B" />
+                <stop offset="100%" stopColor="#D97706" />
               </linearGradient>
             </defs>
 
@@ -797,14 +947,14 @@ export default function MonthlyAnalytics({
                     y1={yPos}
                     x2={chartConfig.svgWidth - chartConfig.padRight}
                     y2={yPos}
-                    stroke="#23352B"
+                    stroke="var(--bento-line)"
                     strokeDasharray={ratio === 0 ? 'none' : '3 3'}
                     strokeWidth={ratio === 0 ? 1.5 : 1}
                   />
                   <text
                     x={chartConfig.padLeft - 8}
                     y={yPos + 4}
-                    fill="#7C9286"
+                    fill="var(--text-secondary)"
                     fontSize="10.5"
                     textAnchor="end"
                     className="tabular"
@@ -820,13 +970,13 @@ export default function MonthlyAnalytics({
               y1={chartConfig.padTop + chartConfig.plotHeight}
               x2={chartConfig.svgWidth - chartConfig.padRight}
               y2={chartConfig.padTop + chartConfig.plotHeight}
-              stroke="#2E4638"
+              stroke="var(--bento-line)"
               strokeWidth="1.5"
             />
 
             {/* Render các cột theo góc nhìn */}
             {viewPerspective === 'import' ? (
-              // Cột đôi Nhập vs Hủy
+              // Cột 3 thành phần: Nhập kho (Xanh) | Lấy sử dụng QC (Tím) | Tiêu hủy (Đỏ)
               chartConfig.groups.map((g) => {
                 const isHovered = hoveredData?.key === g.data.key;
                 return (
@@ -838,72 +988,130 @@ export default function MonthlyAnalytics({
                     onClick={() => setExpandedMonth(expandedMonth === g.data.key ? null : g.data.key)}
                     style={{ cursor: 'pointer' }}
                   >
+                    {/* Vùng highlight khi rê chuột */}
                     <rect
                       x={g.groupX + 2}
                       y={chartConfig.padTop}
                       width={g.groupWidth - 4}
                       height={chartConfig.plotHeight}
-                      fill={isHovered ? 'rgba(201, 164, 106, 0.08)' : 'transparent'}
+                      fill={isHovered ? 'var(--bg-subtle)' : 'transparent'}
                       rx="6"
                     />
 
-                    {g.impHeight > 0 && (
+                    {/* 1. Cột Nhập kho */}
+                    {g.impHeight > 0 ? (
+                      <>
+                        <rect
+                          x={g.impX}
+                          y={g.impY}
+                          width={g.barWidth}
+                          height={g.impHeight}
+                          fill="url(#gradImport)"
+                          rx="4"
+                          className="chart-bar"
+                        />
+                        <text
+                          x={g.impX + g.barWidth / 2}
+                          y={g.impY - 6}
+                          fill="#2563EB"
+                          fontSize="11"
+                          fontWeight="700"
+                          textAnchor="middle"
+                          className="tabular"
+                        >
+                          {g.impVal.toLocaleString('vi-VN')}
+                        </text>
+                      </>
+                    ) : (
                       <rect
                         x={g.impX}
-                        y={g.impY}
+                        y={chartConfig.padTop + chartConfig.plotHeight - 3}
                         width={g.barWidth}
-                        height={g.impHeight}
-                        fill="url(#gradImport)"
-                        rx="3"
-                        className="chart-bar"
+                        height={3}
+                        fill="var(--border-color)"
+                        rx="1.5"
                       />
                     )}
-                    {g.impHeight > 16 && (
-                      <text
-                        x={g.impX + g.barWidth / 2}
-                        y={g.impY - 5}
-                        fill="#86EFAC"
-                        fontSize="10"
-                        fontWeight="600"
-                        textAnchor="middle"
-                        className="tabular"
-                      >
-                        {g.impVal}
-                      </text>
+
+                    {/* 2. Cột Lấy mẫu sử dụng (QC) */}
+                    {g.dispHeight > 0 ? (
+                      <>
+                        <rect
+                          x={g.dispX}
+                          y={g.dispY}
+                          width={g.barWidth}
+                          height={g.dispHeight}
+                          fill="url(#gradDispatch)"
+                          rx="4"
+                          className="chart-bar"
+                        />
+                        <text
+                          x={g.dispX + g.barWidth / 2}
+                          y={g.dispY - 6}
+                          fill="#8B5CF6"
+                          fontSize="11"
+                          fontWeight="700"
+                          textAnchor="middle"
+                          className="tabular"
+                        >
+                          {g.dispVal.toLocaleString('vi-VN')}
+                        </text>
+                      </>
+                    ) : (
+                      <rect
+                        x={g.dispX}
+                        y={chartConfig.padTop + chartConfig.plotHeight - 3}
+                        width={g.barWidth}
+                        height={3}
+                        fill="var(--border-color)"
+                        rx="1.5"
+                      />
                     )}
 
-                    {g.destHeight > 0 && (
+                    {/* 3. Cột Tiêu hủy */}
+                    {g.destHeight > 0 ? (
+                      <>
+                        <rect
+                          x={g.destX}
+                          y={g.destY}
+                          width={g.barWidth}
+                          height={g.destHeight}
+                          fill="url(#gradDestroy)"
+                          rx="4"
+                          className="chart-bar"
+                        />
+                        <text
+                          x={g.destX + g.barWidth / 2}
+                          y={g.destY - 6}
+                          fill="#EF4444"
+                          fontSize="11"
+                          fontWeight="700"
+                          textAnchor="middle"
+                          className="tabular"
+                        >
+                          {g.destVal.toLocaleString('vi-VN')}
+                        </text>
+                      </>
+                    ) : (
                       <rect
                         x={g.destX}
-                        y={g.destY}
+                        y={chartConfig.padTop + chartConfig.plotHeight - 3}
                         width={g.barWidth}
-                        height={g.destHeight}
-                        fill="url(#gradDestroy)"
-                        rx="3"
-                        className="chart-bar"
+                        height={3}
+                        fill="var(--border-color)"
+                        rx="1.5"
                       />
                     )}
-                    {g.destHeight > 16 && (
-                      <text
-                        x={g.destX + g.barWidth / 2}
-                        y={g.destY - 5}
-                        fill="#FCA5A5"
-                        fontSize="10"
-                        fontWeight="600"
-                        textAnchor="middle"
-                        className="tabular"
-                      >
-                        {g.destVal}
-                      </text>
-                    )}
 
+                    {/* Nhãn tháng trục hoành */}
                     <text
                       x={g.center}
-                      y={chartConfig.padTop + chartConfig.plotHeight + 20}
-                      fill={isHovered ? '#C9A46A' : '#94A3B8'}
-                      fontSize="10.5"
-                      fontWeight={isHovered ? '700' : '500'}
+                      y={chartConfig.padTop + chartConfig.plotHeight + 22}
+                      fill={isHovered ? 'var(--accent-blue)' : 'var(--text-main)'}
+                      fontSize="12"
+                      fontWeight={isHovered ? '700' : '600'}
                       textAnchor="middle"
+                      className="tabular"
                     >
                       {g.label}
                     </text>
@@ -928,7 +1136,7 @@ export default function MonthlyAnalytics({
                       y={chartConfig.padTop}
                       width={g.groupWidth - 2}
                       height={chartConfig.plotHeight}
-                      fill={isHovered ? 'rgba(201, 164, 106, 0.08)' : 'transparent'}
+                      fill={isHovered ? 'rgba(15, 135, 255, 0.08)' : 'transparent'}
                       rx="6"
                     />
 
@@ -940,7 +1148,7 @@ export default function MonthlyAnalytics({
                         width={g.barWidth}
                         height={g.storedH}
                         fill="url(#gradImport)"
-                        rx={g.boxedH === 0 && g.destroyedH === 0 ? 3 : 0}
+                        rx={g.boxedH === 0 && g.dispatchedH === 0 && g.destroyedH === 0 ? 3 : 0}
                         className="chart-bar"
                       />
                     )}
@@ -953,12 +1161,25 @@ export default function MonthlyAnalytics({
                         width={g.barWidth}
                         height={g.boxedH}
                         fill="url(#gradBoxed)"
+                        rx={g.dispatchedH === 0 && g.destroyedH === 0 ? 3 : 0}
+                        className="chart-bar"
+                      />
+                    )}
+
+                    {/* Phân khúc 3: Đã lấy mẫu (tím) */}
+                    {g.dispatchedH > 0 && (
+                      <rect
+                        x={g.barX}
+                        y={g.dispatchedY}
+                        width={g.barWidth}
+                        height={g.dispatchedH}
+                        fill="url(#gradDispatch)"
                         rx={g.destroyedH === 0 ? 3 : 0}
                         className="chart-bar"
                       />
                     )}
 
-                    {/* Phân khúc 3: Đã tiêu hủy (đỏ đất) */}
+                    {/* Phân khúc 4: Đã tiêu hủy (đỏ đất) */}
                     {g.destroyedH > 0 && (
                       <rect
                         x={g.barX}
@@ -976,7 +1197,7 @@ export default function MonthlyAnalytics({
                       <text
                         x={g.center}
                         y={g.topY - 6}
-                        fill="#F3F1EC"
+                        fill="var(--text-primary)"
                         fontSize="10"
                         fontWeight="700"
                         textAnchor="middle"
@@ -989,7 +1210,7 @@ export default function MonthlyAnalytics({
                     <text
                       x={g.center}
                       y={chartConfig.padTop + chartConfig.plotHeight + 20}
-                      fill={isHovered ? '#C9A46A' : '#94A3B8'}
+                      fill={isHovered ? 'var(--accent-blue)' : 'var(--text-secondary)'}
                       fontSize="10"
                       fontWeight={isHovered ? '700' : '500'}
                       textAnchor="middle"
@@ -1015,6 +1236,10 @@ export default function MonthlyAnalytics({
                     <span>Nhập kho:</span>
                     <b>{hoveredData.importedSamples} mẫu ({hoveredData.importedCartons} cây)</b>
                   </div>
+                  <div className="tooltip-row" style={{ color: '#3B82F6' }}>
+                    <span>Lấy sử dụng (QC):</span>
+                    <b>{hoveredData.dispatchedSamples || 0} mẫu ({hoveredData.dispatchedPacks || 0} bao)</b>
+                  </div>
                   <div className="tooltip-row text-destroy">
                     <span>Tiêu hủy:</span>
                     <b>{hoveredData.destroyedSamples} mẫu ({hoveredData.destroyedCartons} cây)</b>
@@ -1033,7 +1258,7 @@ export default function MonthlyAnalytics({
                     <Factory size={13} />
                     <span>Tháng SX Bao {hoveredData.month ? `${hoveredData.month}/${hoveredData.year}` : hoveredData.key}</span>
                   </div>
-                  <div className="tooltip-row" style={{ color: '#F3F1EC' }}>
+                  <div className="tooltip-row" style={{ color: 'var(--text-primary)' }}>
                     <span>Tổng sản xuất:</span>
                     <b>{hoveredData.totalSamples} mẫu ({hoveredData.totalCartons} cây)</b>
                   </div>
@@ -1045,6 +1270,12 @@ export default function MonthlyAnalytics({
                     <div className="tooltip-row text-kraft">
                       <span>Đóng thùng:</span>
                       <b>{hoveredData.boxedSamples} mẫu ({hoveredData.boxedCartons} cây)</b>
+                    </div>
+                  )}
+                  {hoveredData.dispatchedSamples > 0 && (
+                    <div className="tooltip-row" style={{ color: '#8B5CF6' }}>
+                      <span>Đã lấy mẫu:</span>
+                      <b>{hoveredData.dispatchedSamples} mẫu ({hoveredData.dispatchedPacks} bao)</b>
                     </div>
                   )}
                   {hoveredData.destroyedSamples > 0 && (
@@ -1076,11 +1307,11 @@ export default function MonthlyAnalytics({
                   ? 'Bảng Dữ Liệu Lưu Chuyển Nhập & Hủy Hàng Tháng'
                   : 'Bảng Quản Lý Số Lượng Mẫu Theo Ngày Sản Xuất Bao (NSX)'}
               </h3>
-              <span className="table-subtitle">
-                {viewPerspective === 'import'
-                  ? 'Thống kê chi tiết số lô, số lượng quy đổi, khoảng ngày SX bao và biên bản pháp lý'
-                  : 'Thống kê toàn bộ số lượng mẫu thuốc lá phân theo tháng sản xuất bao bì và tình trạng hạn 12T'}
-              </span>
+              {viewPerspective === 'import' && (
+                <span className="table-subtitle">
+                  Phân rõ mẫu nhập kho, mẫu đã lấy sử dụng (cấp phát QC) và mẫu tiêu hủy theo chu kỳ
+                </span>
+              )}
             </div>
           </div>
           <div className="table-quick-info">
@@ -1094,16 +1325,17 @@ export default function MonthlyAnalytics({
             <table className="analytics-data-table">
               <thead>
                 <tr>
-                  <th style={{ width: '120px' }}>Kỳ / Tháng</th>
-                  <th>Lô nhập</th>
-                  <th>SL Nhập (Cây/Bao)</th>
-                  <th>Lô hủy</th>
-                  <th>SL Hủy (Cây/Bao)</th>
+                  <th style={{ width: '95px' }}>Kỳ / Tháng</th>
+                  <th>Mẫu nhập</th>
+                  <th>SL Nhập</th>
+                  <th style={{ color: '#3B82F6' }}>Đã lấy QC</th>
+                  <th style={{ color: '#3B82F6' }}>SL Lấy</th>
+                  <th style={{ color: '#DC2626' }}>Mẫu hủy</th>
+                  <th style={{ color: '#DC2626' }}>SL Hủy</th>
                   <th>Tồn ròng</th>
-                  <th>Tỷ lệ hủy</th>
                   <th>Khoảng Ngày SX Bao</th>
-                  <th style={{ textAlign: 'center' }}>Biên bản hủy</th>
-                  <th style={{ textAlign: 'right' }}>Chi tiết</th>
+                  <th style={{ textAlign: 'center' }}>Biên bản</th>
+                  <th style={{ textAlign: 'right', width: '75px' }}>Chi tiết</th>
                 </tr>
               </thead>
               <tbody>
@@ -1128,6 +1360,25 @@ export default function MonthlyAnalytics({
                           <span className="sub-unit">({(m.importedCartons * 10).toLocaleString('vi-VN')} bao)</span>
                         </td>
                         <td>
+                          {(m.dispatchedSamples || 0) > 0 ? (
+                            <span className="badge-dispatch-count">
+                              {m.dispatchedSamples} mẫu
+                            </span>
+                          ) : (
+                            <span className="badge-empty">—</span>
+                          )}
+                        </td>
+                        <td className="tabular">
+                          {(m.dispatchedPacks || 0) > 0 ? (
+                            <>
+                              <strong style={{ color: '#3B82F6' }}>{m.dispatchedPacks.toLocaleString('vi-VN')} bao</strong>
+                              <span className="sub-unit">(~{m.dispatchedCartons} cây)</span>
+                            </>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                        <td>
                           {m.destroyedSamples > 0 ? (
                             <span className="badge-destroy-count">
                               -{m.destroyedSamples} mẫu
@@ -1139,7 +1390,7 @@ export default function MonthlyAnalytics({
                         <td className="tabular">
                           {m.destroyedCartons > 0 ? (
                             <>
-                              <strong style={{ color: '#F87171' }}>{m.destroyedCartons.toLocaleString('vi-VN')} cây</strong>
+                              <strong style={{ color: 'var(--status-error)' }}>{m.destroyedCartons.toLocaleString('vi-VN')} cây</strong>
                               <span className="sub-unit">({(m.destroyedCartons * 10).toLocaleString('vi-VN')} bao)</span>
                             </>
                           ) : (
@@ -1151,19 +1402,8 @@ export default function MonthlyAnalytics({
                             {m.netCartons >= 0 ? `+${m.netCartons.toLocaleString('vi-VN')}` : m.netCartons.toLocaleString('vi-VN')} cây
                           </span>
                         </td>
-                        <td className="tabular">
-                          <div className="ratio-bar-wrap">
-                            <span className="ratio-text">{m.destructionRate}%</span>
-                            <div className="ratio-bar-track">
-                              <div 
-                                className="ratio-bar-fill" 
-                                style={{ width: `${Math.min(100, parseFloat(m.destructionRate) || 0)}%` }} 
-                              />
-                            </div>
-                          </div>
-                        </td>
                         {/* CỘT MỚI: KHOẢNG NGÀY SX BAO */}
-                        <td style={{ fontSize: '12px', color: '#B3C4B9' }}>
+                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                           <span className="pkg-date-tag">
                             <Factory size={11} style={{ marginRight: '4px', verticalAlign: 'text-bottom' }} />
                             {m.pkgRangeStr}
@@ -1197,39 +1437,73 @@ export default function MonthlyAnalytics({
                             onClick={() => setExpandedMonth(isExpanded ? null : m.key)}
                             title="Xem danh sách các mẫu thuộc tháng này"
                           >
-                            <span>{isExpanded ? 'Thu gọn' : 'Xem mẫu'}</span>
-                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            <span>{isExpanded ? 'Đóng' : 'Chi tiết'}</span>
+                            {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                           </button>
                         </td>
                       </tr>
 
                       {isExpanded && (
                         <tr className="table-row-drawer">
-                          <td colSpan={10}>
+                          <td colSpan={11}>
                             <div className="month-drawer-content">
-                              <div className="drawer-header">
-                                <h4>Danh sách mẫu nhập kho Tháng {m.month}/{m.year}</h4>
-                                <span className="drawer-count">{m.importedSampleList.length} mẫu ghi nhận</span>
+                              <div className="drawer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                <div>
+                                  <h4>Danh sách mẫu nhập kho Tháng {m.month}/{m.year}</h4>
+                                  <span className="drawer-count">{m.importedSampleList.length} mẫu ghi nhận</span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Lọc trạng thái:</span>
+                                  <select 
+                                    className="analytics-select-control" 
+                                    style={{ padding: '4px 8px', fontSize: '12px' }}
+                                    value={drawerStatusFilter}
+                                    onChange={(e) => setDrawerStatusFilter(e.target.value)}
+                                  >
+                                    <option value="all">Tất cả ({m.importedSampleList.length})</option>
+                                    <option value="stored">Đang lưu trữ ({m.importedSampleList.filter(s => s.status !== 'destroyed' && s.status !== 'dispatched' && (s.available_qty === undefined || s.available_qty === 10)).length})</option>
+                                    <option value="dispatched">Đã lấy mẫu sử dụng ({m.importedSampleList.filter(s => s.status === 'dispatched' || ((s.available_qty !== undefined && s.available_qty < 10) && s.status !== 'destroyed')).length})</option>
+                                    <option value="destroyed">Đã tiêu hủy ({m.importedSampleList.filter(s => s.status === 'destroyed').length})</option>
+                                  </select>
+                                </div>
                               </div>
                               <div className="drawer-samples-grid">
-                                {m.importedSampleList.slice(0, 30).map((s, sIdx) => {
+                                {m.importedSampleList
+                                  .filter(s => {
+                                    if (drawerStatusFilter === 'stored') return s.status !== 'destroyed' && s.status !== 'dispatched' && (s.available_qty === undefined || s.available_qty === 10);
+                                    if (drawerStatusFilter === 'dispatched') return s.status === 'dispatched' || ((s.available_qty !== undefined && s.available_qty < 10) && s.status !== 'destroyed');
+                                    if (drawerStatusFilter === 'destroyed') return s.status === 'destroyed';
+                                    return true;
+                                  })
+                                  .map((s, sIdx) => {
                                   const prodName = s.products?.product_name || s.product_name || 'Mẫu thuốc lá';
                                   const locStr = s.shelf ? `Kệ ${['', 'A', 'B', 'C', 'D', 'E', 'F'][s.shelf] || s.shelf}${s.slot}` : (s.box_id ? 'Trong thùng' : 'Chưa xếp kệ');
+                                  const isLost = s.note === 'Mẫu bị mất';
+                                  const isDispatched = s.status === 'dispatched' || (s.available_qty !== undefined && s.available_qty < 10 && s.status !== 'destroyed');
                                   return (
                                     <div key={s.id || sIdx} className="drawer-sample-item">
-                                      <div className="sample-main-name">{prodName}</div>
+                                      <div className="sample-main-name">
+                                        {prodName}
+                                        <span className={isSampleExport(s) ? 'tag-export' : 'tag-domestic'} style={{ marginLeft: '6px' }}>
+                                          {isSampleExport(s) ? 'Xuất khẩu' : 'Nội địa'}
+                                        </span>
+                                      </div>
                                       <div className="sample-sub-meta">
                                         <span>Ngày SX bao: <strong style={{ color: 'var(--bento-kraft)' }}>{s.packaging_date || 'Chưa rõ'}</strong></span>
                                         <span>Vị trí: <strong>{locStr}</strong></span>
-                                        <span>Tồn: <strong>{s.available_qty || 10} bao</strong></span>
+                                        <span>Tồn: <strong>{s.available_qty || 0} bao</strong></span>
                                         {s.status === 'destroyed' && <span className="tag-destroyed">Đã tiêu hủy</span>}
+                                        {isLost ? (
+                                          <span className="tag-dispatched" style={{ background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                                            Đã lấy mẫu (Mục đích: Mẫu bị mất)
+                                          </span>
+                                        ) : (
+                                          isDispatched && <span className="tag-dispatched">Đã lấy mẫu sử dụng ({10 - (s.available_qty || 0)} bao)</span>
+                                        )}
                                       </div>
                                     </div>
                                   );
                                 })}
-                                {m.importedSampleList.length > 30 && (
-                                  <div className="drawer-more-hint">Và {m.importedSampleList.length - 30} mẫu khác...</div>
-                                )}
                               </div>
                             </div>
                           </td>
@@ -1245,15 +1519,16 @@ export default function MonthlyAnalytics({
             <table className="analytics-data-table">
               <thead>
                 <tr>
-                  <th style={{ width: '130px' }}>Tháng SX Bao (NSX)</th>
-                  <th>Tổng Lô Mẫu</th>
-                  <th>Tổng SL Cây (Bao)</th>
+                  <th style={{ width: '110px' }}>Tháng SX (NSX)</th>
+                  <th>Tổng Mẫu</th>
+                  <th>Tổng SL</th>
                   <th>Lưu Trên Kệ</th>
-                  <th>Đóng Thùng Lưu</th>
+                  <th>Đóng Thùng</th>
+                  <th>Đã Lấy Mẫu</th>
                   <th>Đã Tiêu Hủy</th>
                   <th>Tuổi Mẫu</th>
                   <th>Tình Trạng Hạn 12T</th>
-                  <th style={{ textAlign: 'right' }}>Chi tiết</th>
+                  <th style={{ textAlign: 'right', width: '75px' }}>Chi tiết</th>
                 </tr>
               </thead>
               <tbody>
@@ -1274,7 +1549,7 @@ export default function MonthlyAnalytics({
                           </div>
                         </td>
 
-                        {/* Tổng lô mẫu */}
+                        {/* Tổng số mẫu & Phân loại thị trường */}
                         <td>
                           <span className="badge-pkg-total">
                             {c.totalSamples} mẫu
@@ -1290,7 +1565,7 @@ export default function MonthlyAnalytics({
                         {/* Lưu trên kệ */}
                         <td className="tabular">
                           {c.storedSamples > 0 ? (
-                            <span style={{ color: '#5DAA7F', fontWeight: '600' }}>
+                            <span style={{ color: 'var(--status-success)', fontWeight: '600' }}>
                               {c.storedSamples} mẫu ({c.storedCartons} cây)
                             </span>
                           ) : (
@@ -1309,10 +1584,21 @@ export default function MonthlyAnalytics({
                           )}
                         </td>
 
+                        {/* Đã lấy mẫu */}
+                        <td className="tabular">
+                          {c.dispatchedSamples > 0 ? (
+                            <span style={{ color: '#8B5CF6', fontWeight: '600' }}>
+                              {c.dispatchedSamples} mẫu ({c.dispatchedPacks} bao)
+                            </span>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+
                         {/* Đã hủy */}
                         <td className="tabular">
                           {c.destroyedSamples > 0 ? (
-                            <span style={{ color: '#F87171', fontWeight: '600' }}>
+                            <span style={{ color: 'var(--status-error)', fontWeight: '600' }}>
                               {c.destroyedSamples} mẫu ({c.destroyedCartons} cây)
                             </span>
                           ) : (
@@ -1322,7 +1608,7 @@ export default function MonthlyAnalytics({
 
                         {/* Tuổi mẫu */}
                         <td className="tabular">
-                          <span style={{ color: c.ageMonths >= 12 ? '#F87171' : c.ageMonths >= 11 ? '#FBBF24' : '#C5CEC8' }}>
+                          <span style={{ color: c.ageMonths >= 12 ? 'var(--status-error)' : c.ageMonths >= 11 ? 'var(--status-warning)' : 'var(--text-secondary)' }}>
                             <strong>{c.ageMonths}</strong> tháng
                           </span>
                         </td>
@@ -1364,37 +1650,71 @@ export default function MonthlyAnalytics({
                       {/* VÙNG MỞ RỘNG MẪU THEO NGÀY SX BAO */}
                       {isExpanded && (
                         <tr className="table-row-drawer">
-                          <td colSpan={9}>
+                          <td colSpan={10}>
                             <div className="month-drawer-content">
-                              <div className="drawer-header">
-                                <h4>
-                                  Danh sách mẫu có Ngày SX Bao {c.month ? `Tháng ${c.month}/${c.year}` : c.key}
-                                </h4>
-                                <span className="drawer-count">{c.sampleList.length} mẫu ghi nhận</span>
+                              <div className="drawer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                <div>
+                                  <h4>
+                                    Danh sách mẫu có Ngày SX Bao {c.month ? `Tháng ${c.month}/${c.year}` : c.key}
+                                  </h4>
+                                  <span className="drawer-count">{c.sampleList.length} mẫu ghi nhận</span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Lọc trạng thái:</span>
+                                  <select 
+                                    className="analytics-select-control" 
+                                    style={{ padding: '4px 8px', fontSize: '12px' }}
+                                    value={drawerStatusFilter}
+                                    onChange={(e) => setDrawerStatusFilter(e.target.value)}
+                                  >
+                                    <option value="all">Tất cả ({c.sampleList.length})</option>
+                                    <option value="stored">Đang lưu trữ ({c.sampleList.filter(s => s.status !== 'destroyed' && s.status !== 'dispatched' && (s.available_qty === undefined || s.available_qty === 10)).length})</option>
+                                    <option value="dispatched">Đã lấy mẫu sử dụng ({c.sampleList.filter(s => s.status === 'dispatched' || ((s.available_qty !== undefined && s.available_qty < 10) && s.status !== 'destroyed')).length})</option>
+                                    <option value="destroyed">Đã tiêu hủy ({c.sampleList.filter(s => s.status === 'destroyed').length})</option>
+                                  </select>
+                                </div>
                               </div>
                               <div className="drawer-samples-grid">
-                                {c.sampleList.slice(0, 30).map((s, sIdx) => {
+                                {c.sampleList
+                                  .filter(s => {
+                                    if (drawerStatusFilter === 'stored') return s.status !== 'destroyed' && s.status !== 'dispatched' && (s.available_qty === undefined || s.available_qty === 10);
+                                    if (drawerStatusFilter === 'dispatched') return s.status === 'dispatched' || ((s.available_qty !== undefined && s.available_qty < 10) && s.status !== 'destroyed');
+                                    if (drawerStatusFilter === 'destroyed') return s.status === 'destroyed';
+                                    return true;
+                                  })
+                                  .map((s, sIdx) => {
                                   const prodName = s.products?.product_name || s.product_name || 'Mẫu thuốc lá';
                                   const locStr = s.shelf 
                                     ? `Kệ ${['', 'A', 'B', 'C', 'D', 'E', 'F'][s.shelf] || s.shelf}${s.slot}` 
                                     : (s.box_id ? 'Trong thùng lưu trữ' : 'Chưa xếp kệ');
+                                  const isLost = s.note === 'Mẫu bị mất';
+                                  const isDispatched = s.status === 'dispatched' || (s.available_qty !== undefined && s.available_qty < 10 && s.status !== 'destroyed');
 
                                   return (
                                     <div key={s.id || sIdx} className="drawer-sample-item">
-                                      <div className="sample-main-name">{prodName}</div>
+                                      <div className="sample-main-name">
+                                        {prodName}
+                                        <span className={isSampleExport(s) ? 'tag-export' : 'tag-domestic'} style={{ marginLeft: '6px' }}>
+                                          {isSampleExport(s) ? 'Xuất khẩu' : 'Nội địa'}
+                                        </span>
+                                      </div>
                                       <div className="sample-sub-meta">
                                         <span>Ngày SX bao: <strong style={{ color: 'var(--bento-kraft)' }}>{s.packaging_date || 'Chưa rõ'}</strong></span>
                                         <span>Vị trí: <strong>{locStr}</strong></span>
-                                        <span>Tồn: <strong>{s.available_qty || 10} bao</strong></span>
-                                        {s.status === 'destroyed' && <span className="tag-destroyed">Đã hủy</span>}
+                                        <span>Tồn: <strong>{s.available_qty || 0} bao</strong></span>
+                                        {s.status === 'destroyed' && <span className="tag-destroyed">Đã tiêu hủy</span>}
+                                        {isLost ? (
+                                          <span className="tag-dispatched" style={{ background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                                            Đã lấy mẫu (Mục đích: Mẫu bị mất)
+                                          </span>
+                                        ) : (
+                                          isDispatched && <span className="tag-dispatched">Đã lấy mẫu sử dụng ({10 - (s.available_qty || 0)} bao)</span>
+                                        )}
                                         {s.status === 'boxed' && <span className="tag-boxed">Trong thùng</span>}
                                       </div>
                                     </div>
                                   );
                                 })}
-                                {c.sampleList.length > 30 && (
-                                  <div className="drawer-more-hint">Và {c.sampleList.length - 30} mẫu khác...</div>
-                                )}
                               </div>
                             </div>
                           </td>
