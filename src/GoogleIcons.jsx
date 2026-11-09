@@ -1,133 +1,92 @@
 import React from 'react';
+import * as LucideIcons from 'lucide-react';
 
-/**
- * GoogleIcon - Tích hợp Google Material Symbols Outlined đồng bộ 100% với Google Sans
- */
-export function GoogleIcon({
+export * from 'lucide-react';
+
+const iconNameMap = {
+  warehouse: 'Warehouse',
+  search: 'Search',
+  dark_mode: 'Moon',
+  light_mode: 'Sun',
+  inventory_2: 'Boxes',
+  grid_view: 'LayoutGrid',
+  monitoring: 'BarChart3',
+  print: 'Printer',
+  qr_code_scanner: 'Camera',
+  sync_alt: 'ArrowRightLeft',
+  category: 'Box',
+  add_circle: 'Plus',
+  cloud_upload: 'UploadCloud',
+  package_2: 'Archive',
+  history: 'FileText',
+  manage_accounts: 'User',
+  notifications: 'Bell',
+  shelves: 'Warehouse',
+  edit_note: 'FileText',
+  add_box: 'Plus',
+  check: 'Check',
+  close: 'X',
+  error: 'AlertCircle',
+  warning: 'AlertTriangle',
+  info: 'Info',
+  flag: 'Check',
+  flight_takeoff: 'ArrowUpRight',
+  layers: 'Layers',
+  barcode: 'Barcode',
+  straighten: 'Ruler',
+  person: 'User',
+  settings: 'Sliders',
+  desktop_windows: 'Monitor',
+  smartphone: 'Smartphone',
+  delete: 'Trash2',
+  security: 'ShieldAlert',
+  save: 'Save',
+  schedule: 'Clock',
+  tune: 'Sliders',
+  visibility: 'Eye',
+  no_photography: 'CameraOff',
+  photo_camera: 'Camera',
+  assignment: 'ClipboardList',
+  calendar_today: 'Calendar',
+  open_in_new: 'ExternalLink',
+  progress_activity: 'Loader',
+  login: 'LogIn',
+  logout: 'LogOut',
+  drag_pan: 'Move',
+  qr_code_2: 'QrCode',
+  radio_button_checked: 'Radio',
+  refresh: 'RefreshCw',
+  replay: 'RotateCcw',
+  sell: 'Tag',
+  trending_down: 'TrendingDown',
+  trending_up: 'TrendingUp',
+  volume_up: 'Volume2',
+  volume_off: 'VolumeX',
+  zoom_in: 'ZoomIn'
+};
+
+export const GoogleIcon = React.forwardRef(({
   name,
   size = 18,
   color,
   strokeWidth = 2,
-  fill = 0,
   className = '',
   style = {},
   ...props
-}) {
-  const pixelSize = typeof size === 'number' ? `${size}px` : size;
-  // Cân chỉnh độ dày nét (wght) theo strokeWidth: 1 -> 300, 2 -> 450, 3 -> 600
-  const wght = strokeWidth ? Math.min(700, Math.max(100, Math.round(strokeWidth * 225))) : 400;
-  const opsz = typeof size === 'number' ? Math.min(48, Math.max(20, Math.round(size))) : 24;
-
+}, ref) => {
+  const lucideName = iconNameMap[name] || (name ? name.charAt(0).toUpperCase() + name.slice(1) : 'Info');
+  const IconComponent = LucideIcons[lucideName] || LucideIcons.Info;
   return (
-    <span
-      className={`material-symbols-outlined google-icon ${className}`}
-      style={{
-        fontSize: pixelSize,
-        width: pixelSize,
-        height: pixelSize,
-        color: color || 'currentColor',
-        fontVariationSettings: `'FILL' ${fill ? 1 : 0}, 'wght' ${wght}, 'GRAD' 0, 'opsz' ${opsz}`,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        lineHeight: 1,
-        verticalAlign: 'middle',
-        userSelect: 'none',
-        flexShrink: 0,
-        ...style,
-      }}
-      aria-hidden="true"
+    <IconComponent
+      ref={ref}
+      size={size}
+      color={color}
+      strokeWidth={strokeWidth}
+      className={className}
+      style={style}
       {...props}
-    >
-      {name}
-    </span>
+    />
   );
-}
+});
 
-function createIcon(symbolName) {
-  const IconComponent = React.forwardRef(
-    ({ size = 18, color, strokeWidth = 2, className = '', style = {}, ...props }, ref) => (
-      <GoogleIcon
-        ref={ref}
-        name={symbolName}
-        size={size}
-        color={color}
-        strokeWidth={strokeWidth}
-        className={className}
-        style={style}
-        {...props}
-      />
-    )
-  );
-  IconComponent.displayName = `GoogleIcon_${symbolName}`;
-  return IconComponent;
-}
-
-// Bản đồ ánh xạ 63 icon trong hệ thống sang Google Material Symbols
-export const AlertCircle = createIcon('error');
-export const AlertTriangle = createIcon('warning');
-export const Archive = createIcon('archive');
-export const ArrowLeft = createIcon('arrow_back');
-export const ArrowRight = createIcon('arrow_forward');
-export const ArrowRightLeft = createIcon('sync_alt');
-export const ArrowUpRight = createIcon('north_east');
-export const ArrowDownRight = createIcon('south_east');
-export const BarChart3 = createIcon('bar_chart');
-export const Barcode = createIcon('barcode');
-export const Bell = createIcon('notifications');
-export const Box = createIcon('package_2');
-export const Boxes = createIcon('inventory_2');
-export const Calendar = createIcon('calendar_today');
-export const Camera = createIcon('photo_camera');
-export const CameraOff = createIcon('no_photography');
-export const Check = createIcon('check');
-export const CheckCircle2 = createIcon('check_circle');
-export const CheckSquare = createIcon('check_box');
-export const ChevronDown = createIcon('expand_more');
-export const ChevronRight = createIcon('chevron_right');
-export const ChevronUp = createIcon('expand_less');
-export const ClipboardList = createIcon('assignment');
-export const Clock = createIcon('schedule');
-export const Database = createIcon('database');
-export const Download = createIcon('download');
-export const ExternalLink = createIcon('open_in_new');
-export const Eye = createIcon('visibility');
-export const Factory = createIcon('factory');
-export const FileText = createIcon('description');
-export const Info = createIcon('info');
-export const Layers = createIcon('layers');
-export const LayoutGrid = createIcon('grid_view');
-export const Loader = createIcon('progress_activity');
-export const LogIn = createIcon('login');
-export const LogOut = createIcon('logout');
-export const Monitor = createIcon('desktop_windows');
-export const Moon = createIcon('dark_mode');
-export const Move = createIcon('drag_pan');
-export const Package = createIcon('package_2');
-export const PackageMinus = createIcon('package_2');
-export const Plus = createIcon('add');
-export const Printer = createIcon('print');
-export const QrCode = createIcon('qr_code_2');
-export const Radio = createIcon('radio_button_checked');
-export const RefreshCw = createIcon('refresh');
-export const RotateCcw = createIcon('replay');
-export const Ruler = createIcon('straighten');
-export const Save = createIcon('save');
-export const Search = createIcon('search');
-export const ShieldAlert = createIcon('security');
-export const Sliders = createIcon('tune');
-export const Smartphone = createIcon('smartphone');
-export const Sun = createIcon('light_mode');
-export const Tag = createIcon('sell');
-export const Tags = createIcon('sell');
-export const Trash2 = createIcon('delete');
-export const TrendingDown = createIcon('trending_down');
-export const TrendingUp = createIcon('trending_up');
-export const UploadCloud = createIcon('cloud_upload');
-export const User = createIcon('person');
-export const Volume2 = createIcon('volume_up');
-export const VolumeX = createIcon('volume_off');
-export const Warehouse = createIcon('warehouse');
-export const X = createIcon('close');
-export const ZoomIn = createIcon('zoom_in');
-
+GoogleIcon.displayName = 'GoogleIcon';

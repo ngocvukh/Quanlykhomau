@@ -1858,7 +1858,7 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .bento-mobile-thumb-dock.dock-guest {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .dock-item {
@@ -4224,5 +4224,43 @@ h1, h2, h3, h4, h5, h6 {
   }
   .main-wrapper {
     padding: 16px;
+  }
+}
+
+/* Mobile Top Header Optimization */
+@media (max-width: 640px) {
+  .top-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    margin-bottom: 16px !important;
+  }
+  .header-left {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: baseline !important;
+    width: 100% !important;
+  }
+  .header-left h1 {
+    font-size: 19px !important;
+  }
+  .header-right {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+  .search-input-pill {
+    flex: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+  .search-input-pill:focus-within {
+    width: 100% !important;
+  }
+  .search-input-pill input {
+    width: 100% !important;
+    min-width: 0 !important;
   }
 }

@@ -4,6 +4,7 @@ import html2pdf from 'html2pdf.js';
 import DOMPurify from 'dompurify';
 import QRCode from 'qrcode';
 import {
+  GoogleIcon, ArrowRight,
   Search, Plus, LogIn, LogOut, Moon, Sun, Layers, Database, Warehouse, LayoutGrid,
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save, Tags, Tag, Barcode,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
@@ -2515,6 +2516,7 @@ export default function App() {
   const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [takeQuantities, setTakeQuantities] = useState({});
   const [takeNotes, setTakeNotes] = useState({});
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const lastSearchLogRef = useRef({ keyword: "", timestamp: 0 });
   const searchDebounceTimerRef = useRef(null);
@@ -6976,198 +6978,80 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {authMode !== 'guest' && (
-                <button className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={() => { setAuthMode('guest'); setActiveTab('shelves'); }}>
-                  Truy cập Staff (Khách)
-                </button>
-              )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ padding: '8px 18px', fontSize: '13.5px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
+                onClick={() => { setAuthMode('login'); setShowLoginModal(true); }}
+              >
+                <LogIn size={15} /> Đăng nhập
+              </button>
             </div>
           )}
         </div>
       </header>
       )}
 
-      {/* LOGIN OR SIGNUP OVERLAY FOR ADMIN/STAFF */}
-      {(!user && !profile && authMode !== 'guest') ? (
-        <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, padding: '30px 16px' }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '440px', padding: '28px 24px' }}>
-            
-            {/* Header Tabs: Đăng nhập vs Đăng ký (đặt lên trên) */}
-            <div style={{
-              display: 'flex',
-              background: 'rgba(255, 255, 255, 0.04)',
-              border: '1px solid var(--glass-border)',
-              borderRadius: '12px',
-              padding: '4px',
-              marginBottom: '24px',
-              gap: '4px'
-            }}>
-              <button
-                type="button"
-                onClick={() => setAuthMode('login')}
-                style={{
-                  flex: 1,
-                  padding: '9px 12px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  fontSize: '13.5px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  background: authMode === 'login' ? 'var(--accent-blue)' : 'transparent',
-                  color: authMode === 'login' ? '#ffffff' : 'var(--text-secondary)'
-                }}
-              >
-                🔐 Đăng Nhập
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthMode('signup')}
-                style={{
-                  flex: 1,
-                  padding: '9px 12px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  fontSize: '13.5px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  background: authMode === 'signup' ? 'var(--accent-blue)' : 'transparent',
-                  color: authMode === 'signup' ? '#ffffff' : 'var(--text-secondary)'
-                }}
-              >
-                📝 Đăng Ký
-              </button>
+      {/* LANDING SCREEN CHO KHÁCH & NÚT TRUY CẬP NGAY */}
+      {(!user && !profile && authMode !== "guest") ? (
+        <main style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          alignItems: "center",
+          flex: 1,
+          minHeight: "calc(100vh - 120px)",
+          padding: "24px",
+          textAlign: "center"
+        }}>
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            maxWidth: "500px",
+            width: "100%",
+            gap: "24px"
+          }}>
+            <div>
+              <h1 style={{
+                fontSize: "30px",
+                fontWeight: 800,
+                color: "var(--text-main)",
+                letterSpacing: "-0.02em",
+                margin: 0,
+                lineHeight: 1.3
+              }}>
+                Tìm kiếm mẫu bao thành phẩm
+              </h1>
             </div>
 
-            {/* PHẦN ƯU TIÊN TRUY CẬP KHÁCH - ĐẶT NỔI BẬT Ở VỊ TRÍ TRUNG TÂM */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(6, 95, 70, 0.15))',
-              border: '1.5px solid rgba(16, 185, 129, 0.45)',
-              borderRadius: '14px',
-              padding: '18px 16px',
-              textAlign: 'center',
-              marginBottom: '24px',
-              boxShadow: '0 8px 24px rgba(16, 185, 129, 0.12)'
-            }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#10b981', background: 'rgba(16, 185, 129, 0.18)', padding: '3px 10px', borderRadius: '12px', marginBottom: '10px' }}>
-                ⭐ Khuyến nghị sử dụng
-              </div>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: '1.5' }}>
-                Dành cho nhân viên, QC, khách tra cứu vị trí kệ mẫu và gửi yêu cầu lấy mẫu không cần tài khoản
-              </div>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => { setAuthMode('guest'); setActiveTab('shelves'); }}
-                style={{
-                  width: '100%',
-                  padding: '13px 20px',
-                  fontSize: '15px',
-                  fontWeight: 700,
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  borderColor: '#10b981',
-                  borderRadius: '10px',
-                  boxShadow: '0 4px 16px rgba(16, 185, 129, 0.35)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '9px',
-                  cursor: 'pointer'
-                }}
-              >
-                <Search size={18} /> TRUY CẬP KHÁCH / TRA CỨU NGAY
-              </button>
-            </div>
-
-            {/* Dải phân cách ngăn giữa Truy cập khách và Đăng nhập Admin */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              margin: '20px 0',
-              color: 'var(--text-muted)',
-              fontSize: '12px'
-            }}>
-              <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
-              <span style={{ padding: '0 12px', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: '11.5px', fontWeight: 600 }}>
-                {authMode === 'login' ? 'Hoặc đăng nhập Admin / Thủ kho' : 'Hoặc đăng ký tài khoản mới'}
-              </span>
-              <div style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }}></div>
-            </div>
-
-            {/* FORM ĐĂNG NHẬP / ĐĂNG KÝ */}
-            <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {authMode === 'signup' && (
-                <>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '12.5px' }}>Họ và tên</label>
-                    <input className="form-input" type="text" required value={authFullName} onChange={e => setAuthFullName(e.target.value)} placeholder="Nguyễn Văn A" />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '12.5px' }}>Mã nhân viên</label>
-                    <input className="form-input" type="text" required value={authEmployeeCode} onChange={e => setAuthEmployeeCode(e.target.value)} placeholder="QC-001" />
-                  </div>
-                </>
-              )}
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ fontSize: '12.5px' }}>Email đăng nhập</label>
-                <input className="form-input" type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="email@gmail.com" />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ fontSize: '12.5px' }}>Mật khẩu</label>
-                <input className="form-input" type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" />
-              </div>
-
-              <button
-                className="btn btn-secondary"
-                type="submit"
-                style={{
-                  marginTop: '6px',
-                  padding: '11px',
-                  fontSize: '13.5px',
-                  fontWeight: 600,
-                  borderColor: 'rgba(255, 255, 255, 0.15)',
-                  background: 'rgba(255, 255, 255, 0.04)'
-                }}
-                disabled={loading}
-              >
-                {loading ? <Loader className="logo-icon spin" size={16} /> : (authMode === 'login' ? 'Đăng Nhập Quản Trị' : 'Tạo Tài Khoản')}
-              </button>
-            </form>
-
-            {isDemoMode && authMode === 'login' && (
-              <div style={{ marginTop: '20px', padding: '12px', border: '1px dashed var(--status-warning)', borderRadius: '8px', background: 'rgba(245,158,11,0.03)', fontSize: '13px' }}>
-                <div style={{ fontWeight: 'bold', color: 'var(--status-warning)', marginBottom: '8px', textAlign: 'center' }}>Tài khoản Demo Đăng nhập nhanh:</div>
-                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
-                    setAuthEmail('admin@gmail.com');
-                    setAuthPassword('admin123');
-                    setAuthRole('admin');
-                    const mockUser = { id: 'admin', email: 'admin@gmail.com' };
-                    const mockProfile = { id: 'admin', full_name: 'Thủ kho (Admin)', employee_code: 'TK-001', role: 'admin', department: 'QC' };
-                    setUser(mockUser);
-                    setProfile(mockProfile);
-                    showToast("Đăng nhập Thủ kho (Admin) thành công!", "success");
-                    setActiveTab('dashboard');
-                  }}>Thủ kho (Admin)</button>
-                  
-                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => {
-                    setAuthEmail('staff@gmail.com');
-                    setAuthPassword('staff123');
-                    setAuthRole('staff');
-                    const mockUser = { id: 'staff', email: 'staff@gmail.com' };
-                    const mockProfile = { id: 'staff', full_name: 'Nhân viên QC A', employee_code: 'NV-9902', role: 'staff', department: 'Sản xuất' };
-                    setUser(mockUser);
-                    setProfile(mockProfile);
-                    showToast("Đăng nhập Nhân viên (Staff) thành công!", "success");
-                    setActiveTab('dashboard');
-                  }}>Nhân viên (Staff)</button>
-                </div>
-              </div>
-            )}
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setAuthMode("guest");
+                setActiveTab("shelves");
+              }}
+              style={{
+                padding: "16px 44px",
+                fontSize: "17.5px",
+                fontWeight: 700,
+                borderRadius: "14px",
+                background: "linear-gradient(135deg, #0F87FF 0%, #00B4D8 100%)",
+                boxShadow: "0 8px 28px rgba(15, 135, 255, 0.4)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "12px",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                marginTop: "12px",
+                letterSpacing: "0.2px"
+              }}
+            >
+              <span>Truy cập ngay</span>
+              <ArrowRight size={20} />
+            </button>
           </div>
         </main>
       ) : (
@@ -7178,7 +7062,7 @@ export default function App() {
           <aside className="sidebar">
             <div className="brand-header" onClick={() => setActiveTab((!user && !profile) ? 'shelves' : 'dashboard')} title={(!user && !profile) ? "Về sơ đồ kệ" : "Về trang tổng quan"}>
               <div className="brand-icon">
-                <span className="material-symbols-outlined">inventory_2</span>
+                <Warehouse size={20} />
               </div>
               <div className="brand-title">Kho Lưu <span>Mẫu</span></div>
             </div>
@@ -7188,13 +7072,13 @@ export default function App() {
                 <>
                   <li className={`nav-item ${activeTab === 'shelves' ? 'active' : ''}`}>
                     <button type="button" onClick={() => { if (setMobileShelfFilter) setMobileShelfFilter(0); setActiveTab('shelves'); }}>
-                      <span className="material-symbols-outlined">shelves</span>
+                      <GoogleIcon name="shelves" />
                       <span>Sơ đồ 6 kệ</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'search' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('search')}>
-                      <span className="material-symbols-outlined">search</span>
+                      <Search size={18} style={{ color: "var(--text-sub)", flexShrink: 0 }} />
                       <span>Tra cứu mẫu</span>
                     </button>
                   </li>
@@ -7203,31 +7087,31 @@ export default function App() {
                 <>
                   <li className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('dashboard')}>
-                      <span className="material-symbols-outlined">grid_view</span>
+                      <GoogleIcon name="grid_view" />
                       <span>Tổng quan</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'shelves' ? 'active' : ''}`}>
                     <button type="button" onClick={() => { if (setMobileShelfFilter) setMobileShelfFilter(0); setActiveTab('shelves'); }}>
-                      <span className="material-symbols-outlined">shelves</span>
+                      <GoogleIcon name="shelves" />
                       <span>Sơ đồ 6 kệ</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('analytics')}>
-                      <span className="material-symbols-outlined">monitoring</span>
+                      <GoogleIcon name="monitoring" />
                       <span>Thống kê lưu mẫu</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'search' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('search')}>
-                      <span className="material-symbols-outlined">search</span>
+                      <GoogleIcon name="search" />
                       <span>Tra cứu mẫu</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'labels' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('labels')}>
-                      <span className="material-symbols-outlined">print</span>
+                      <GoogleIcon name="print" />
                       <span>In tem Tommy 135</span>
                       {printQueue.length > 0 && <span className="badge">{printQueue.length}</span>}
                     </button>
@@ -7235,14 +7119,14 @@ export default function App() {
                   {profile?.role === 'admin' && (
                     <li className={`nav-item ${activeTab === 'audit' ? 'active' : ''}`}>
                       <button type="button" onClick={() => setActiveTab('audit')}>
-                        <span className="material-symbols-outlined">qr_code_scanner</span>
+                        <GoogleIcon name="qr_code_scanner" />
                         <span>Kiểm kê QR</span>
                       </button>
                     </li>
                   )}
                   <li className={`nav-item ${activeTab === 'requests' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('requests')}>
-                      <span className="material-symbols-outlined">sync_alt</span>
+                      <GoogleIcon name="sync_alt" />
                       <span>Yêu cầu lấy mẫu</span>
                       {(() => {
                         const count = transactions.filter(t => t.type === 'take_request' && t.status === 'pending').length;
@@ -7260,37 +7144,37 @@ export default function App() {
                 <ul className="nav-menu">
                   <li className={`nav-item ${activeTab === 'catalog' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('catalog')}>
-                      <span className="material-symbols-outlined">category</span>
+                      <Box size={18} />
                       <span>Danh mục sản phẩm</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'import' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('import')}>
-                      <span className="material-symbols-outlined">add_circle</span>
+                      <Plus size={18} />
                       <span>Nhập kho mẫu</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'bulk_import' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('bulk_import')}>
-                      <span className="material-symbols-outlined">cloud_upload</span>
+                      <UploadCloud size={18} />
                       <span>Nhập từ Excel</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'archives' ? 'active' : ''}`}>
                     <button type="button" onClick={() => setActiveTab('archives')}>
-                      <span className="material-symbols-outlined">package_2</span>
+                      <Archive size={18} />
                       <span>Đóng thùng & Hủy</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'search_logs' ? 'active' : ''}`}>
                     <button type="button" onClick={() => { setActiveTab('search_logs'); if (fetchSearchLogs) fetchSearchLogs(); }}>
-                      <span className="material-symbols-outlined">history</span>
+                      <FileText size={18} />
                       <span>Nhật ký tra cứu</span>
                     </button>
                   </li>
                   <li className={`nav-item ${activeTab === 'users' ? 'active' : ''}`}>
                     <button type="button" onClick={() => { setActiveTab('users'); if (fetchUsersAndVisitors) fetchUsersAndVisitors(); }}>
-                      <span className="material-symbols-outlined">manage_accounts</span>
+                      <User size={18} />
                       <span>Tài khoản & Khách</span>
                     </button>
                   </li>
@@ -7379,12 +7263,12 @@ export default function App() {
                     value={searchName}
                     onChange={(e) => setSearchName(e.target.value)}
                   />
-                  <span className="material-symbols-outlined">search</span>
+                  <GoogleIcon name="search" />
                 </form>
 
 
                 <div className="action-btn-circle" onClick={toggleTheme} title="Chuyển chế độ Sáng / Tối">
-                  <span className="material-symbols-outlined">{theme === 'dark' ? 'light_mode' : 'dark_mode'}</span>
+                  {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
                 </div>
 
                 {/* Chuông Thông Báo (Chỉ tài khoản đăng nhập) */}
@@ -7395,7 +7279,7 @@ export default function App() {
                     onClick={() => { setShowNotifDropdown(v => !v); setUnreadCount(0); }}
                     title="Thông báo"
                   >
-                    <span className="material-symbols-outlined">notifications</span>
+                    <Bell size={18} />
                     {(() => {
                       let sysCount = 0;
                       if (profile?.role === 'admin') {
@@ -8292,7 +8176,7 @@ export default function App() {
                 <div className="metrics-row">
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-blue">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>add_circle</span>
+                      <GoogleIcon name="add_circle" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">Nhập Lẻ <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>theo cây</span></div>
@@ -8304,7 +8188,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-green">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>shelves</span>
+                      <GoogleIcon name="shelves" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">Kệ A → F <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>6 kệ</span></div>
@@ -8316,7 +8200,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-red">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>smart_toy</span>
+                      <GoogleIcon name="smart_toy" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">12 Tháng <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>lưu trữ</span></div>
@@ -8334,7 +8218,7 @@ export default function App() {
                     <div className="chart-header">
                       <div className="chart-title-area">
                         <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: '20px' }}>feed</span>
+                          <GoogleIcon name="feed" style={{ color: 'var(--primary)', fontSize: '20px' }} />
                           Thông Tin Mẫu Thuốc Lá
                         </h2>
                       </div>
@@ -8469,7 +8353,7 @@ export default function App() {
                       <div className="chart-header">
                         <div className="chart-title-area">
                           <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: '20px' }}>calendar_month</span>
+                            <GoogleIcon name="calendar_month" style={{ color: 'var(--primary)', fontSize: '20px' }} />
                             Mốc Thời Gian Sản Xuất & Lấy Mẫu
                           </h2>
                         </div>
@@ -8575,7 +8459,7 @@ export default function App() {
                       <div className="chart-header">
                         <div className="chart-title-area">
                           <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: '20px' }}>grid_view</span>
+                            <GoogleIcon name="grid_view" style={{ color: 'var(--primary)', fontSize: '20px' }} />
                             Vị Trí Lưu Kho (Kệ / Ô / Cột)
                           </h2>
                         </div>
@@ -9029,7 +8913,7 @@ export default function App() {
                 <div className="metrics-row">
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-blue">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>category</span>
+                      <GoogleIcon name="category" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{products.length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>sản phẩm</span></div>
@@ -9038,7 +8922,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-green">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>flag</span>
+                      <GoogleIcon name="flag" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{products.filter(p => !p.is_export).length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>mặt hàng</span></div>
@@ -9047,7 +8931,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-red">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>flight_takeoff</span>
+                      <GoogleIcon name="flight_takeoff" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{products.filter(p => p.is_export).length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>mặt hàng</span></div>
@@ -9062,9 +8946,7 @@ export default function App() {
                     <div className="chart-header" style={{ marginBottom: '6px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
                       <div className="chart-title-area">
                         <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: '20px' }}>
-                            {editingProduct ? 'edit_note' : 'add_box'}
-                          </span>
+                          <GoogleIcon name="{editingProduct ? 'edit_note' : 'add_box'}" style={{ color: 'var(--primary)', fontSize: '20px' }} />
                           {editingProduct ? `Sửa: ${editingProduct.product_name}` : 'Thêm Sản Phẩm Mới'}
                         </h2>
                       </div>
@@ -9123,7 +9005,7 @@ export default function App() {
                     <div className="table-header" style={{ flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
                       <div>
                         <h2 style={{ fontSize: '15.5px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-main)' }}>
-                          <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: '20px' }}>inventory_2</span>
+                          <GoogleIcon name="inventory_2" style={{ color: 'var(--primary)', fontSize: '20px' }} />
                           Danh Sách Sản Phẩm ({products.filter(p => p.product_name.toLowerCase().includes(catalogSearchQuery.toLowerCase().trim())).length} / {products.length})
                         </h2>
                       </div>
@@ -9845,7 +9727,7 @@ export default function App() {
                 <div className="metrics-row">
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-blue">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>inbox</span>
+                      <GoogleIcon name="inbox" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">Khay {bulkTrayNumber} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>đang mở</span></div>
@@ -9857,7 +9739,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-green">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>pending_actions</span>
+                      <GoogleIcon name="pending_actions" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{samples.filter(s => s.status === 'pending').length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>mẫu</span></div>
@@ -9871,7 +9753,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-red">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>content_paste</span>
+                      <GoogleIcon name="content_paste" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">Ctrl + V <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>dán lưới</span></div>
@@ -10654,7 +10536,7 @@ export default function App() {
                 <div className="metrics-row">
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-blue">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>history</span>
+                      <GoogleIcon name="history" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{searchLogs.length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>lượt</span></div>
@@ -10666,7 +10548,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-green">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>date_range</span>
+                      <GoogleIcon name="date_range" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{logFilterStartDate ? logFilterStartDate.split('-').reverse().join('/') : 'Tất cả'} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>- {logFilterEndDate ? logFilterEndDate.split('-').reverse().join('/') : 'nay'}</span></div>
@@ -10678,7 +10560,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-red">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>device_hub</span>
+                      <GoogleIcon name="device_hub" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{new Set(searchLogs.map(l => l.device_id).filter(Boolean)).size} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>thiết bị</span></div>
@@ -10981,7 +10863,7 @@ export default function App() {
                 <div className="metrics-row">
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-blue">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>badge</span>
+                      <GoogleIcon name="badge" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{profilesList.length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>nhân sự</span></div>
@@ -10993,7 +10875,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-green">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>admin_panel_settings</span>
+                      <GoogleIcon name="admin_panel_settings" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{profilesList.filter(p => p.role === 'admin').length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>tài khoản</span></div>
@@ -11005,7 +10887,7 @@ export default function App() {
                   </div>
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-red">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>devices</span>
+                      <GoogleIcon name="devices" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{(() => {
@@ -11569,7 +11451,7 @@ export default function App() {
                 <div className="metrics-row">
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-blue">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>inventory_2</span>
+                      <GoogleIcon name="inventory_2" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{boxes.length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>thùng</span></div>
@@ -11582,7 +11464,7 @@ export default function App() {
 
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-red">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>event_busy</span>
+                      <GoogleIcon name="event_busy" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{getExpiredSamples().length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>mẫu</span></div>
@@ -11597,7 +11479,7 @@ export default function App() {
 
                   <div className="metric-card">
                     <div className="metric-icon-box icon-box-green">
-                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>warning</span>
+                      <GoogleIcon name="warning" style={{ fontSize: '22px' }} />
                     </div>
                     <div className="metric-data">
                       <div className="metric-value">{getApproachingExpiredSamples().length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>mẫu</span></div>
@@ -11619,7 +11501,7 @@ export default function App() {
                     <div className="table-header" style={{ flexWrap: 'wrap', gap: '10px', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px', marginBottom: 0 }}>
                       <div>
                         <h2 style={{ fontSize: '15.5px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-main)' }}>
-                          <span className="material-symbols-outlined" style={{ color: 'var(--status-error)', fontSize: '20px' }}>shield</span>
+                          <GoogleIcon name="shield" style={{ color: 'var(--status-error)', fontSize: '20px' }} />
                           Kiểm Soát Hạn Lưu 12 Tháng & Hủy Mẫu
                         </h2>
                       </div>
@@ -11637,7 +11519,7 @@ export default function App() {
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 700, color: getExpiredSamples().length > 0 ? 'var(--status-error)' : 'var(--text-main)' }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: '16px', color: getExpiredSamples().length > 0 ? 'var(--status-error)' : 'var(--text-sub)' }}>event_busy</span>
+                          <GoogleIcon name="event_busy" style={{ fontSize: '16px', color: getExpiredSamples().length > 0 ? 'var(--status-error)' : 'var(--text-sub)' }} />
                           Mẫu Quá Hạn 12 Tháng ({getExpiredSamples().length})
                         </div>
                         {getExpiredSamples().length > 0 && (
@@ -11672,7 +11554,7 @@ export default function App() {
                         })}
                         {getExpiredSamples().length === 0 && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 'var(--radius-md)', color: 'var(--text-main)', fontSize: '13px' }}>
-                            <span className="material-symbols-outlined" style={{ color: '#10B981', fontSize: '22px' }}>verified</span>
+                            <GoogleIcon name="verified" style={{ color: '#10B981', fontSize: '22px' }} />
                             <div>
                               <div style={{ fontWeight: 600, color: '#10B981' }}>Kho đang trong hạn lưu trữ an toàn</div>
                               <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Hiện không có lô mẫu nào vượt ngưỡng 12 tháng tuổi.</div>
@@ -11685,7 +11567,7 @@ export default function App() {
                     {/* Section 2: Mẫu sắp hết hạn 11 tháng */}
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '12px' }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#F59E0B' }}>schedule</span>
+                        <GoogleIcon name="schedule" style={{ fontSize: '16px', color: '#F59E0B' }} />
                         Sắp Hết Hạn Lưu Trữ (11 tháng) ({getApproachingExpiredSamples().length})
                       </div>
 
@@ -11720,7 +11602,7 @@ export default function App() {
                     <div className="table-header" style={{ flexWrap: 'wrap', gap: '10px', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px', marginBottom: 0 }}>
                       <div>
                         <h2 style={{ fontSize: '15.5px', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-main)' }}>
-                          <span className="material-symbols-outlined" style={{ color: 'var(--primary)', fontSize: '20px' }}>inventory_2</span>
+                          <GoogleIcon name="inventory_2" style={{ color: 'var(--primary)', fontSize: '20px' }} />
                           Danh Sách Thùng Đóng Lưu Trữ ({boxes.length})
                         </h2>
                       </div>
@@ -13988,6 +13870,190 @@ export default function App() {
         </div>
       )}
 
-    </div>
+    
+      {/* MODAL ĐĂNG NHẬP DÀNH CHO ADMIN / THỦ KHO */}
+      {showLoginModal && !user && !profile && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.65)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 99999,
+            padding: "16px"
+          }}
+          onClick={() => setShowLoginModal(false)}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: "100%",
+              maxWidth: "420px",
+              padding: "28px",
+              borderRadius: "20px",
+              border: "1px solid var(--border-color)",
+              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.5)",
+              position: "relative"
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <LogIn size={20} color="var(--primary)" />
+                <h3 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "var(--text-main)" }}>
+                  {authMode === "login" ? "Đăng Nhập Quản Trị" : "Đăng Ký Tài Khoản"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLoginModal(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  padding: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Tabs Đăng nhập / Đăng ký */}
+            <div style={{
+              display: "flex",
+              background: "var(--bg-subtle)",
+              borderRadius: "10px",
+              padding: "4px",
+              marginBottom: "20px",
+              gap: "4px"
+            }}>
+              <button
+                type="button"
+                onClick={() => setAuthMode("login")}
+                style={{
+                  flex: 1,
+                  padding: "8px",
+                  borderRadius: "7px",
+                  border: "none",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  background: authMode === "login" ? "var(--primary)" : "transparent",
+                  color: authMode === "login" ? "#ffffff" : "var(--text-muted)"
+                }}
+              >
+                Đăng nhập
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMode("signup")}
+                style={{
+                  flex: 1,
+                  padding: "8px",
+                  borderRadius: "7px",
+                  border: "none",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  background: authMode === "signup" ? "var(--primary)" : "transparent",
+                  color: authMode === "signup" ? "#ffffff" : "var(--text-muted)"
+                }}
+              >
+                Đăng ký
+              </button>
+            </div>
+
+            <form onSubmit={async (e) => {
+              await handleAuth(e);
+              setShowLoginModal(false);
+            }} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              {authMode === "signup" && (
+                <>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: "12.5px" }}>Họ và tên</label>
+                    <input className="form-input" type="text" required value={authFullName} onChange={e => setAuthFullName(e.target.value)} placeholder="Nguyễn Văn A" />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: "12.5px" }}>Mã nhân viên</label>
+                    <input className="form-input" type="text" required value={authEmployeeCode} onChange={e => setAuthEmployeeCode(e.target.value)} placeholder="QC-001" />
+                  </div>
+                </>
+              )}
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: "12.5px" }}>Email đăng nhập</label>
+                <input className="form-input" type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="email@gmail.com" />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: "12.5px" }}>Mật khẩu</label>
+                <input className="form-input" type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" />
+              </div>
+
+              <button
+                className="btn btn-primary"
+                type="submit"
+                style={{
+                  marginTop: "6px",
+                  padding: "12px",
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  borderRadius: "10px"
+                }}
+                disabled={loading}
+              >
+                {loading ? <Loader className="spin" size={16} /> : (authMode === "login" ? "Đăng Nhập" : "Tạo Tài Khoản")}
+              </button>
+            </form>
+
+            {isDemoMode && authMode === "login" && (
+              <div style={{ marginTop: "16px", padding: "10px 12px", border: "1px dashed var(--border-color)", borderRadius: "10px", background: "var(--bg-subtle)", fontSize: "12.5px" }}>
+                <div style={{ fontWeight: 600, color: "var(--text-muted)", marginBottom: "8px", textAlign: "center" }}>Đăng nhập nhanh Demo:</div>
+                <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
+                  <button className="btn btn-secondary" style={{ padding: "6px 12px", fontSize: "12px" }} onClick={() => {
+                    setAuthEmail("admin@gmail.com");
+                    setAuthPassword("admin123");
+                    setAuthRole("admin");
+                    const mockUser = { id: "admin", email: "admin@gmail.com" };
+                    const mockProfile = { id: "admin", full_name: "Thủ kho (Admin)", employee_code: "TK-001", role: "admin", department: "QC" };
+                    setUser(mockUser);
+                    setProfile(mockProfile);
+                    showToast("Đăng nhập Thủ kho (Admin) thành công!", "success");
+                    setShowLoginModal(false);
+                    setActiveTab("dashboard");
+                  }}>Thủ kho (Admin)</button>
+                  
+                  <button className="btn btn-secondary" style={{ padding: "6px 12px", fontSize: "12px" }} onClick={() => {
+                    setAuthEmail("staff@gmail.com");
+                    setAuthPassword("staff123");
+                    setAuthRole("staff");
+                    const mockUser = { id: "staff", email: "staff@gmail.com" };
+                    const mockProfile = { id: "staff", full_name: "Nhân viên QC A", employee_code: "NV-9902", role: "staff", department: "Sản xuất" };
+                    setUser(mockUser);
+                    setProfile(mockProfile);
+                    showToast("Đăng nhập Nhân viên (Staff) thành công!", "success");
+                    setShowLoginModal(false);
+                    setActiveTab("dashboard");
+                  }}>Nhân viên (Staff)</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+</div>
   );
 }
