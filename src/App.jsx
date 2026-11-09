@@ -464,6 +464,21 @@ export default function App() {
   const [profilesList, setProfilesList] = useState([]);
   const [slotConfigs, setSlotConfigs] = useState([]);
 
+  // Tính số lượng tồn kho khả dụng thực tế của một mẫu (đã trừ đi các yêu cầu đang chờ duyệt)
+  const getSampleEffectiveAvailable = (sample) => {
+    if (!sample) return 0;
+    const sId = typeof sample === 'object' ? sample.id : sample;
+    const curSample = typeof sample === 'object' ? sample : samples.find(s => s.id === sId);
+    if (!curSample) return 0;
+
+    const baseQty = Number(curSample.available_qty) || 0;
+    const pendingQty = transactions
+      .filter(t => t.sample_id === sId && t.type === 'take_request' && t.status === 'pending')
+      .reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
+
+    return Math.max(0, baseQty - pendingQty);
+  };
+
   // Slot modal settings states
   const [modalIsFull, setModalIsFull] = useState(false);
   const [modalNote, setModalNote] = useState('');
@@ -3290,6 +3305,26 @@ export default function App() {
         }
       }
 
+      // Tự động chuẩn hóa nếu có mẫu bị lỗi cộng lố (available_qty > total_qty)
+      if (s && s.length > 0) {
+        const overStockSamples = s.filter(item => item.total_qty && item.available_qty > item.total_qty);
+        if (overStockSamples.length > 0) {
+          if (profile?.role === 'admin' || user) {
+            try {
+              for (const os of overStockSamples) {
+                supabase.from('samples').update({ available_qty: os.total_qty }).eq('id', os.id).then();
+              }
+            } catch (errOs) { /* ignore */ }
+          }
+          s = s.map(item => {
+            if (item.total_qty && item.available_qty > item.total_qty) {
+              return { ...item, available_qty: item.total_qty };
+            }
+            return item;
+          });
+        }
+      }
+
       if (s && s.length > 0) {
         const lostSamples = s.filter(item => (item.status === 'destroyed' || item.note === 'Mẫu bị mất') && item.packaging_date >= '2026-01-01' && item.packaging_date <= '2026-11-30');
         if (lostSamples.length > 0) {
@@ -4888,7 +4923,7 @@ export default function App() {
   }, []);
 
   // 1. Gửi yêu cầu lấy mẫu (Khách / Nhân viên / Admin)
-  // TRỪ NGAY SỐ LƯỢNG TRONG KHO để khi người khác quét lại mã QR sẽ thấy số lượng đã bị trừ
+  // GIỮ CHỖ TỒN KHO TỰ ĐỘNG (Reserved Stock): Khách tạo yêu cầu 'pending' sẽ tự động trừ vào số lượng khả dụng
   const handleTakeRequest = async (sample, qty, note) => {
     if (!hasDeclaredName()) {
       setShowNamePrompt(true);
@@ -4901,16 +4936,15 @@ export default function App() {
       return;
     }
 
-    const currentAvailable = sample.available_qty || 0;
-    if (takeQtyNum > currentAvailable) {
-      showToast(`Không đủ số lượng trong kho! Hiện chỉ còn lại ${currentAvailable} bao.`, "error");
+    const currentEffective = getSampleEffectiveAvailable(sample);
+    if (takeQtyNum > currentEffective) {
+      showToast(`Không đủ số lượng trong kho! Hiện chỉ còn khả dụng ${currentEffective} bao.`, "error");
       return;
     }
 
     const rawPurpose = typeof note === 'string' ? note.trim() : '';
     const isMissingPurpose = rawPurpose === '';
     const effectivePurpose = isMissingPurpose ? 'Người dùng không nhập mục đích' : rawPurpose;
-    const newRemainingQty = currentAvailable - takeQtyNum;
 
     if (isDemoMode) {
       let finalNote = effectivePurpose;
@@ -4936,24 +4970,10 @@ export default function App() {
       };
       setTransactions(prev => [newTx, ...prev]);
 
-      // Trừ ngay số lượng trong kho Demo
-      setSamples(prev => prev.map(s => {
-        if (s.id === sample.id) {
-          return { ...s, available_qty: newRemainingQty };
-        }
-        return s;
-      }));
-      setSearchResults(prev => prev.map(s => {
-        if (s.id === sample.id) {
-          return { ...s, available_qty: newRemainingQty };
-        }
-        return s;
-      }));
-
       if (isMissingPurpose) {
         showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
       } else {
-        showToast("Đã gửi yêu cầu lấy mẫu! Số lượng đã được trừ trong kho.", "success");
+        showToast("Đã gửi yêu cầu lấy mẫu! Số lượng đã được giữ chỗ.", "success");
       }
 
       const locStr = sample.shelf 
@@ -4984,14 +5004,9 @@ export default function App() {
           finalNote = `${currentDevId ? `[dev: ${currentDevId}] ` : ''}${effectivePurpose}`.trim();
         }
 
-        // 1. Trừ ngay số lượng trong bảng samples ở Database
-        const { error: sUpdateErr } = await supabase
-          .from('samples')
-          .update({ available_qty: newRemainingQty })
-          .eq('id', sample.id);
-        if (sUpdateErr) throw sUpdateErr;
-
-        // 2. Ghi nhận giao dịch take_request
+        // Ghi nhận giao dịch take_request (status: pending).
+        // Không sửa trực tiếp bảng samples để tránh bị RLS chặn đối với khách vãng lai.
+        // Tồn khả dụng sẽ tự động được trừ thông qua getSampleEffectiveAvailable.
         const { error: txErr } = await supabase.from('transactions').insert({
           sample_id: sample.id,
           user_id: profile?.id || null,
@@ -5045,10 +5060,7 @@ export default function App() {
   };
 
   // 2. Phê duyệt yêu cầu cấp mẫu (Admin / Storekeeper)
-  // Vì số lượng yêu cầu ban đầu (tx.quantity) đã bị trừ lúc gửi yêu cầu,
-  // nên khi duyệt:
-  // - Nếu cấp đúng tx.quantity: số lượng trong kho giữ nguyên đã trừ.
-  // - Nếu cấp khác tx.quantity: tính chênh lệch và bù trừ lại.
+  // Trừ số lượng thực tế trong kho tại thời điểm phê duyệt cấp
   const handleApproveRequest = async (tx, customQty) => {
     const sample = samples.find(s => s.id === tx.sample_id) || tx.samples;
     const qtyToTake = (customQty !== undefined && customQty !== '') ? Number(customQty) : Number(tx.quantity);
@@ -5058,14 +5070,13 @@ export default function App() {
       return;
     }
 
-    const requestedQty = Number(tx.quantity) || 0;
-    const diff = requestedQty - qtyToTake; // dương: trả lại kho, âm: trừ thêm
-    const newQty = (sample?.available_qty || 0) + diff;
-
-    if (newQty < 0) {
-      showToast(`Số lượng mẫu trong kho không đủ để cấp tăng thêm ${Math.abs(diff)} bao!`, "error");
+    const currentPhysical = sample?.available_qty || 0;
+    if (qtyToTake > currentPhysical) {
+      showToast(`Số lượng mẫu trong kho không đủ để cấp ${qtyToTake} bao! Hiện chỉ còn ${currentPhysical} bao.`, "error");
       return;
     }
+
+    const newQty = Math.max(0, currentPhysical - qtyToTake);
 
     let nextShelf = sample?.shelf ?? null;
     let nextSlot = sample?.slot ?? null;
@@ -5081,7 +5092,9 @@ export default function App() {
       showToast(`Giao dịch chứa số lượng lẻ. Di chuyển phần bao lẻ còn lại (${newQty} bao) vào ô lẻ ${formatLocation(sample.shelf, 5)}.`, "warning");
     }
 
-    if (newQty === 0) {
+    // Kiểm tra xem có đơn pending nào khác cùng mẫu này không
+    const hasOtherPending = transactions.some(t => t.id !== tx.id && t.sample_id === sample?.id && t.status === 'pending');
+    if (newQty === 0 && !hasOtherPending) {
       nextShelf = null;
       nextSlot = null;
       nextColumn = null;
@@ -5194,11 +5207,13 @@ export default function App() {
       return;
     }
     const sample = samples.find(s => s.id === tx.sample_id) || tx.samples;
-    const oldQty = Number(tx.quantity) || 0;
-    const diff = qty - oldQty; // dương: xin thêm, âm: bớt lại
+    const otherPending = transactions
+      .filter(t => t.id !== tx.id && t.sample_id === sample?.id && t.type === 'take_request' && t.status === 'pending')
+      .reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
+    const maxAllowed = (sample?.available_qty || 0) - otherPending;
 
-    if (diff > 0 && sample && diff > (sample.available_qty || 0)) {
-      showToast(`Không đủ số lượng trong kho để tăng thêm ${diff} bao! (Còn lại ${sample.available_qty || 0} bao)`, "error");
+    if (qty > maxAllowed) {
+      showToast(`Không đủ số lượng trong kho! Tối đa có thể cấp là ${maxAllowed} bao.`, "error");
       return;
     }
 
@@ -5207,14 +5222,6 @@ export default function App() {
         if (t.id === tx.id) return { ...t, quantity: qty };
         return t;
       }));
-      if (sample && diff !== 0) {
-        setSamples(prev => prev.map(s => {
-          if (s.id === sample.id) {
-            return { ...s, available_qty: Math.max(0, (s.available_qty || 0) - diff) };
-          }
-          return s;
-        }));
-      }
       showToast(`Đã cập nhật số lượng yêu cầu thành ${qty} bao`, "success");
     } else {
       try {
@@ -5224,14 +5231,6 @@ export default function App() {
           .update({ quantity: qty })
           .eq('id', tx.id);
         if (error) throw error;
-
-        if (sample && diff !== 0) {
-          const { data: curSample } = await supabase.from('samples').select('available_qty').eq('id', sample.id).single();
-          if (curSample) {
-            const updatedAvailable = Math.max(0, (curSample.available_qty || 0) - diff);
-            await supabase.from('samples').update({ available_qty: updatedAvailable }).eq('id', sample.id);
-          }
-        }
 
         showToast(`Đã cập nhật số lượng yêu cầu thành ${qty} bao`, "success");
         await fetchDatabaseData();
@@ -5243,17 +5242,13 @@ export default function App() {
     }
   };
 
-  // 4. Từ chối hoặc Hủy yêu cầu lấy mẫu: TỰ ĐỘNG CỘNG HOÀN LẠI SỐ LƯỢNG VÀO KHO
+  // 4. Từ chối hoặc Hủy yêu cầu lấy mẫu: Khôi phục tự động qua Reserved Stock
   const handleCancelRequest = async (txId, reason = '') => {
     const cleanReason = (reason || '').trim();
     const reasonTag = cleanReason ? ` [Lý do từ chối: ${cleanReason}]` : '';
 
     const curTx = transactions.find(t => t.id === txId);
     if (!curTx) return;
-
-    // Chỉ hoàn trả số lượng nếu yêu cầu đang ở trạng thái pending (vì lúc gửi yêu cầu đã bị trừ)
-    const shouldRestoreQty = curTx.status === 'pending';
-    const restoreAmount = shouldRestoreQty ? (parseInt(curTx.quantity, 10) || 0) : 0;
 
     if (isDemoMode) {
       setTransactions(prev => prev.map(t => {
@@ -5263,26 +5258,13 @@ export default function App() {
         }
         return t;
       }));
-
-      if (restoreAmount > 0) {
-        setSamples(prev => prev.map(s => {
-          if (s.id === curTx.sample_id) {
-            return {
-              ...s,
-              available_qty: (s.available_qty || 0) + restoreAmount
-            };
-          }
-          return s;
-        }));
-      }
-
-      showToast(`Đã từ chối yêu cầu${restoreAmount > 0 ? ` và hoàn lại ${restoreAmount} bao vào kho` : ''}!`, "info");
+      showToast(`Đã từ chối yêu cầu và giải phóng số lượng giữ chỗ!`, "info");
     } else {
       try {
         setLoading(true);
         const updatedNote = curTx.note ? `${curTx.note}${reasonTag}` : (cleanReason ? `Lý do từ chối: ${cleanReason}` : '');
 
-        // 1. Cập nhật transaction thành cancelled
+        // Cập nhật transaction thành cancelled. Số lượng khả dụng tự động khôi phục qua getSampleEffectiveAvailable
         const { error: tError } = await supabase
           .from('transactions')
           .update({ 
@@ -5292,27 +5274,7 @@ export default function App() {
           .eq('id', txId);
         if (tError) throw tError;
 
-        // 2. Hoàn lại số lượng vào sample trong Database
-        if (restoreAmount > 0 && curTx.sample_id) {
-          const { data: curSample, error: sFetchErr } = await supabase
-            .from('samples')
-            .select('available_qty, status')
-            .eq('id', curTx.sample_id)
-            .single();
-
-          if (!sFetchErr && curSample) {
-            const restoredQty = (curSample.available_qty || 0) + restoreAmount;
-            await supabase
-              .from('samples')
-              .update({
-                available_qty: restoredQty,
-                status: curSample.status === 'destroyed' || curSample.status === 'dispatched' ? 'stored' : curSample.status
-              })
-              .eq('id', curTx.sample_id);
-          }
-        }
-
-        showToast(`Đã từ chối yêu cầu${restoreAmount > 0 ? ` và hoàn lại ${restoreAmount} bao vào kho` : ''}!`, "info");
+        showToast(`Đã từ chối yêu cầu! Số lượng đã được khôi phục.`, "info");
         await fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
@@ -5468,17 +5430,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
           note: `Hoàn tác cấp mẫu về chờ duyệt: Vị trí phục hồi ${restoredShelf ? formatLocation(restoredShelf, restoredSlot, restoredCol) : 'Thùng'}`
         });
       } else if (isCancelled) {
-        // Lúc từ chối đã hoàn trả lại số lượng vào kho, giờ chuyển lại pending thì trừ lại
-        const { data: curSample, error: fetchErr } = await supabase
-          .from('samples')
-          .select('available_qty')
-          .eq('id', tx.sample_id)
-          .single();
-
-        if (!fetchErr && curSample) {
-          const newQty = Math.max(0, (curSample.available_qty || 0) - (parseInt(tx.quantity, 10) || 0));
-          await supabase.from('samples').update({ available_qty: newQty }).eq('id', tx.sample_id);
-        }
+        // Chuyển lại pending: Tồn khả dụng tự động tính trừ qua getSampleEffectiveAvailable
       }
 
       // Cập nhật lại trạng thái yêu cầu về 'pending'
@@ -7821,9 +7773,10 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                       const isExpired = ageMonths >= 12;
                       const isWarn = ageMonths === 11;
                       
+                      const effAvailable = getSampleEffectiveAvailable(s);
                       const qtyVal = takeQuantities[s.id] || '';
                       const qtyInt = parseInt(qtyVal);
-                      const isValidQty = !isNaN(qtyInt) && qtyInt > 0 && qtyInt <= s.available_qty;
+                      const isValidQty = !isNaN(qtyInt) && qtyInt > 0 && qtyInt <= effAvailable;
                       
                       return (
                         <div key={s.id} className="glass-panel sample-card" style={{ borderLeft: `4px solid ${isExpired ? 'var(--status-error)' : isWarn ? 'var(--status-warning)' : 'var(--accent-blue)'}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
@@ -7838,7 +7791,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                               <div><strong>Mẻ sợi:</strong> {formatBlendBatch(s.blend_batch)}</div>
                               <div><strong>Ngày SX bao:</strong> {new Date(s.packaging_date).toLocaleDateString()} {formatSamplingBox(s.blend_batch)}</div>
-                              <div><strong>Tồn khả dụng:</strong> <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{s.available_qty} bao</span> ({Math.floor(s.available_qty/10)} cây, {s.available_qty%10} bao lẻ)</div>
+                              <div><strong>Tồn khả dụng:</strong> <span style={{ color: effAvailable === 0 ? 'var(--status-error)' : 'var(--text-primary)', fontWeight: 'bold' }}>{effAvailable} bao</span> ({Math.floor(effAvailable/10)} cây, {effAvailable%10} bao lẻ){effAvailable !== s.available_qty ? <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px' }}>(Kho: {s.available_qty}, chờ duyệt: {s.available_qty - effAvailable})</span> : null}</div>
                               {s.order_number && <div><strong>Số đơn hàng:</strong> {s.order_number}</div>}
                               <div><strong>Cảnh báo bao:</strong> {s.products?.warning_code || 'Không'}</div>
                               <div><strong>Vị trí hiện tại:</strong> <span style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>
@@ -7860,16 +7813,16 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
                           {/* TAKE SAMPLE REQUEST ACTION AREA */}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end', minWidth: '260px' }}>
-                            {s.available_qty > 0 ? (
+                            {effAvailable > 0 ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
                                 <div style={{ display: 'flex', width: '100%' }}>
                                   <input 
                                     type="number"
                                     className="form-input"
                                     style={{ flex: 1, padding: '8px 12px', fontSize: '13px' }}
-                                    placeholder="Nhập số bao cần lấy..."
+                                    placeholder={`Nhập số bao (tối đa ${effAvailable} bao)...`}
                                     min="1"
-                                    max={s.available_qty}
+                                    max={effAvailable}
                                     value={takeQuantities[s.id] || ''}
                                     onChange={e => setTakeQuantities(prev => ({ ...prev, [s.id]: e.target.value }))}
                                   />
@@ -9455,81 +9408,99 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                     {sample?.products?.product_name || sample?.product_name || 'Mẫu đã xóa'}
                                   </h4>
 
-                                  {tx.status === 'pending' ? (
-                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(255, 255, 255, 0.05)', padding: '3px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
-                                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy:</span>
-                                      <div style={{ display: 'inline-flex', alignItems: 'center', background: '#0b1120', borderRadius: '6px', border: '1px solid var(--accent-blue)', overflow: 'hidden' }}>
-                                        <button
-                                          type="button"
-                                          style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', width: '26px', height: '26px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                          onClick={() => {
-                                            const cur = (requestCustomQty[tx.id] !== undefined && requestCustomQty[tx.id] !== '') ? Number(requestCustomQty[tx.id]) : tx.quantity;
-                                            setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.max(1, cur - 1) }));
-                                          }}
-                                          title="Giảm 1 bao"
-                                        >
-                                          -
-                                        </button>
-                                        <input
-                                          type="number"
-                                          min="1"
-                                          max={sample?.available_qty || 9999}
-                                          value={requestCustomQty[tx.id] !== undefined ? requestCustomQty[tx.id] : tx.quantity}
-                                          onChange={(e) => {
-                                            const raw = e.target.value;
-                                            if (raw === '') {
-                                              setRequestCustomQty(prev => ({ ...prev, [tx.id]: '' }));
-                                            } else {
-                                              const val = parseInt(raw, 10);
-                                              if (!isNaN(val)) {
-                                                setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.max(1, Math.min(val, sample?.available_qty || 9999)) }));
+                                  {tx.status === 'pending' ? (() => {
+                                    const curPhysStock = sample?.available_qty || 0;
+                                    const otherPendingQty = transactions
+                                      .filter(t => t.id !== tx.id && t.sample_id === sample?.id && t.type === 'take_request' && t.status === 'pending')
+                                      .reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
+                                    const totalStockForThisTx = Math.max(0, curPhysStock - otherPendingQty);
+                                    const isOverStock = pendingChosenQty > totalStockForThisTx;
+                                    const remainingAfter = totalStockForThisTx - pendingChosenQty;
+
+                                    return (
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(255, 255, 255, 0.05)', padding: '3px 10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
+                                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>— Lấy:</span>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', background: '#0b1120', borderRadius: '6px', border: '1px solid var(--accent-blue)', overflow: 'hidden' }}>
+                                          <button
+                                            type="button"
+                                            style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', width: '26px', height: '26px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            onClick={() => {
+                                              const cur = (requestCustomQty[tx.id] !== undefined && requestCustomQty[tx.id] !== '') ? Number(requestCustomQty[tx.id]) : tx.quantity;
+                                              setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.max(1, cur - 1) }));
+                                            }}
+                                            title="Giảm 1 bao"
+                                          >
+                                            -
+                                          </button>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            max={totalStockForThisTx}
+                                            value={requestCustomQty[tx.id] !== undefined ? requestCustomQty[tx.id] : tx.quantity}
+                                            onChange={(e) => {
+                                              const raw = e.target.value;
+                                              if (raw === '') {
+                                                setRequestCustomQty(prev => ({ ...prev, [tx.id]: '' }));
+                                              } else {
+                                                const val = parseInt(raw, 10);
+                                                if (!isNaN(val)) {
+                                                  setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.max(1, Math.min(val, totalStockForThisTx)) }));
+                                                }
                                               }
-                                            }
-                                          }}
-                                          onBlur={() => {
-                                            if (!requestCustomQty[tx.id] || requestCustomQty[tx.id] < 1) {
-                                              setRequestCustomQty(prev => ({ ...prev, [tx.id]: tx.quantity || 1 }));
-                                            }
-                                          }}
-                                          style={{
-                                            width: '50px',
-                                            height: '26px',
-                                            textAlign: 'center',
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: '#38bdf8',
-                                            fontWeight: 'bold',
-                                            fontSize: '14px',
-                                            outline: 'none',
-                                            padding: 0
-                                          }}
-                                        />
-                                        <button
-                                          type="button"
-                                          style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', width: '26px', height: '26px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                          onClick={() => {
-                                            const cur = (requestCustomQty[tx.id] !== undefined && requestCustomQty[tx.id] !== '') ? Number(requestCustomQty[tx.id]) : tx.quantity;
-                                            const maxQ = sample?.available_qty || 9999;
-                                            setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.min(maxQ, cur + 1) }));
-                                          }}
-                                          title="Tăng 1 bao"
-                                        >
-                                          +
-                                        </button>
-                                      </div>
-                                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                                        bao ({pendingChosenQty % 10 !== 0 ? 'Bóc cây lẻ' : `${Math.floor(pendingChosenQty / 10)} cây nguyên`})
-                                      </span>
-                                      {isPendingQtyChanged && (
-                                        <span style={{ fontSize: '11.5px', color: '#f59e0b', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)' }}>
-                                          Yêu cầu gốc: {tx.quantity} bao
+                                            }}
+                                            onBlur={() => {
+                                              if (!requestCustomQty[tx.id] || requestCustomQty[tx.id] < 1) {
+                                                setRequestCustomQty(prev => ({ ...prev, [tx.id]: tx.quantity || 1 }));
+                                              }
+                                            }}
+                                            style={{
+                                              width: '50px',
+                                              height: '26px',
+                                              textAlign: 'center',
+                                              background: 'transparent',
+                                              border: 'none',
+                                              color: '#38bdf8',
+                                              fontWeight: 'bold',
+                                              fontSize: '14px',
+                                              outline: 'none',
+                                              padding: 0
+                                            }}
+                                          />
+                                          <button
+                                            type="button"
+                                            style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#fff', width: '26px', height: '26px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            onClick={() => {
+                                              const cur = (requestCustomQty[tx.id] !== undefined && requestCustomQty[tx.id] !== '') ? Number(requestCustomQty[tx.id]) : tx.quantity;
+                                              setRequestCustomQty(prev => ({ ...prev, [tx.id]: Math.min(totalStockForThisTx, cur + 1) }));
+                                            }}
+                                            title="Tăng 1 bao"
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                          bao ({pendingChosenQty % 10 !== 0 ? 'Bóc cây lẻ' : `${Math.floor(pendingChosenQty / 10)} cây nguyên`})
                                         </span>
-                                      )}
-                                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                        • Tồn kho: <strong style={{ color: pendingChosenQty > (sample?.available_qty || 0) ? 'var(--status-error)' : 'var(--accent-blue)' }}>{sample?.available_qty ?? 0} bao</strong>
-                                      </span>
-                                    </div>
-                                  ) : (
+                                        {isPendingQtyChanged && (
+                                          <span style={{ fontSize: '11.5px', color: '#f59e0b', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                            Yêu cầu gốc: {tx.quantity} bao
+                                          </span>
+                                        )}
+                                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                          • Tồn khả dụng: <strong style={{ color: isOverStock ? 'var(--status-error)' : 'var(--accent-blue)' }}>{totalStockForThisTx} bao</strong>
+                                          {remainingAfter >= 0 ? (
+                                            <span style={{ marginLeft: '4px', color: 'var(--text-secondary)' }}>
+                                              (Sau cấp còn: <strong style={{ color: remainingAfter === 0 ? 'var(--text-muted)' : 'var(--status-success)' }}>{remainingAfter} bao</strong>)
+                                            </span>
+                                          ) : (
+                                            <span style={{ marginLeft: '4px', color: 'var(--status-error)', fontWeight: 600 }}>
+                                              (Thiếu {Math.abs(remainingAfter)} bao!)
+                                            </span>
+                                          )}
+                                        </span>
+                                      </div>
+                                    );
+                                  })() : (
                                     <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                                       — Lấy: <strong>{tx.quantity} bao</strong> ({tx.quantity % 10 !== 0 ? 'Bóc cây lẻ' : `${tx.quantity/10} cây nguyên`})
                                     </span>
@@ -12624,45 +12595,52 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                                             style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}
                                             onClick={e => e.stopPropagation()}
                                           >
-                                            <input
-                                              type="number"
-                                              min="1"
-                                              max={sample.available_qty}
-                                              placeholder="Số bao cần lấy..."
-                                              value={takeQuantities[sample.id]}
-                                              onChange={e => setTakeQuantities(prev => ({ ...prev, [sample.id]: e.target.value }))}
-                                              style={{ width: '115px', padding: '5px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
-                                              autoFocus
-                                            />
-                                            <input
-                                              type="text"
-                                              placeholder="Mục đích lấy mẫu..."
-                                              value={takeNotes[sample.id] || ''}
-                                              onChange={e => setTakeNotes(prev => ({ ...prev, [sample.id]: e.target.value }))}
-                                              style={{ flex: '1 1 150px', minWidth: '130px', padding: '5px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
-                                            />
-                                            <button
-                                              className="btn btn-primary"
-                                              style={{ padding: '5px 12px', fontSize: '11.5px', background: 'var(--accent-gradient)', border: 'none', color: '#fff', whiteSpace: 'nowrap', fontWeight: 600, borderRadius: '5px' }}
-                                              disabled={!takeQuantities[sample.id] || parseInt(takeQuantities[sample.id]) <= 0 || parseInt(takeQuantities[sample.id]) > sample.available_qty || loading}
-                                              onClick={() => {
-                                                handleTakeRequest(sample, parseInt(takeQuantities[sample.id]), takeNotes[sample.id] || '');
-                                                setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
-                                                setTakeNotes(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
-                                              }}
-                                            >
-                                              Xác nhận
-                                            </button>
-                                            <button
-                                              className="btn btn-secondary"
-                                              style={{ padding: '5px 8px', fontSize: '11.5px' }}
-                                              onClick={() => {
-                                                setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
-                                                setTakeNotes(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
-                                              }}
-                                            >
-                                              <X size={13} />
-                                            </button>
+                                            {(() => {
+                                              const effShelfAvail = getSampleEffectiveAvailable(sample);
+                                              return (
+                                                <>
+                                                  <input
+                                                    type="number"
+                                                    min="1"
+                                                    max={effShelfAvail}
+                                                    placeholder={`Tối đa ${effShelfAvail}...`}
+                                                    value={takeQuantities[sample.id]}
+                                                    onChange={e => setTakeQuantities(prev => ({ ...prev, [sample.id]: e.target.value }))}
+                                                    style={{ width: '115px', padding: '5px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
+                                                    autoFocus
+                                                  />
+                                                  <input
+                                                    type="text"
+                                                    placeholder="Mục đích lấy mẫu..."
+                                                    value={takeNotes[sample.id] || ''}
+                                                    onChange={e => setTakeNotes(prev => ({ ...prev, [sample.id]: e.target.value }))}
+                                                    style={{ flex: '1 1 150px', minWidth: '130px', padding: '5px 8px', fontSize: '12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '5px', color: 'var(--text-primary)', outline: 'none' }}
+                                                  />
+                                                  <button
+                                                    className="btn btn-primary"
+                                                    style={{ padding: '5px 12px', fontSize: '11.5px', background: 'var(--accent-gradient)', border: 'none', color: '#fff', whiteSpace: 'nowrap', fontWeight: 600, borderRadius: '5px' }}
+                                                    disabled={!takeQuantities[sample.id] || parseInt(takeQuantities[sample.id]) <= 0 || parseInt(takeQuantities[sample.id]) > effShelfAvail || loading}
+                                                    onClick={() => {
+                                                      handleTakeRequest(sample, parseInt(takeQuantities[sample.id]), takeNotes[sample.id] || '');
+                                                      setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
+                                                      setTakeNotes(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
+                                                    }}
+                                                  >
+                                                    Xác nhận
+                                                  </button>
+                                                  <button
+                                                    className="btn btn-secondary"
+                                                    style={{ padding: '5px 8px', fontSize: '11.5px' }}
+                                                    onClick={() => {
+                                                      setTakeQuantities(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
+                                                      setTakeNotes(prev => { const c = { ...prev }; delete c[sample.id]; return c; });
+                                                    }}
+                                                  >
+                                                    <X size={13} />
+                                                  </button>
+                                                </>
+                                              );
+                                            })()}
                                           </div>
                                         )}
                                       </div>
@@ -13847,86 +13825,89 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--status-error)', marginBottom: '6px' }}>Không tìm thấy mẫu</div>
                   <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Mã: <strong>{scanResultModal.sku}</strong></div>
                 </div>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px', marginBottom: '16px' }}>
-                    <div style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                        {scanResultModal.products?.product_name || scanResultModal.product_name}
-                        {scanResultModal.products?.warning_code && (
-                          <span style={{ marginLeft: '8px', fontSize: '11px', background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px', fontWeight: 'normal', color: 'var(--text-secondary)' }}>
-                            {scanResultModal.products.warning_code}
-                          </span>
-                        )}
-                      </div>
-                      <div><span style={{ color: 'var(--text-secondary)' }}>Mẻ sợi:</span> <strong>{formatBlendBatch(scanResultModal.blend_batch)}</strong></div>
-                      <div><span style={{ color: 'var(--text-secondary)' }}>Ngày SX bao:</span> <strong>{new Date(scanResultModal.packaging_date).toLocaleDateString()}</strong></div>
-                      {scanResultModal.shelf && (
-                        <div style={{ marginTop: '4px', padding: '6px 10px', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.25)', borderRadius: '6px', fontWeight: 'bold', color: 'var(--accent-blue)', fontSize: '14px' }}>
-                          📍 {formatLocation(scanResultModal.shelf, scanResultModal.slot, scanResultModal.column_number)}
+              ) : (() => {
+                const effScanAvail = getSampleEffectiveAvailable(scanResultModal);
+                return (
+                  <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px', marginBottom: '16px' }}>
+                      <div style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                          {scanResultModal.products?.product_name || scanResultModal.product_name}
+                          {scanResultModal.products?.warning_code && (
+                            <span style={{ marginLeft: '8px', fontSize: '11px', background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px', fontWeight: 'normal', color: 'var(--text-secondary)' }}>
+                              {scanResultModal.products.warning_code}
+                            </span>
+                          )}
                         </div>
-                      )}
-                      <div style={{ marginTop: '4px' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Còn lại:</span>{' '}
-                        {scanResultModal.available_qty > 0
-                          ? <strong style={{ color: 'var(--status-success)' }}>{scanResultModal.available_qty} bao</strong>
-                          : <strong style={{ color: 'var(--status-error)' }}>Đã hết</strong>
-                        }
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Mẻ sợi:</span> <strong>{formatBlendBatch(scanResultModal.blend_batch)}</strong></div>
+                        <div><span style={{ color: 'var(--text-secondary)' }}>Ngày SX bao:</span> <strong>{new Date(scanResultModal.packaging_date).toLocaleDateString()}</strong></div>
+                        {scanResultModal.shelf && (
+                          <div style={{ marginTop: '4px', padding: '6px 10px', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.25)', borderRadius: '6px', fontWeight: 'bold', color: 'var(--accent-blue)', fontSize: '14px' }}>
+                            📍 {formatLocation(scanResultModal.shelf, scanResultModal.slot, scanResultModal.column_number)}
+                          </div>
+                        )}
+                        <div style={{ marginTop: '4px' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Còn lại khả dụng:</span>{' '}
+                          {effScanAvail > 0
+                            ? <strong style={{ color: 'var(--status-success)' }}>{effScanAvail} bao{effScanAvail !== scanResultModal.available_qty ? ` (Kho: ${scanResultModal.available_qty})` : ''}</strong>
+                            : <strong style={{ color: 'var(--status-error)' }}>Đã hết khả dụng</strong>
+                          }
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {scanResultModal.available_qty > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Số bao cần lấy:</label>
-                        <input
-                          type="number"
-                          min="1"
-                          max={scanResultModal.available_qty}
-                          placeholder={`Tối đa ${scanResultModal.available_qty} bao`}
-                          value={scanQty}
-                          onChange={e => setScanQty(e.target.value)}
-                          className="form-input"
-                          style={{ width: '100%', boxSizing: 'border-box' }}
-                          autoFocus
-                        />
+                    {effScanAvail > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Số bao cần lấy:</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max={effScanAvail}
+                            placeholder={`Tối đa ${effScanAvail} bao`}
+                            value={scanQty}
+                            onChange={e => setScanQty(e.target.value)}
+                            className="form-input"
+                            style={{ width: '100%', boxSizing: 'border-box' }}
+                            autoFocus
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Mục đích lấy mẫu:</label>
+                          <input
+                            type="text"
+                            placeholder="Nhập mục đích lấy mẫu (VD: Kiểm tra chất lượng...)"
+                            value={scanPurpose}
+                            onChange={e => setScanPurpose(e.target.value)}
+                            className="form-input"
+                            style={{ width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <button
+                          className="btn btn-primary"
+                          style={{ background: 'linear-gradient(135deg,#10b981,#059669)', width: '100%', justifyContent: 'center', padding: '10px 16px', marginTop: '2px' }}
+                          disabled={!scanQty || parseInt(scanQty) <= 0 || parseInt(scanQty) > effScanAvail || loading}
+                          onClick={() => {
+                            handleTakeRequest(scanResultModal, parseInt(scanQty), scanPurpose);
+                            setScanResultModal(null);
+                            setScanQty('');
+                            setScanPurpose('');
+                          }}
+                        >
+                          <PackageMinus size={15} /> Xác nhận lấy mẫu
+                        </button>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', textAlign: 'center' }}>
+                          Yêu cầu sẽ được gửi đến thủ kho để xác nhận.
+                        </div>
                       </div>
-                      <div>
-                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Mục đích lấy mẫu:</label>
-                        <input
-                          type="text"
-                          placeholder="Nhập mục đích lấy mẫu (VD: Kiểm tra chất lượng...)"
-                          value={scanPurpose}
-                          onChange={e => setScanPurpose(e.target.value)}
-                          className="form-input"
-                          style={{ width: '100%', boxSizing: 'border-box' }}
-                        />
+                    ) : (
+                      <div style={{ textAlign: 'center', color: 'var(--status-error)', fontWeight: 'bold', fontSize: '14px', padding: '8px 0' }}>
+                        ⚠️ Mẫu này đã hết số lượng khả dụng, không thể lấy.
                       </div>
-                      <button
-                        className="btn btn-primary"
-                        style={{ background: 'linear-gradient(135deg,#10b981,#059669)', width: '100%', justifyContent: 'center', padding: '10px 16px', marginTop: '2px' }}
-                        disabled={!scanQty || parseInt(scanQty) <= 0 || parseInt(scanQty) > scanResultModal.available_qty || loading}
-                        onClick={() => {
-                          handleTakeRequest(scanResultModal, parseInt(scanQty), scanPurpose);
-                          setScanResultModal(null);
-                          setScanQty('');
-                          setScanPurpose('');
-                        }}
-                      >
-                        <PackageMinus size={15} /> Xác nhận lấy mẫu
-                      </button>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', textAlign: 'center' }}>
-                        Yêu cầu sẽ được gửi đến thủ kho để xác nhận.
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ textAlign: 'center', color: 'var(--status-error)', fontWeight: 'bold', fontSize: '14px', padding: '8px 0' }}>
-                      ⚠️ Mẫu này đã hết, không thể lấy.
-                    </div>
-                  )}
-                </>
-              )}
+                    )}
+                  </>
+                );
+              })()}
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => { setScanResultModal(null); setScanQty(''); }}>Đóng</button>
