@@ -2571,6 +2571,13 @@ export default function App() {
   const [takeQuantities, setTakeQuantities] = useState({});
   const [takeNotes, setTakeNotes] = useState({});
   const [loosePackEditQty, setLoosePackEditQty] = useState({});
+  const [checkedSamples, setCheckedSamples] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('checked_loose_samples') || '{}');
+    } catch {
+      return {};
+    }
+  });
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   const lastSearchLogRef = useRef({ keyword: "", timestamp: 0 });
@@ -5762,6 +5769,17 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
         return next;
       });
 
+      // Tự động đánh dấu đã kiểm tra khi admin cập nhật số lượng
+      if (!isZero) {
+        setCheckedSamples(prev => {
+          const now = new Date();
+          const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+          const next = { ...prev, [sample.id]: { time: timeStr, date: now.toLocaleDateString('vi-VN'), at: now.toISOString() } };
+          try { localStorage.setItem('checked_loose_samples', JSON.stringify(next)); } catch {}
+          return next;
+        });
+      }
+
       showToast(
         isZero 
           ? 'Đã cập nhật: Hết mẫu và gỡ khỏi Kệ lẻ thành công!' 
@@ -5773,6 +5791,41 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
     } finally {
       setLoading(false);
     }
+  };
+
+  // Đánh dấu / Bỏ đánh dấu xác nhận đã kiểm tra mẫu ô lẻ
+  const handleToggleCheckSample = (sampleId, prodName) => {
+    setCheckedSamples(prev => {
+      const isCurrentlyChecked = !!prev[sampleId];
+      const next = { ...prev };
+      if (isCurrentlyChecked) {
+        delete next[sampleId];
+        showToast(`Đã bỏ tick kiểm tra mẫu "${prodName}"`, 'info');
+      } else {
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        next[sampleId] = { time: timeStr, date: now.toLocaleDateString('vi-VN'), at: now.toISOString() };
+        showToast(`✓ Đã xác nhận kiểm tra mẫu "${prodName}"!`, 'success');
+      }
+      try {
+        localStorage.setItem('checked_loose_samples', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Đặt lại trạng thái kiểm tra cho các mẫu trong ô lẻ này
+  const handleResetCheckedInSlot = (slotSampleIds) => {
+    if (!window.confirm("Bạn có muốn đặt lại trạng thái đã kiểm của các mẫu trong ô lẻ này để bắt đầu đợt kiểm mới?")) return;
+    setCheckedSamples(prev => {
+      const next = { ...prev };
+      slotSampleIds.forEach(id => delete next[id]);
+      try {
+        localStorage.setItem('checked_loose_samples', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    showToast("Đã đặt lại trạng thái kiểm tra cho ô này!", "info");
   };
 
   const handleMoveSample = async (sampleId, targetType, targetDetails) => {
@@ -12271,44 +12324,96 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
               {selectedSlot.slot === 5 ? (
                 // Loose packs slot 5 layout
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                    <h4 style={{ fontSize: '15px', color: 'var(--accent-purple)', margin: 0, fontWeight: 'bold' }}>
-                      <Tags size={16} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: '6px' }} /> Ô lẻ Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf} (Loose items)
-                    </h4>
-                    {profile?.role === 'admin' && samples.some(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored') && (
-                      <button 
-                        className="btn btn-primary"
-                        style={{ padding: '5px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--qc-emerald)', border: '1px solid var(--qc-emerald)' }}
-                        onClick={() => {
-                          const looseSamples = samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored');
-                          const sL = ['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf;
-                          printTommyStickersForGroup(`Kệ ${sL}5 (Hàng lẻ)`, looseSamples);
-                        }}
-                      >
-                        <Printer size={13} /> In tem hàng lẻ ô này
-                      </button>
-                    )}
-                  </div>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                    Nơi lưu giữ các bao thuốc lá lẻ được bóc ra từ cây thuốc nguyên.
-                  </p>
+                (() => {
+                  const slotLooseSamples = samples
+                    .filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored')
+                    .sort((a, b) => {
+                      const nameA = (a.products?.product_name || a.product_name || '').trim();
+                      const nameB = (b.products?.product_name || b.product_name || '').trim();
+                      const cmp = nameA.localeCompare(nameB, 'vi', { sensitivity: 'base' });
+                      if (cmp !== 0) return cmp;
+                      return new Date(b.packaging_date || 0) - new Date(a.packaging_date || 0);
+                    });
+                  const checkedCount = slotLooseSamples.filter(s => checkedSamples[s.id]).length;
+                  const totalLoose = slotLooseSamples.length;
+                  const isAllChecked = totalLoose > 0 && checkedCount === totalLoose;
+
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                        <h4 style={{ fontSize: '15px', color: 'var(--accent-purple)', margin: 0, fontWeight: 'bold' }}>
+                          <Tags size={16} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: '6px' }} /> Ô lẻ Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf} (Loose items)
+                        </h4>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          {profile?.role === 'admin' && totalLoose > 0 && (
+                            <button 
+                              className="btn btn-primary"
+                              style={{ padding: '5px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--qc-emerald)', border: '1px solid var(--qc-emerald)' }}
+                              onClick={() => {
+                                const sL = ['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf;
+                                printTommyStickersForGroup(`Kệ ${sL}5 (Hàng lẻ)`, slotLooseSamples);
+                              }}
+                            >
+                              <Printer size={13} /> In tem hàng lẻ ({totalLoose})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Thanh trạng thái tiến độ kiểm tra cho Admin */}
+                      {profile?.role === 'admin' && totalLoose > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: isAllChecked ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isAllChecked ? 'rgba(16,185,129,0.35)' : 'var(--glass-border)'}`, borderRadius: '8px', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
+                            <span style={{ color: isAllChecked ? '#10b981' : 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              {isAllChecked ? <Check size={14} color="#10b981" /> : <CheckSquare size={14} color="var(--accent-blue)" />}
+                              Tiến độ kiểm tra: <strong style={{ color: isAllChecked ? '#10b981' : 'var(--accent-blue)' }}>{checkedCount}/{totalLoose}</strong> mẫu đã tick
+                            </span>
+                            {isAllChecked && (
+                              <span style={{ fontSize: '10.5px', background: 'rgba(16,185,129,0.18)', color: '#10b981', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                ✓ Đã hoàn tất ô này
+                              </span>
+                            )}
+                          </div>
+                          {checkedCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleResetCheckedInSlot(slotLooseSamples.map(s => s.id))}
+                              style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                              title="Xóa toàn bộ tick kiểm tra của ô này để kiểm đợt mới"
+                            >
+                              Đặt lại tick ô này
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+                        Nơi lưu giữ các bao thuốc lá lẻ được bóc ra từ cây thuốc nguyên. Danh sách luôn xếp theo thứ tự <strong>A–Z</strong>.
+                      </p>
                   
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored').map(s => {
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {slotLooseSamples.map(s => {
                       const effShelfAvail = getSampleEffectiveAvailable(s);
                       const isEditingLoose = loosePackEditQty[s.id] !== undefined;
                       const isTakingLoose = takeQuantities[s.id] !== undefined;
 
+                      const checkInfo = checkedSamples[s.id];
+                      const isChecked = !!checkInfo;
+
                       return (
-                        <div key={s.id} style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px' }}>
+                        <div key={s.id} style={{ padding: '12px 14px', background: isChecked ? 'rgba(16,185,129,0.04)' : 'rgba(255,255,255,0.02)', border: isChecked ? '1px solid rgba(16,185,129,0.38)' : '1px solid var(--glass-border)', borderRadius: '8px', fontSize: '13px', transition: 'all 0.2s ease' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
                             <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', flexWrap: 'wrap' }}>
                                 <span>{s.products?.product_name || s.product_name}</span>
                                 {s.products?.warning_code && (
                                   <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
                                     {s.products.warning_code}
+                                  </span>
+                                )}
+                                {isChecked && (
+                                  <span style={{ fontSize: '10.5px', background: 'rgba(16,185,129,0.18)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '1px 6px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                    ✓ Đã kiểm {checkInfo.time ? `(${checkInfo.time})` : ''}
                                   </span>
                                 )}
                               </div>
@@ -12327,6 +12432,38 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
                             {/* Action buttons */}
                             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              {profile?.role === 'admin' && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  style={{
+                                    padding: '4px 9px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    background: isChecked ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)',
+                                    border: isChecked ? '1px solid rgba(16,185,129,0.5)' : '1px solid var(--glass-border)',
+                                    color: isChecked ? '#10b981' : 'var(--text-secondary)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    borderRadius: '5px',
+                                    cursor: 'pointer'
+                                  }}
+                                  onClick={() => handleToggleCheckSample(s.id, s.products?.product_name || s.product_name)}
+                                  title={isChecked ? `Đã xác nhận kiểm tra lúc ${checkInfo.time || ''}. Bấm để bỏ tick` : 'Bấm để xác nhận đã kiểm tra mẫu này'}
+                                >
+                                  {isChecked ? (
+                                    <>
+                                      <Check size={13} color="#10b981" /> Đã kiểm
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckSquare size={13} /> Xác nhận kiểm tra
+                                    </>
+                                  )}
+                                </button>
+                              )}
+
                               {profile?.role === 'admin' && !isEditingLoose && (
                                 <button
                                   type="button"
@@ -12501,11 +12638,13 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                         </div>
                       );
                     })}
-                    {samples.filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored').length === 0 && (
+                    {slotLooseSamples.length === 0 && (
                       <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px', fontSize: '13px' }}>Không có bao lẻ nào ở ô này.</div>
                     )}
                   </div>
                 </div>
+                  );
+                })()
               ) : (
                 // Columns layout for Slot 1-4
                 <div>
