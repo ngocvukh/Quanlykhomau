@@ -4887,33 +4887,30 @@ export default function App() {
       });
   }, []);
 
+  // 1. Gửi yêu cầu lấy mẫu (Khách / Nhân viên / Admin)
+  // TRỪ NGAY SỐ LƯỢNG TRONG KHO để khi người khác quét lại mã QR sẽ thấy số lượng đã bị trừ
   const handleTakeRequest = async (sample, qty, note) => {
     if (!hasDeclaredName()) {
       setShowNamePrompt(true);
       showToast('Bạn phải khai báo tên trước khi lấy mẫu!', 'warning');
       return;
     }
-    if (!qty || qty <= 0) {
+    const takeQtyNum = parseInt(qty, 10);
+    if (!takeQtyNum || takeQtyNum <= 0) {
       showToast("Số lượng lấy phải lớn hơn 0!", "error");
       return;
     }
-    const pendingQtyForSample = transactions
-      .filter(t => t.sample_id === sample.id && t.type === 'take_request' && t.status === 'pending')
-      .reduce((sum, t) => sum + (parseInt(t.quantity, 10) || 0), 0);
-    const effectiveAvailableQty = Math.max(0, (sample.available_qty || 0) - pendingQtyForSample);
 
-    if (qty > effectiveAvailableQty) {
-      if (pendingQtyForSample > 0) {
-        showToast(`Không đủ số lượng khả dụng! Hiện có ${sample.available_qty} bao nhưng đang có ${pendingQtyForSample} bao chờ duyệt (chỉ còn đặt thêm được tối đa ${effectiveAvailableQty} bao).`, "error");
-      } else {
-        showToast(`Không đủ số lượng trong kho! Còn lại ${sample.available_qty} bao.`, "error");
-      }
+    const currentAvailable = sample.available_qty || 0;
+    if (takeQtyNum > currentAvailable) {
+      showToast(`Không đủ số lượng trong kho! Hiện chỉ còn lại ${currentAvailable} bao.`, "error");
       return;
     }
 
     const rawPurpose = typeof note === 'string' ? note.trim() : '';
     const isMissingPurpose = rawPurpose === '';
     const effectivePurpose = isMissingPurpose ? 'Người dùng không nhập mục đích' : rawPurpose;
+    const newRemainingQty = currentAvailable - takeQtyNum;
 
     if (isDemoMode) {
       let finalNote = effectivePurpose;
@@ -4932,27 +4929,33 @@ export default function App() {
         user_id: profile?.id || 'guest',
         profiles: profile || { full_name: visitorName || localStorage.getItem('visitor_name') || UNKNOWN_REQUESTER },
         type: 'take_request',
-        quantity: parseInt(qty),
+        quantity: takeQtyNum,
         status: 'pending',
         note: finalNote,
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [newTx, ...prev]);
-      if (isMissingPurpose) {
-        showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
-      } else {
-        showToast("Đã gửi yêu cầu lấy mẫu! Chờ thủ kho xác nhận.", "success");
-      }
-      
-      // Update result quantity locally for preview
+
+      // Trừ ngay số lượng trong kho Demo
+      setSamples(prev => prev.map(s => {
+        if (s.id === sample.id) {
+          return { ...s, available_qty: newRemainingQty };
+        }
+        return s;
+      }));
       setSearchResults(prev => prev.map(s => {
         if (s.id === sample.id) {
-          return { ...s, available_qty: s.available_qty - qty };
+          return { ...s, available_qty: newRemainingQty };
         }
         return s;
       }));
 
-      // Show location only after success
+      if (isMissingPurpose) {
+        showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
+      } else {
+        showToast("Đã gửi yêu cầu lấy mẫu! Số lượng đã được trừ trong kho.", "success");
+      }
+
       const locStr = sample.shelf 
         ? formatLocation(sample.shelf, sample.slot, sample.column_number)
         : sample.box_id
@@ -4963,7 +4966,7 @@ export default function App() {
 
       setTakenLocationModal({
         product_name: sample.products?.product_name || sample.product_name,
-        qty: parseInt(qty),
+        qty: takeQtyNum,
         location: locStr,
         missingPurpose: isMissingPurpose,
         purpose: effectivePurpose
@@ -4981,16 +4984,25 @@ export default function App() {
           finalNote = `${currentDevId ? `[dev: ${currentDevId}] ` : ''}${effectivePurpose}`.trim();
         }
 
-        const { error } = await supabase.from('transactions').insert({
+        // 1. Trừ ngay số lượng trong bảng samples ở Database
+        const { error: sUpdateErr } = await supabase
+          .from('samples')
+          .update({ available_qty: newRemainingQty })
+          .eq('id', sample.id);
+        if (sUpdateErr) throw sUpdateErr;
+
+        // 2. Ghi nhận giao dịch take_request
+        const { error: txErr } = await supabase.from('transactions').insert({
           sample_id: sample.id,
-          user_id: profile?.id || null, // safe fallback for guest to prevent crashes
+          user_id: profile?.id || null,
           type: 'take_request',
-          quantity: parseInt(qty),
+          quantity: takeQtyNum,
           status: 'pending',
           note: finalNote
         });
-        if (error) throw error;
-        if (!isDemoMode && deviceId) {
+        if (txErr) throw txErr;
+
+        if (deviceId) {
           try {
             await supabase.from('search_logs').insert({
               device_id: deviceId,
@@ -5000,14 +5012,15 @@ export default function App() {
             });
           } catch (e) { /* ignore */ }
         }
+
         if (isMissingPurpose) {
           showToast("Bạn đã lấy mẫu nhưng chưa ghi mục đích! (Đã bổ sung: Người dùng không nhập mục đích)", "warning");
         } else {
-          showToast("Gửi yêu cầu thành công!", "success");
+          showToast("Gửi yêu cầu thành công! Số lượng đã được trừ trong kho.", "success");
         }
-        fetchDatabaseData();
 
-        // Show location only after success
+        await fetchDatabaseData();
+
         const locStr = sample.shelf 
           ? formatLocation(sample.shelf, sample.slot, sample.column_number)
           : sample.box_id
@@ -5018,7 +5031,7 @@ export default function App() {
 
         setTakenLocationModal({
           product_name: sample.products?.product_name || sample.product_name,
-          qty: parseInt(qty),
+          qty: takeQtyNum,
           location: locStr,
           missingPurpose: isMissingPurpose,
           purpose: effectivePurpose
@@ -5031,8 +5044,11 @@ export default function App() {
     }
   };
 
-  // Approve Take Request (Admin / Storekeeper)
-  // Handles Ô Lẻ (Ô 5) rules & allows custom adjusted quantity!
+  // 2. Phê duyệt yêu cầu cấp mẫu (Admin / Storekeeper)
+  // Vì số lượng yêu cầu ban đầu (tx.quantity) đã bị trừ lúc gửi yêu cầu,
+  // nên khi duyệt:
+  // - Nếu cấp đúng tx.quantity: số lượng trong kho giữ nguyên đã trừ.
+  // - Nếu cấp khác tx.quantity: tính chênh lệch và bù trừ lại.
   const handleApproveRequest = async (tx, customQty) => {
     const sample = samples.find(s => s.id === tx.sample_id) || tx.samples;
     const qtyToTake = (customQty !== undefined && customQty !== '') ? Number(customQty) : Number(tx.quantity);
@@ -5042,32 +5058,30 @@ export default function App() {
       return;
     }
 
-    if (qtyToTake > (sample?.available_qty || 0)) {
-      showToast(`Số lượng mẫu trong kho (${sample?.available_qty || 0} bao) không đủ để cấp ${qtyToTake} bao!`, "error");
+    const requestedQty = Number(tx.quantity) || 0;
+    const diff = requestedQty - qtyToTake; // dương: trả lại kho, âm: trừ thêm
+    const newQty = (sample?.available_qty || 0) + diff;
+
+    if (newQty < 0) {
+      showToast(`Số lượng mẫu trong kho không đủ để cấp tăng thêm ${Math.abs(diff)} bao!`, "error");
       return;
     }
 
-    let nextShelf = sample.shelf;
-    let nextSlot = sample.slot;
-    let nextColumn = sample.column_number;
-    let newStatus = sample.status;
-
-    // Calculate new quantity
-    const newQty = sample.available_qty - qtyToTake;
+    let nextShelf = sample?.shelf ?? null;
+    let nextSlot = sample?.slot ?? null;
+    let nextColumn = sample?.column_number ?? null;
+    let newStatus = sample?.status ?? 'stored';
 
     let isRemainingQtyLẻ = (newQty % 10) !== 0;
     
     // Loose Pack Rule (Ô 5):
-    // If the remaining quantity of a sample stored in slots 1-4 is not a multiple of 10,
-    // it must be immediately moved to Ô 5 (Ô lẻ) of the same shelf.
-    if (sample.shelf && sample.slot && sample.slot <= 4 && isRemainingQtyLẻ) {
+    if (sample?.shelf && sample?.slot && sample.slot <= 4 && isRemainingQtyLẻ && newQty > 0) {
       nextSlot = 5;
-      nextColumn = 1; // Database check_location requires column_number to not be null. We use 1 for general bin.
+      nextColumn = 1;
       showToast(`Giao dịch chứa số lượng lẻ. Di chuyển phần bao lẻ còn lại (${newQty} bao) vào ô lẻ ${formatLocation(sample.shelf, 5)}.`, "warning");
     }
 
     if (newQty === 0) {
-      // Empty
       nextShelf = null;
       nextSlot = null;
       nextColumn = null;
@@ -5078,7 +5092,6 @@ export default function App() {
     const noteSuffix = isQtyModified ? ` (Đã chỉnh số lượng từ ${tx.quantity} bao)` : '';
 
     if (isDemoMode) {
-      // Update transaction status & quantity
       setTransactions(prev => prev.map(t => {
         if (t.id === tx.id) return { 
           ...t, 
@@ -5089,32 +5102,32 @@ export default function App() {
         return t;
       }));
 
-      // Update sample inventory
-      setSamples(prev => prev.map(s => {
-        if (s.id === sample.id) {
-          return {
-            ...s,
-            available_qty: newQty,
-            shelf: nextShelf,
-            slot: nextSlot,
-            column_number: nextColumn,
-            status: newStatus
-          };
-        }
-        return s;
-      }));
+      if (sample) {
+        setSamples(prev => prev.map(s => {
+          if (s.id === sample.id) {
+            return {
+              ...s,
+              available_qty: newQty,
+              shelf: nextShelf,
+              slot: nextSlot,
+              column_number: nextColumn,
+              status: newStatus
+            };
+          }
+          return s;
+        }));
+      }
 
-      // Create transaction log for approval
       const approveTx = {
         id: `t-app-${Date.now()}`,
-        sample_id: sample.id,
+        sample_id: sample?.id,
         samples: sample,
         user_id: profile?.id || 'admin',
         profiles: profile || { full_name: 'Thủ kho Demo' },
         type: 'take_approve',
         quantity: qtyToTake,
         status: 'approved',
-        note: `Đã duyệt cấp ${qtyToTake} bao${noteSuffix}. Vị trí cũ: ${sample.shelf ? formatLocation(sample.shelf, sample.slot) : 'Thùng'}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5) : 'Hết mẫu'}`,
+        note: `Đã duyệt cấp ${qtyToTake} bao${noteSuffix}. Vị trí cũ: ${sample?.shelf ? formatLocation(sample.shelf, sample.slot) : 'Thùng'}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample?.shelf, 5) : 'Hết mẫu'}`,
         created_at: new Date().toISOString()
       };
       setTransactions(prev => [approveTx, ...prev]);
@@ -5122,7 +5135,8 @@ export default function App() {
     } else {
       try {
         setLoading(true);
-        // 1. Update Sample location and quantity
+
+        // 1. Cập nhật Sample vị trí và số lượng
         const { error: sError } = await supabase
           .from('samples')
           .update({
@@ -5136,7 +5150,7 @@ export default function App() {
 
         if (sError) throw sError;
 
-        // 2. Update Transaction Status and Quantity
+        // 2. Cập nhật Transaction Status & Quantity
         const updatedTxData = {
           status: 'approved',
           quantity: qtyToTake
@@ -5152,10 +5166,10 @@ export default function App() {
 
         if (tError) throw tError;
 
-        // 3. Create approval transaction log
+        // 3. Tạo bản ghi giao dịch phê duyệt
         await supabase.from('transactions').insert({
           sample_id: sample.id,
-          user_id: profile.id,
+          user_id: profile?.id || null,
           type: 'take_approve',
           quantity: qtyToTake,
           status: 'approved',
@@ -5163,7 +5177,7 @@ export default function App() {
         });
 
         showToast(`Đã phê duyệt cấp ${qtyToTake} bao thành công!`, "success");
-        fetchDatabaseData();
+        await fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
       } finally {
@@ -5172,7 +5186,7 @@ export default function App() {
     }
   };
 
-  // Lưu số lượng yêu cầu mới mà chưa duyệt cấp
+  // 3. Lưu số lượng yêu cầu mới mà chưa duyệt cấp
   const handleSavePendingQty = async (tx, customQty) => {
     const qty = Number(customQty);
     if (!qty || qty <= 0) {
@@ -5180,8 +5194,11 @@ export default function App() {
       return;
     }
     const sample = samples.find(s => s.id === tx.sample_id) || tx.samples;
-    if (sample && qty > (sample.available_qty || 0)) {
-      showToast(`Số lượng (${qty} bao) vượt quá tồn kho (${sample.available_qty || 0} bao)!`, "error");
+    const oldQty = Number(tx.quantity) || 0;
+    const diff = qty - oldQty; // dương: xin thêm, âm: bớt lại
+
+    if (diff > 0 && sample && diff > (sample.available_qty || 0)) {
+      showToast(`Không đủ số lượng trong kho để tăng thêm ${diff} bao! (Còn lại ${sample.available_qty || 0} bao)`, "error");
       return;
     }
 
@@ -5190,6 +5207,14 @@ export default function App() {
         if (t.id === tx.id) return { ...t, quantity: qty };
         return t;
       }));
+      if (sample && diff !== 0) {
+        setSamples(prev => prev.map(s => {
+          if (s.id === sample.id) {
+            return { ...s, available_qty: Math.max(0, (s.available_qty || 0) - diff) };
+          }
+          return s;
+        }));
+      }
       showToast(`Đã cập nhật số lượng yêu cầu thành ${qty} bao`, "success");
     } else {
       try {
@@ -5199,8 +5224,17 @@ export default function App() {
           .update({ quantity: qty })
           .eq('id', tx.id);
         if (error) throw error;
+
+        if (sample && diff !== 0) {
+          const { data: curSample } = await supabase.from('samples').select('available_qty').eq('id', sample.id).single();
+          if (curSample) {
+            const updatedAvailable = Math.max(0, (curSample.available_qty || 0) - diff);
+            await supabase.from('samples').update({ available_qty: updatedAvailable }).eq('id', sample.id);
+          }
+        }
+
         showToast(`Đã cập nhật số lượng yêu cầu thành ${qty} bao`, "success");
-        fetchDatabaseData();
+        await fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
       } finally {
@@ -5209,10 +5243,17 @@ export default function App() {
     }
   };
 
-  // Cancel Take Request (Hỗ trợ kèm lý do từ chối)
+  // 4. Từ chối hoặc Hủy yêu cầu lấy mẫu: TỰ ĐỘNG CỘNG HOÀN LẠI SỐ LƯỢNG VÀO KHO
   const handleCancelRequest = async (txId, reason = '') => {
     const cleanReason = (reason || '').trim();
     const reasonTag = cleanReason ? ` [Lý do từ chối: ${cleanReason}]` : '';
+
+    const curTx = transactions.find(t => t.id === txId);
+    if (!curTx) return;
+
+    // Chỉ hoàn trả số lượng nếu yêu cầu đang ở trạng thái pending (vì lúc gửi yêu cầu đã bị trừ)
+    const shouldRestoreQty = curTx.status === 'pending';
+    const restoreAmount = shouldRestoreQty ? (parseInt(curTx.quantity, 10) || 0) : 0;
 
     if (isDemoMode) {
       setTransactions(prev => prev.map(t => {
@@ -5222,23 +5263,57 @@ export default function App() {
         }
         return t;
       }));
-      showToast("Đã từ chối yêu cầu", "info");
+
+      if (restoreAmount > 0) {
+        setSamples(prev => prev.map(s => {
+          if (s.id === curTx.sample_id) {
+            return {
+              ...s,
+              available_qty: (s.available_qty || 0) + restoreAmount
+            };
+          }
+          return s;
+        }));
+      }
+
+      showToast(`Đã từ chối yêu cầu${restoreAmount > 0 ? ` và hoàn lại ${restoreAmount} bao vào kho` : ''}!`, "info");
     } else {
       try {
         setLoading(true);
-        const curTx = transactions.find(t => t.id === txId);
-        const updatedNote = curTx?.note ? `${curTx.note}${reasonTag}` : (cleanReason ? `Lý do từ chối: ${cleanReason}` : '');
+        const updatedNote = curTx.note ? `${curTx.note}${reasonTag}` : (cleanReason ? `Lý do từ chối: ${cleanReason}` : '');
 
-        const { error } = await supabase
+        // 1. Cập nhật transaction thành cancelled
+        const { error: tError } = await supabase
           .from('transactions')
           .update({ 
             status: 'cancelled',
-            note: updatedNote || curTx?.note || null
+            note: updatedNote || curTx.note || null
           })
           .eq('id', txId);
-        if (error) throw error;
-        showToast("Đã từ chối yêu cầu thành công!", "info");
-        fetchDatabaseData();
+        if (tError) throw tError;
+
+        // 2. Hoàn lại số lượng vào sample trong Database
+        if (restoreAmount > 0 && curTx.sample_id) {
+          const { data: curSample, error: sFetchErr } = await supabase
+            .from('samples')
+            .select('available_qty, status')
+            .eq('id', curTx.sample_id)
+            .single();
+
+          if (!sFetchErr && curSample) {
+            const restoredQty = (curSample.available_qty || 0) + restoreAmount;
+            await supabase
+              .from('samples')
+              .update({
+                available_qty: restoredQty,
+                status: curSample.status === 'destroyed' || curSample.status === 'dispatched' ? 'stored' : curSample.status
+              })
+              .eq('id', curTx.sample_id);
+          }
+        }
+
+        showToast(`Đã từ chối yêu cầu${restoreAmount > 0 ? ` và hoàn lại ${restoreAmount} bao vào kho` : ''}!`, "info");
+        await fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
       } finally {
@@ -5247,7 +5322,7 @@ export default function App() {
     }
   };
 
-  // Hoàn tác yêu cầu cấp mẫu (Admin / Storekeeper)
+  // 5. Hoàn tác yêu cầu cấp mẫu (Admin / Storekeeper)
   const handleUndoRequest = async (tx) => {
     const sample = tx.samples;
     const sampleName = sample?.products?.product_name || sample?.product_name || 'mẫu';
@@ -5257,8 +5332,10 @@ export default function App() {
     if (!isApproved && !isCancelled) return;
 
     const confirmMsg = isApproved
-      ? `Xác nhận hoàn tác cấp mẫu "${sampleName}"?\nSố lượng ${tx.quantity} bao sẽ được cộng hoàn trả lại vào kho và yêu cầu chuyển về trạng thái Chờ duyệt.`
-      : `Xác nhận hoàn tác từ chối yêu cầu "${sampleName}"?\nYêu cầu sẽ được chuyển về trạng thái Chờ duyệt để có thể xem xét lại.`;
+      ? `Xác nhận hoàn tác cấp mẫu "${sampleName}"?
+Yêu cầu sẽ được chuyển về trạng thái Chờ duyệt.`
+      : `Xác nhận hoàn tác từ chối yêu cầu "${sampleName}"?
+Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu cầu chuyển về trạng thái Chờ duyệt.`;
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -5268,17 +5345,13 @@ export default function App() {
         return t;
       }));
 
-      if (isApproved && sample) {
+      if (isCancelled && sample) {
+        // Lúc từ chối đã hoàn lại vào kho, giờ chuyển lại pending thì trừ lại
         setSamples(prev => prev.map(s => {
           if (s.id === sample.id) {
-            const restoredQty = (s.available_qty || 0) + (parseInt(tx.quantity, 10) || 0);
             return {
               ...s,
-              available_qty: restoredQty,
-              status: s.status === 'destroyed' ? 'stored' : s.status,
-              shelf: s.shelf || 2,
-              slot: s.slot || 1,
-              column_number: s.column_number || 1
+              available_qty: Math.max(0, (s.available_qty || 0) - (parseInt(tx.quantity, 10) || 0))
             };
           }
           return s;
@@ -5293,7 +5366,7 @@ export default function App() {
       setLoading(true);
 
       if (isApproved) {
-        // 1. Tìm thông tin vị trí cũ từ giao dịch take_approve tương ứng
+        // Tìm thông tin vị trí cũ từ giao dịch take_approve tương ứng
         const approveTx = transactions.find(t => 
           t.type === 'take_approve' && 
           t.sample_id === tx.sample_id && 
@@ -5348,7 +5421,6 @@ export default function App() {
             restoredStatus = 'stored';
           }
         } else if (currentSample.slot === 5 && currentSample.shelf) {
-          // Từng bị chuyển sang Ô lẻ (Ô 5) do bóc lẻ, giờ hoàn tác có thể khôi phục vị trí cũ
           if (approveTx?.note) {
             const matchRestore = approveTx.note.match(/\[RESTORE:([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]/);
             if (matchRestore && matchRestore[2] && parseInt(matchRestore[2], 10) <= 4) {
@@ -5367,13 +5439,10 @@ export default function App() {
           }
         }
 
-        const restoredQty = (currentSample.available_qty || 0) + (parseInt(tx.quantity, 10) || 0);
-
-        // 2. Cập nhật lại kho cho mẫu
+        // Cập nhật lại kho cho mẫu
         const { error: sUpdateErr } = await supabase
           .from('samples')
           .update({
-            available_qty: restoredQty,
             shelf: restoredShelf,
             slot: restoredSlot,
             column_number: restoredCol,
@@ -5384,23 +5453,35 @@ export default function App() {
 
         if (sUpdateErr) throw sUpdateErr;
 
-        // 3. Xoá transaction take_approve tương ứng
+        // Xoá transaction take_approve tương ứng
         if (approveTx?.id) {
           await supabase.from('transactions').delete().eq('id', approveTx.id);
         }
 
-        // 4. Tạo bản ghi transaction hoàn tác
+        // Tạo bản ghi transaction hoàn tác
         await supabase.from('transactions').insert({
           sample_id: tx.sample_id,
           user_id: profile?.id || null,
           type: 'take_revert',
           quantity: tx.quantity,
           status: 'approved',
-          note: `Hoàn tác cấp mẫu: trả lại ${tx.quantity} bao về vị trí ${restoredShelf ? formatLocation(restoredShelf, restoredSlot, restoredCol) : 'Thùng'}`
+          note: `Hoàn tác cấp mẫu về chờ duyệt: Vị trí phục hồi ${restoredShelf ? formatLocation(restoredShelf, restoredSlot, restoredCol) : 'Thùng'}`
         });
+      } else if (isCancelled) {
+        // Lúc từ chối đã hoàn trả lại số lượng vào kho, giờ chuyển lại pending thì trừ lại
+        const { data: curSample, error: fetchErr } = await supabase
+          .from('samples')
+          .select('available_qty')
+          .eq('id', tx.sample_id)
+          .single();
+
+        if (!fetchErr && curSample) {
+          const newQty = Math.max(0, (curSample.available_qty || 0) - (parseInt(tx.quantity, 10) || 0));
+          await supabase.from('samples').update({ available_qty: newQty }).eq('id', tx.sample_id);
+        }
       }
 
-      // 5. Cập nhật lại trạng thái yêu cầu về 'pending'
+      // Cập nhật lại trạng thái yêu cầu về 'pending'
       const { error: tUpdateErr } = await supabase
         .from('transactions')
         .update({ status: 'pending' })
