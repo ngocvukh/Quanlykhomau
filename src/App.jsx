@@ -2516,6 +2516,17 @@ export default function App() {
   const [takeQuantities, setTakeQuantities] = useState({});
   const [takeNotes, setTakeNotes] = useState({});
 
+  const lastSearchLogRef = useRef({ keyword: "", timestamp: 0 });
+  const searchDebounceTimerRef = useRef(null);
+
+  // Khóa điều hướng cho chế độ Khách: chỉ cho phép Sơ đồ kho (shelves) và Tra cứu (search)
+  useEffect(() => {
+    const isGuest = !user && !profile;
+    if (isGuest && activeTab !== "shelves" && activeTab !== "search") {
+      setActiveTab("shelves");
+    }
+  }, [user, profile, activeTab]);
+
   // Visitor Tracking (Device Fingerprint + Tên tự khai) — states declared at top of component
   const [searchLogs, setSearchLogs] = useState([]);
   const [searchLogsLoading, setSearchLogsLoading] = useState(false);
@@ -4433,10 +4444,51 @@ export default function App() {
   };
 
   // Staff Search Execution
+  const logSearchToDatabase = async (keyword, monthFilter, resultsCount) => {
+    if (isDemoMode || !deviceId || !keyword || !keyword.trim()) return;
+    const cleanKeyword = keyword.trim();
+    const now = Date.now();
+
+    // Chặn trùng lặp: Không ghi log cùng từ khóa nếu cách lần trước dưới 15 giây
+    if (
+      lastSearchLogRef.current.keyword.toLowerCase() === cleanKeyword.toLowerCase() &&
+      now - lastSearchLogRef.current.timestamp < 15000
+    ) {
+      return;
+    }
+
+    lastSearchLogRef.current = { keyword: cleanKeyword, timestamp: now };
+
+    let currentName = "Khách ẩn danh";
+    if (profile) {
+      currentName = profile.full_name || (profile.role === "admin" ? "Quản trị viên" : "Nhân viên QC");
+    } else {
+      currentName = visitorName || localStorage.getItem("visitor_name") || "Khách ẩn danh";
+    }
+
+    try {
+      await supabase.from("search_logs").insert({
+        device_id: deviceId,
+        user_name: currentName,
+        keyword: cleanKeyword,
+        month_filter: monthFilter || null,
+        results_count: resultsCount
+      });
+    } catch (e) {
+      console.warn("Search log insert failed:", e);
+    }
+  };
+
   const executeSearch = async (nameVal, monthVal, orderVal = searchOrderNumber, explicitProduct = null) => {
+    // Hủy timer realtime đang chờ để tránh ghi 2 lần
+    if (searchDebounceTimerRef.current) {
+      clearTimeout(searchDebounceTimerRef.current);
+      searchDebounceTimerRef.current = null;
+    }
+
     const activeProd = explicitProduct !== null ? explicitProduct : selectedProduct;
-    const trimmedName = (nameVal || '').trim();
-    const trimmedOrder = (orderVal || '').trim();
+    const trimmedName = (nameVal || "").trim();
+    const trimmedOrder = (orderVal || "").trim();
     if (!trimmedName && !trimmedOrder && !activeProd) {
       showToast("Vui lòng nhập Tên sản phẩm, Số đơn hàng hoặc Mã code!", "warning");
       return;
@@ -4460,52 +4512,39 @@ export default function App() {
       }
     }
 
-    // Ghi log tìm kiếm vào Supabase
-    if (!isDemoMode && deviceId) {
-      let currentName = 'Khách ẩn danh';
-      if (profile) {
-        currentName = profile.full_name || (profile.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên');
-      } else {
-        currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-      }
+    // Ghi log tìm kiếm (đã có chống trùng lặp 15s)
+    const logParts = [];
+    if (activeProd) {
+      logParts.push(activeProd.warning_code ? `${activeProd.product_name} [${activeProd.warning_code}]` : activeProd.product_name);
+    } else if (trimmedName) {
+      const decodedCode = decodeExportProductionCode(trimmedName);
+      logParts.push(decodedCode ? `${trimmedName.toUpperCase()} (${decodedCode.dmy})` : trimmedName);
+    }
+    if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
 
-      const logParts = [];
-      if (activeProd) {
-        logParts.push(activeProd.warning_code ? `${activeProd.product_name} [${activeProd.warning_code}]` : activeProd.product_name);
-      } else if (trimmedName) {
-        const decodedCode = decodeExportProductionCode(trimmedName);
-        logParts.push(decodedCode ? `${trimmedName.toUpperCase()} (${decodedCode.dmy})` : trimmedName);
-      }
-      if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
-
-      try {
-        await supabase.from('search_logs').insert({
-          device_id: deviceId,
-          user_name: currentName,
-          keyword: logParts.join(' | '),
-          month_filter: monthVal || null,
-          results_count: filtered.length
-        });
-      } catch (e) {
-        console.warn('Search log insert failed:', e);
-      }
+    if (logParts.length > 0) {
+      await logSearchToDatabase(logParts.join(" | "), monthVal, filtered.length);
     }
   };
 
   const handleSearch = (e) => {
     if (e) e.preventDefault();
     setSearchSuggestions([]);
-    const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : '';
+    const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : "";
     executeSearch(searchName, monthVal, searchOrderNumber, selectedProduct);
   };
 
   // Phục vụ tính năng tìm kiếm động / thời gian thực khi gõ bất kỳ kí tự nào hoặc khi chọn sản phẩm
   useEffect(() => {
-    let timer;
+    if (searchDebounceTimerRef.current) {
+      clearTimeout(searchDebounceTimerRef.current);
+      searchDebounceTimerRef.current = null;
+    }
+
     const trimmed = searchName.trim();
     const trimmedOrder = searchOrderNumber.trim();
     if (trimmed.length >= 1 || trimmedOrder.length >= 1 || selectedProduct) {
-      const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
+      const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + "-" + searchSelMonth) : "";
       const filtered = filterSamplesList(samples, searchName, searchOrderNumber, monthVal, selectedProduct);
 
       const searchLower = trimmed.toLowerCase();
@@ -4515,35 +4554,21 @@ export default function App() {
       setSearchResultSlots(matchedConfigs);
       setSearchResults(filtered);
 
-      timer = setTimeout(async () => {
-        if (!isDemoMode && deviceId) {
-          let currentName = 'Khách ẩn danh';
-          if (profile) {
-            currentName = profile.full_name || (profile.role === 'admin' ? 'Thủ kho (Admin)' : 'Nhân viên');
-          } else {
-            currentName = visitorName || localStorage.getItem('visitor_name') || 'Khách ẩn danh';
-          }
-          const logParts = [];
-          if (selectedProduct) {
-            logParts.push(selectedProduct.warning_code ? `${selectedProduct.product_name} [${selectedProduct.warning_code}]` : selectedProduct.product_name);
-          } else if (trimmed) {
-            const decodedCode = decodeExportProductionCode(trimmed);
-            logParts.push(decodedCode ? `${trimmed.toUpperCase()} (${decodedCode.dmy})` : trimmed);
-          }
-          if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
-          try {
-            await supabase.from('search_logs').insert({
-              device_id: deviceId,
-              user_name: currentName,
-              keyword: logParts.join(' | '),
-              month_filter: monthVal || null,
-              results_count: filtered.length
-            });
-          } catch (err) {
-            console.error("Lỗi ghi log tìm kiếm realtime:", err);
-          }
+      // Chỉ ghi log sau khi người dùng dừng gõ ít nhất 2.5 giây
+      searchDebounceTimerRef.current = setTimeout(async () => {
+        const logParts = [];
+        if (selectedProduct) {
+          logParts.push(selectedProduct.warning_code ? `${selectedProduct.product_name} [${selectedProduct.warning_code}]` : selectedProduct.product_name);
+        } else if (trimmed) {
+          const decodedCode = decodeExportProductionCode(trimmed);
+          logParts.push(decodedCode ? `${trimmed.toUpperCase()} (${decodedCode.dmy})` : trimmed);
         }
-      }, 1500);
+        if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
+
+        if (logParts.length > 0) {
+          await logSearchToDatabase(logParts.join(" | "), monthVal, filtered.length);
+        }
+      }, 2500);
 
     } else {
       setSearchResultSlots([]);
@@ -4551,7 +4576,10 @@ export default function App() {
     }
 
     return () => {
-      if (timer) clearTimeout(timer);
+      if (searchDebounceTimerRef.current) {
+        clearTimeout(searchDebounceTimerRef.current);
+        searchDebounceTimerRef.current = null;
+      }
     };
   }, [searchName, searchOrderNumber, searchSelMonth, searchSelYear, selectedProduct, samples]);
 
@@ -6950,7 +6978,7 @@ export default function App() {
           ) : (
             <div style={{ display: 'flex', gap: '8px' }}>
               {authMode !== 'guest' && (
-                <button className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={() => { setAuthMode('guest'); setActiveTab('dashboard'); }}>
+                <button className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '13px' }} onClick={() => { setAuthMode('guest'); setActiveTab('shelves'); }}>
                   Truy cập Staff (Khách)
                 </button>
               )}
@@ -7032,7 +7060,7 @@ export default function App() {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => { setAuthMode('guest'); setActiveTab('dashboard'); }}
+                onClick={() => { setAuthMode('guest'); setActiveTab('shelves'); }}
                 style={{
                   width: '100%',
                   padding: '13px 20px',
@@ -7148,7 +7176,7 @@ export default function App() {
           
           {/* ════════ 1. SIDEBAR TRÁI ════════ */}
           <aside className="sidebar">
-            <div className="brand-header" onClick={() => setActiveTab('dashboard')} title="Về trang tổng quan">
+            <div className="brand-header" onClick={() => setActiveTab((!user && !profile) ? 'shelves' : 'dashboard')} title={(!user && !profile) ? "Về sơ đồ kệ" : "Về trang tổng quan"}>
               <div className="brand-icon">
                 <span className="material-symbols-outlined">inventory_2</span>
               </div>
@@ -7156,55 +7184,74 @@ export default function App() {
             </div>
 
             <ul className="nav-menu">
-              <li className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}>
-                <button type="button" onClick={() => setActiveTab('dashboard')}>
-                  <span className="material-symbols-outlined">grid_view</span>
-                  <span>Tổng quan</span>
-                </button>
-              </li>
-              <li className={`nav-item ${activeTab === 'shelves' ? 'active' : ''}`}>
-                <button type="button" onClick={() => { if (setMobileShelfFilter) setMobileShelfFilter(0); setActiveTab('shelves'); }}>
-                  <span className="material-symbols-outlined">shelves</span>
-                  <span>Sơ đồ 6 kệ</span>
-                </button>
-              </li>
-              <li className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}>
-                <button type="button" onClick={() => setActiveTab('analytics')}>
-                  <span className="material-symbols-outlined">monitoring</span>
-                  <span>Thống kê lưu mẫu</span>
-                </button>
-              </li>
-              <li className={`nav-item ${activeTab === 'search' ? 'active' : ''}`}>
-                <button type="button" onClick={() => setActiveTab('search')}>
-                  <span className="material-symbols-outlined">search</span>
-                  <span>Tra cứu mẫu</span>
-                </button>
-              </li>
-              <li className={`nav-item ${activeTab === 'labels' ? 'active' : ''}`}>
-                <button type="button" onClick={() => setActiveTab('labels')}>
-                  <span className="material-symbols-outlined">print</span>
-                  <span>In tem Tommy 135</span>
-                  {printQueue.length > 0 && <span className="badge">{printQueue.length}</span>}
-                </button>
-              </li>
-              {profile?.role === 'admin' && (
-                <li className={`nav-item ${activeTab === 'audit' ? 'active' : ''}`}>
-                  <button type="button" onClick={() => setActiveTab('audit')}>
-                    <span className="material-symbols-outlined">qr_code_scanner</span>
-                    <span>Kiểm kê QR</span>
-                  </button>
-                </li>
+              {(!user && !profile) ? (
+                <>
+                  <li className={`nav-item ${activeTab === 'shelves' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => { if (setMobileShelfFilter) setMobileShelfFilter(0); setActiveTab('shelves'); }}>
+                      <span className="material-symbols-outlined">shelves</span>
+                      <span>Sơ đồ 6 kệ</span>
+                    </button>
+                  </li>
+                  <li className={`nav-item ${activeTab === 'search' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => setActiveTab('search')}>
+                      <span className="material-symbols-outlined">search</span>
+                      <span>Tra cứu mẫu</span>
+                    </button>
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => setActiveTab('dashboard')}>
+                      <span className="material-symbols-outlined">grid_view</span>
+                      <span>Tổng quan</span>
+                    </button>
+                  </li>
+                  <li className={`nav-item ${activeTab === 'shelves' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => { if (setMobileShelfFilter) setMobileShelfFilter(0); setActiveTab('shelves'); }}>
+                      <span className="material-symbols-outlined">shelves</span>
+                      <span>Sơ đồ 6 kệ</span>
+                    </button>
+                  </li>
+                  <li className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => setActiveTab('analytics')}>
+                      <span className="material-symbols-outlined">monitoring</span>
+                      <span>Thống kê lưu mẫu</span>
+                    </button>
+                  </li>
+                  <li className={`nav-item ${activeTab === 'search' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => setActiveTab('search')}>
+                      <span className="material-symbols-outlined">search</span>
+                      <span>Tra cứu mẫu</span>
+                    </button>
+                  </li>
+                  <li className={`nav-item ${activeTab === 'labels' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => setActiveTab('labels')}>
+                      <span className="material-symbols-outlined">print</span>
+                      <span>In tem Tommy 135</span>
+                      {printQueue.length > 0 && <span className="badge">{printQueue.length}</span>}
+                    </button>
+                  </li>
+                  {profile?.role === 'admin' && (
+                    <li className={`nav-item ${activeTab === 'audit' ? 'active' : ''}`}>
+                      <button type="button" onClick={() => setActiveTab('audit')}>
+                        <span className="material-symbols-outlined">qr_code_scanner</span>
+                        <span>Kiểm kê QR</span>
+                      </button>
+                    </li>
+                  )}
+                  <li className={`nav-item ${activeTab === 'requests' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => setActiveTab('requests')}>
+                      <span className="material-symbols-outlined">sync_alt</span>
+                      <span>Yêu cầu lấy mẫu</span>
+                      {(() => {
+                        const count = transactions.filter(t => t.type === 'take_request' && t.status === 'pending').length;
+                        return count > 0 ? <span className="badge">{count}</span> : null;
+                      })()}
+                    </button>
+                  </li>
+                </>
               )}
-              <li className={`nav-item ${activeTab === 'requests' ? 'active' : ''}`}>
-                <button type="button" onClick={() => setActiveTab('requests')}>
-                  <span className="material-symbols-outlined">sync_alt</span>
-                  <span>Yêu cầu lấy mẫu</span>
-                  {(() => {
-                    const count = transactions.filter(t => t.type === 'take_request' && t.status === 'pending').length;
-                    return count > 0 ? <span className="badge">{count}</span> : null;
-                  })()}
-                </button>
-              </li>
             </ul>
 
             {profile?.role === 'admin' && (
@@ -7340,7 +7387,8 @@ export default function App() {
                   <span className="material-symbols-outlined">{theme === 'dark' ? 'light_mode' : 'dark_mode'}</span>
                 </div>
 
-                {/* Chuông Thông Báo */}
+                {/* Chuông Thông Báo (Chỉ tài khoản đăng nhập) */}
+                {(user || profile) && (
                 <div ref={notifDropdownRef} style={{ position: 'relative' }}>
                   <div
                     className="action-btn-circle"
@@ -7446,6 +7494,7 @@ export default function App() {
                   )}
                 </div>
 
+                )}
                 {/* Avatar Badge tròn */}
                 <div
                   className="avatar-badge"
@@ -7486,56 +7535,81 @@ export default function App() {
 
               {/* PERSISTENT MOBILE THUMB DOCK (TRÊN TẤT CẢ SUB-TABS) */}
               <div className={`bento-mobile-thumb-dock ${profile?.role !== 'admin' ? 'dock-guest' : ''}`}>
-                <button 
-                  className="dock-item"
-                  onClick={() => setActiveTab('dashboard')}
-                >
-                  <Layers size={19} />
-                  <span>Tổng quan</span>
-                </button>
-
-                <button 
-                  className={`dock-item ${activeTab === 'shelves' ? 'active' : ''}`}
-                  onClick={() => {
-                    if (setMobileShelfFilter) setMobileShelfFilter(0);
-                    setActiveTab('shelves');
-                  }}
-                >
-                  <Warehouse size={19} />
-                  <span>Sơ đồ kệ</span>
-                </button>
-
-                {profile?.role === 'admin' ? (
+                {(!user && !profile) ? (
                   <>
                     <button 
-                      className={`dock-item dock-item-scan ${activeTab === 'audit' ? 'active' : ''}`}
-                      onClick={() => setActiveTab('audit')}
+                      className={`dock-item ${activeTab === 'shelves' ? 'active' : ''}`}
+                      onClick={() => {
+                        if (setMobileShelfFilter) setMobileShelfFilter(0);
+                        setActiveTab('shelves');
+                      }}
                     >
-                      <div className="dock-scan-btn-bubble">
-                        <Camera size={16} />
-                      </div>
-                      <span>Quét QR</span>
+                      <Warehouse size={19} />
+                      <span>Sơ đồ kệ</span>
                     </button>
 
                     <button 
-                      className={`dock-item ${activeTab === 'requests' ? 'active' : ''}`}
-                      onClick={() => setActiveTab('requests')}
+                      className={`dock-item ${activeTab === 'search' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('search')}
                     >
-                      <div className="dock-badge-rel">
-                        <ArrowRightLeft size={19} />
-                        {transactions.filter(t => t.status === 'pending').length > 0 && <span className="dock-dot" />}
-                      </div>
-                      <span>Yêu cầu</span>
+                      <Search size={19} />
+                      <span>Tra cứu</span>
                     </button>
                   </>
                 ) : (
-                  <button 
-                    className={`dock-item ${activeTab === 'search' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('search')}
-                  >
-                    <Search size={19} />
-                    <span>Tra cứu</span>
-                  </button>
+                  <>
+                    <button 
+                      className={`dock-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('dashboard')}
+                    >
+                      <Layers size={19} />
+                      <span>Tổng quan</span>
+                    </button>
+
+                    <button 
+                      className={`dock-item ${activeTab === 'shelves' ? 'active' : ''}`}
+                      onClick={() => {
+                        if (setMobileShelfFilter) setMobileShelfFilter(0);
+                        setActiveTab('shelves');
+                      }}
+                    >
+                      <Warehouse size={19} />
+                      <span>Sơ đồ kệ</span>
+                    </button>
+
+                    {profile?.role === 'admin' ? (
+                      <>
+                        <button 
+                          className={`dock-item dock-item-scan ${activeTab === 'audit' ? 'active' : ''}`}
+                          onClick={() => setActiveTab('audit')}
+                        >
+                          <div className="dock-scan-btn-bubble">
+                            <Camera size={16} />
+                          </div>
+                          <span>Quét QR</span>
+                        </button>
+
+                        <button 
+                          className={`dock-item ${activeTab === 'requests' ? 'active' : ''}`}
+                          onClick={() => setActiveTab('requests')}
+                        >
+                          <div className="dock-badge-rel">
+                            <ArrowRightLeft size={19} />
+                            {transactions.filter(t => t.status === 'pending').length > 0 && <span className="dock-dot" />}
+                          </div>
+                          <span>Yêu cầu</span>
+                        </button>
+                      </>
+                    ) : (
+                      <button 
+                        className={`dock-item ${activeTab === 'search' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('search')}
+                      >
+                        <Search size={19} />
+                        <span>Tra cứu</span>
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </>
