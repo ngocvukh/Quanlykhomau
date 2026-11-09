@@ -3253,12 +3253,10 @@ export default function App() {
     }
   };
 
-  // Fetch all db records
+  // Fetch all db records (cho cả User và Khách quét QR)
   useEffect(() => {
     if (isDemoMode) return;
-    if (user || authMode === 'guest') {
-      fetchDatabaseData();
-    }
+    fetchDatabaseData();
   }, [user, authMode, isDemoMode]);
 
   // Tự động đồng bộ lại hàng đợi in & đề xuất khi chuyển sang tab In Nhãn hoặc Nhập Hàng Loạt
@@ -4907,19 +4905,40 @@ export default function App() {
     if (!scanSku) return;
     // Remove ?scan= from URL without reload
     window.history.replaceState({}, '', window.location.pathname);
-    // Query Supabase for this sample
-    supabase
-      .from('samples')
-      .select('*, products(*)')
-      .eq('sku', scanSku)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (error || !data) {
+    // Query Supabase for this sample kèm theo các giao dịch pending mới nhất
+    (async () => {
+      try {
+        const { data: sampleData, error: sErr } = await supabase
+          .from('samples')
+          .select('*, products(*)')
+          .eq('sku', scanSku)
+          .maybeSingle();
+
+        if (sErr || !sampleData) {
           setScanResultModal({ notFound: true, sku: scanSku });
-        } else {
-          setScanResultModal(data);
+          return;
         }
-      });
+
+        // Lấy ngay các giao dịch take_request pending của mẫu này
+        const { data: pendingTxs } = await supabase
+          .from('transactions')
+          .select('quantity')
+          .eq('sample_id', sampleData.id)
+          .eq('type', 'take_request')
+          .eq('status', 'pending');
+
+        const pendingQty = (pendingTxs || []).reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
+        const effAvailable = Math.max(0, (sampleData.available_qty || 0) - pendingQty);
+
+        setScanResultModal({
+          ...sampleData,
+          pendingQty,
+          effectiveAvailable: effAvailable
+        });
+      } catch (err) {
+        setScanResultModal({ notFound: true, sku: scanSku });
+      }
+    })();
   }, []);
 
   // 1. Gửi yêu cầu lấy mẫu (Khách / Nhân viên / Admin)
@@ -4936,7 +4955,22 @@ export default function App() {
       return;
     }
 
-    const currentEffective = getSampleEffectiveAvailable(sample);
+    let currentEffective = sample.effectiveAvailable !== undefined 
+      ? sample.effectiveAvailable 
+      : getSampleEffectiveAvailable(sample);
+
+    // Xác thực trực tiếp từ Database để đảm bảo dữ liệu mới nhất
+    if (!isDemoMode && sample.id) {
+      try {
+        const { data: dbSample } = await supabase.from('samples').select('available_qty').eq('id', sample.id).single();
+        const { data: dbPending } = await supabase.from('transactions').select('quantity').eq('sample_id', sample.id).eq('type', 'take_request').eq('status', 'pending');
+        if (dbSample) {
+          const pSum = (dbPending || []).reduce((sum, t) => sum + (Number(t.quantity) || 0), 0);
+          currentEffective = Math.max(0, (dbSample.available_qty || 0) - pSum);
+        }
+      } catch (e) { /* ignore */ }
+    }
+
     if (takeQtyNum > currentEffective) {
       showToast(`Không đủ số lượng trong kho! Hiện chỉ còn khả dụng ${currentEffective} bao.`, "error");
       return;
@@ -13826,7 +13860,9 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Mã: <strong>{scanResultModal.sku}</strong></div>
                 </div>
               ) : (() => {
-                const effScanAvail = getSampleEffectiveAvailable(scanResultModal);
+                const effScanAvail = scanResultModal.effectiveAvailable !== undefined
+                  ? scanResultModal.effectiveAvailable
+                  : getSampleEffectiveAvailable(scanResultModal);
                 return (
                   <>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px', marginBottom: '16px' }}>
