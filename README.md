@@ -1,16 +1,43 @@
-# React + Vite
+# Hệ Thống Quản Lý Kho Lưu Mẫu Thuốc Lá (Khatoco)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Hệ thống quản lý, định vị tọa độ kệ/ô/cột, in tem nhãn QR chuẩn công nghiệp và kiểm kê kho thuốc lá mẫu theo kiến trúc tách biệt **Frontend (Vercel)** — **Backend (Supabase RPC & RLS)** — **Database (PostgreSQL)**.
 
-Currently, two official plugins are available:
+## Cấu trúc dự án
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```text
+Quanlykho/
+├── frontend/                   # Giao diện Web (React 19 + Vite) triển khai trên Vercel
+│   ├── public/                 # Tài nguyên tĩnh (favicon, icons)
+│   ├── src/
+│   │   ├── components/         # Các màn hình & thành phần giao diện (BentoDashboard, WarehouseAudit, MonthlyAnalytics, SearchLogsTab, UserVisitorManagerTab)
+│   │   ├── services/           # Tầng giao tiếp API / Supabase (warehouseService, visitorService)
+│   │   ├── utils/              # Các hàm tiện ích thuần túy (deviceUtils, formatters, giải mã SINGAPOREZ, tạo QR SVG)
+│   │   ├── App.jsx             # Điều phối giao diện chính
+│   │   ├── supabaseClient.js   # Khởi tạo kết nối Supabase Client
+│   │   └── main.jsx            # Điểm khởi chạy ứng dụng React
+│   ├── index.html              # Trang HTML gốc
+│   └── vite.config.js          # Cấu hình đóng gói Vite
+│
+├── backend/                    # Logic nghiệp vụ máy chủ & Bảo mật trên Supabase
+│   ├── rpc/                    # Stored Procedures (Atomic Transactions: duyệt mẫu, hoàn tác, đóng thùng)
+│   ├── security/               # Chính sách bảo mật Row Level Security (RLS) & phân quyền Admin
+│   └── scripts/                # Công cụ script vận hành & bảo trì dữ liệu
+│
+├── database/                   # Cơ sở dữ liệu PostgreSQL
+│   ├── schema/                 # Cấu trúc bảng dữ liệu (supabase_setup.sql)
+│   └── seeds/                  # Dữ liệu danh mục sản phẩm gốc (seed_products_only.sql, Danh sach.xlsx)
+│
+├── docs/                       # Tài liệu hướng dẫn, lộ trình kiến trúc & đặc tả nghiệp vụ
+├── vercel.json                 # Cấu hình build & HTTP Security Headers trên Vercel
+└── package.json                # Quản lý thư viện và lệnh chạy dự án
+```
 
-## React Compiler
+## Lệnh chạy dự án
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# Chạy môi trường phát triển ở Local
+npm run dev
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+# Đóng gói bản Production (xuất ra thư mục dist/)
+npm run build
+```

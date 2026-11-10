@@ -4,14 +4,17 @@
 -- Dán toàn bộ nội dung file này vào và bấm RUN (chạy một lần duy nhất).
 -- =================================================================================
 
--- 1. HÀM KIỂM TRA QUYỀN ADMIN AN TOÀN (SECURITY DEFINER để tránh đệ quy RLS)
+-- 1. HÀM KIỂM TRA QUYỀN ADMIN AN TOÀN (SECURITY DEFINER + search_path cố định chống Search Path Hijacking)
 CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN
+LANGUAGE sql SECURITY DEFINER
+SET search_path = public
+STABLE AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role = 'admin'
   );
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$;
 
 -- 2. TỰ ĐỘNG DỌN DẸP SẠCH SẼ TẤT CẢ CÁC POLICY CŨ (Tránh xung đột chính sách lỏng lẻo cũ)
 DO $$
@@ -90,7 +93,7 @@ CREATE POLICY "Chỉ Admin được cập nhật trạng thái duyệt giao dị
 CREATE POLICY "Chỉ Admin được xóa giao dịch" ON public.transactions
   FOR DELETE USING (public.is_admin());
 
--- 6. BẢO MẬT BẢNG SEARCH_LOGS (Nhật ký tìm kiếm - Chỉ Admin mới xem được)
+-- 6. BẢO MẬT BẢNG SEARCH_LOGS (Nhật ký tìm kiếm - Chỉ Admin mới xem và cập nhật gỡ thiết bị)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'search_logs') THEN
@@ -101,14 +104,15 @@ BEGIN
   END IF;
 END $$;
 
--- 7. BẢO MẬT BẢNG BULK_IMPORT_DRAFTS (Bản nháp nhập kho & Trạng thái điều phối)
+-- 7. BẢO MẬT BẢNG BULK_IMPORT_DRAFTS (Bản nháp nhập kho & Đồng bộ trạng thái kiểm tra kệ lẻ 5)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'bulk_import_drafts') THEN
     EXECUTE 'CREATE POLICY "Anyone read drafts" ON public.bulk_import_drafts FOR SELECT USING (true)';
     EXECUTE 'CREATE POLICY "Admin manage all drafts" ON public.bulk_import_drafts FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin())';
-    EXECUTE 'CREATE POLICY "Users write own device draft" ON public.bulk_import_drafts FOR INSERT WITH CHECK (id NOT LIKE ''global-%'')';
-    EXECUTE 'CREATE POLICY "Users update own device draft" ON public.bulk_import_drafts FOR UPDATE USING (id NOT LIKE ''global-%'') WITH CHECK (id NOT LIKE ''global-%'')';
+    -- Cho phép ghi/sửa nháp của thiết bị cá nhân HOẶC đồng bộ trạng thái kiểm tra kệ lẻ 5
+    EXECUTE 'CREATE POLICY "Users write own device draft" ON public.bulk_import_drafts FOR INSERT WITH CHECK (id NOT LIKE ''global-%'' OR id = ''global-checked-loose-samples'')';
+    EXECUTE 'CREATE POLICY "Users update own device draft" ON public.bulk_import_drafts FOR UPDATE USING (id NOT LIKE ''global-%'' OR id = ''global-checked-loose-samples'') WITH CHECK (id NOT LIKE ''global-%'' OR id = ''global-checked-loose-samples'')';
     EXECUTE 'CREATE POLICY "Users delete own device draft" ON public.bulk_import_drafts FOR DELETE USING (id NOT LIKE ''global-%'')';
   END IF;
 END $$;

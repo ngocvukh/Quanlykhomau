@@ -1,13 +1,13 @@
 {
-  "name": "temp-vite",
+  "name": "quanlykho-khatoco",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
+    "dev": "vite --config frontend/vite.config.js",
+    "build": "vite build --config frontend/vite.config.js",
+    "lint": "oxlint frontend/src",
+    "preview": "vite preview --config frontend/vite.config.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.108.2",

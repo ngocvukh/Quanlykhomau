@@ -5,8 +5,8 @@ import {
   Search, Volume2, VolumeX, Printer, Check, X, ArrowRight,
   Warehouse, Layers, QrCode, Sliders, ShieldAlert, FileText, ChevronRight,
   Radio, Smartphone, Monitor, ZoomIn
-} from './GoogleIcons';
-import { supabase } from './supabaseClient';
+} from '../GoogleIcons';
+import { supabase } from '../supabaseClient';
 
 const SHELF_LETTERS = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
 

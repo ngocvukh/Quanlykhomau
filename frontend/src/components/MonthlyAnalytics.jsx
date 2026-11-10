@@ -4,7 +4,7 @@ import {
   BarChart3, TrendingUp, TrendingDown, Calendar, FileText,
   ExternalLink, Download, ArrowLeft, Layers, Package,
   ChevronDown, ChevronUp, Factory, Boxes, Clock, AlertTriangle, CheckCircle2, ArrowRightLeft
-} from './GoogleIcons';
+} from '../GoogleIcons';
 
 export default function MonthlyAnalytics({
   samples = [],

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
-import html2pdf from 'html2pdf.js';
 import DOMPurify from 'dompurify';
 import QRCode from 'qrcode';
 import {
@@ -11,9 +10,51 @@ import {
   UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar,
   PackageMinus, Ruler, RotateCcw, CheckSquare, ArrowLeft, Camera, BarChart3, Boxes
 } from './GoogleIcons';
-import WarehouseAudit from './WarehouseAudit';
-import MonthlyAnalytics from './MonthlyAnalytics';
-import BentoDashboard from './BentoDashboard';
+const WarehouseAudit = React.lazy(() => import('./components/WarehouseAudit'));
+const MonthlyAnalytics = React.lazy(() => import('./components/MonthlyAnalytics'));
+import BentoDashboard from './components/BentoDashboard';
+const SearchLogsTab = React.lazy(() => import('./components/SearchLogsTab'));
+const UserVisitorManagerTab = React.lazy(() => import('./components/UserVisitorManagerTab'));
+import {
+  getIphoneModel,
+  getIpadModel,
+  getDeviceDescription,
+  getDisplayDeviceName,
+  formatCompactDeviceName,
+  generateDeviceId
+} from './utils/deviceUtils';
+import {
+  UNKNOWN_REQUESTER,
+  parseRequestNote,
+  getRequesterLabel,
+  escapeHtml,
+  SLOT_MAX_WIDTH_MM,
+  FORMAT_CAPACITIES,
+  getFormatSpec,
+  generateQrSvgMarkup,
+  liveFormatDate,
+  autoFormatDate,
+  autoFormatTime,
+  formatBlendBatch,
+  formatSamplingBox,
+  formatLocation,
+  decodeExportProductionCode
+} from './utils/formatters';
+import {
+  fetchProfilesAndVisitors,
+  blockVisitorDevice,
+  unblockVisitorDevice,
+  resetVisitorDeviceName,
+  renameVisitorDevice,
+  unlinkVisitorDevice,
+  updateUserProfile,
+  deleteUserProfile
+} from './services/visitorService';
+import {
+  fetchAllWarehouseData,
+  saveLooseShelfCheckedState,
+  syncGlobalDraftState
+} from './services/warehouseService';
 
 // Override globally for Vietnamese date formatting (DD/MM/YYYY and HH:MM ngày DD/MM/YYYY)
 Date.prototype.toLocaleDateString = function() {
@@ -32,425 +73,6 @@ Date.prototype.toLocaleString = function() {
   return `${hours}:${minutes} ngày ${day}/${month}/${year}`;
 };
 
-// ── Tách tên người yêu cầu và mục đích từ ghi chú yêu cầu lấy mẫu ──
-// Ghi chú cũ có dạng "[Khách: Tên] Mục đích" → trả về { name, purpose }
-const UNKNOWN_REQUESTER = 'Không xác định';
-const parseRequestNote = (note) => {
-  const raw = (note || '').trim();
-  let name = '';
-  let deviceId = '';
-  let rejectReason = '';
-  let rest = raw;
-
-  const mReject = rest.match(/\[(?:Lý do từ chối|Từ chối):\s*([^\]]*)\]/i);
-  if (mReject) {
-    rejectReason = (mReject[1] || '').trim();
-    rest = rest.replace(mReject[0], '').trim();
-  }
-
-  const m = rest.match(/^\[(?:Khách|Người yêu cầu):\s*([^\]]*)\]\s*/i);
-  if (m) {
-    name = (m[1] || '').trim();
-    if (!name || name === 'Khách ẩn danh' || name === UNKNOWN_REQUESTER) name = '';
-    rest = rest.slice(m[0].length).trim();
-  }
-
-  const mDev = rest.match(/\[dev:\s*([^\]]+)\]/i);
-  if (mDev) {
-    deviceId = (mDev[1] || '').trim();
-    rest = rest.replace(mDev[0], '').trim();
-  }
-
-  return { name, purpose: rest, deviceId, rejectReason };
-};
-const getRequesterLabel = (tx) => {
-  const fullName = (tx?.profiles?.full_name || '').trim();
-  const empCode = (tx?.profiles?.employee_code || '').trim();
-  if (fullName) return empCode ? `${fullName} (${empCode})` : fullName;
-  const { name } = parseRequestNote(tx?.note);
-  return name || UNKNOWN_REQUESTER;
-};
-
-// ── Nhận diện model iPhone chuẩn xác qua thông số phần cứng vật lý (Screen, DPR) ──
-const getIphoneModel = () => {
-  if (typeof window === 'undefined') return 'iPhone';
-  const w = Math.min(window.screen.width, window.screen.height);
-  const h = Math.max(window.screen.width, window.screen.height);
-  const dpr = Math.round(window.devicePixelRatio || 1);
-
-  // 1. iPhone 16 Series
-  if (w === 440 && h === 956) return 'iPhone 16 Pro Max';
-  if (w === 402 && h === 874) return 'iPhone 16 Pro';
-
-  // 2. iPhone 15 / 14 Series (Dynamic Island & Notch)
-  if (w === 430 && h === 932) return 'iPhone 14 Pro Max / 15 Pro Max';
-  if (w === 393 && h === 852) return 'iPhone 14 Pro / 15 / 16';
-
-  // 3. iPhone 12 / 13 / 14 Series
-  if (w === 428 && h === 926) return 'iPhone 12 Pro Max / 13 Pro Max';
-  if (w === 390 && h === 844) return 'iPhone 12 / 12 Pro / 13 / 14';
-
-  // 4. iPhone 11 / X / XS / XR Series
-  if (w === 414 && h === 896) {
-    return dpr === 2 ? 'iPhone 11 / XR' : 'iPhone 11 Pro Max / XS Max';
-  }
-  if (w === 375 && h === 812) return 'iPhone 11 Pro / X / XS';
-  if (w === 360 && h === 780) return 'iPhone 12 mini / 13 mini';
-
-  // 5. iPhone SE / 8 / 7 / 6 Series
-  if (w === 414 && h === 736) return 'iPhone 7 Plus / 8 Plus';
-  if (w === 375 && h === 667) return 'iPhone 7 / 8 / SE';
-  if (w === 320 && h === 568) return 'iPhone 5 / 5s / SE1';
-
-  return 'iPhone';
-};
-
-// ── Nhận diện iPad ──
-const getIpadModel = () => {
-  if (typeof window === 'undefined') return 'iPad';
-  const w = Math.min(window.screen.width, window.screen.height);
-  const h = Math.max(window.screen.width, window.screen.height);
-
-  if (w === 1024 && h === 1366) return 'iPad Pro 12.9"';
-  if (w === 834 && h === 1194) return 'iPad Pro 11"';
-  if (w === 834 && h === 1112) return 'iPad Air / Pro 10.5"';
-  if (w === 820 && h === 1180) return 'iPad Air 4/5 / Gen 10';
-  if (w === 810 && h === 1080) return 'iPad Gen 7/8/9';
-  if (w === 744 && h === 1133) return 'iPad mini 6';
-  if (w === 768 && h === 1024) return 'iPad 9.7" / mini';
-  return 'iPad';
-};
-
-// ── Hỗ trợ lấy tên thiết bị chi tiết & cụ thể ──
-const getDeviceDescription = async () => {
-  if (typeof navigator === 'undefined') return 'Thiết bị không rõ';
-  const ua = navigator.userAgent || '';
-
-  // 1. Apple iPhone
-  if (/iPhone/i.test(ua)) {
-    return getIphoneModel();
-  }
-
-  // 2. Apple iPad (bao gồm cả iPadOS gửi UserAgent Mac)
-  const isIpad = /iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
-  if (isIpad) {
-    return getIpadModel();
-  }
-
-  // 3. Android Phone / Tablet
-  if (/Android/i.test(ua)) {
-    // Thử lấy model chính xác từ Client Hints API
-    if (navigator.userAgentData && typeof navigator.userAgentData.getHighEntropyValues === 'function') {
-      try {
-        const hints = await navigator.userAgentData.getHighEntropyValues(['model']);
-        if (hints && hints.model) {
-          const m = hints.model.trim();
-          if (/^SM-S928/i.test(m)) return 'Samsung S24 Ultra';
-          if (/^SM-S918/i.test(m)) return 'Samsung S23 Ultra';
-          if (/^SM-S908/i.test(m)) return 'Samsung S22 Ultra';
-          if (/^SM-S92/i.test(m)) return 'Samsung S24 Series';
-          if (/^SM-S91/i.test(m)) return 'Samsung S23 Series';
-          if (/^SM-S90/i.test(m)) return 'Samsung S22 Series';
-          if (/^SM-/i.test(m)) return `Samsung (${m})`;
-          if (/^Pixel/i.test(m)) return `Google ${m}`;
-          return `Android (${m})`;
-        }
-      } catch {}
-    }
-
-    // Fallback qua phân tích UserAgent
-    const match = ua.match(/Android\s+[^;]+;\s+([^;\)]+?)(?:\s+Build|\s*;|\))/i);
-    if (match && match[1]) {
-      let rawModel = match[1].replace(/Build\/.+/i, '').trim();
-      if (/^SM-S928/i.test(rawModel)) return 'Samsung S24 Ultra';
-      if (/^SM-S918/i.test(rawModel)) return 'Samsung S23 Ultra';
-      if (/^SM-S908/i.test(rawModel)) return 'Samsung S22 Ultra';
-      if (/^SM-S92/i.test(rawModel)) return 'Samsung S24 Series';
-      if (/^SM-S91/i.test(rawModel)) return 'Samsung S23 Series';
-      if (/^SM-S90/i.test(rawModel)) return 'Samsung S22 Series';
-      if (/^SM-/i.test(rawModel)) return `Samsung (${rawModel})`;
-      if (/^Pixel/i.test(rawModel)) return `Google ${rawModel}`;
-      return `Android (${rawModel})`;
-    }
-    return 'Android';
-  }
-
-  // 4. Máy tính (PC / Mac / Linux)
-  let os = 'PC';
-  if (/Windows NT 10.0/i.test(ua)) os = 'Windows 10/11';
-  else if (/Windows/i.test(ua)) os = 'Windows';
-  else if (/Macintosh|Mac OS X/i.test(ua)) os = 'Mac';
-  else if (/Linux/i.test(ua)) os = 'Linux';
-
-  let browser = 'Browser';
-  if (/Edg/i.test(ua)) browser = 'Edge';
-  else if (/Chrome/i.test(ua)) browser = 'Chrome';
-  else if (/Firefox/i.test(ua)) browser = 'Firefox';
-  else if (/Safari/i.test(ua)) browser = 'Safari';
-
-  return `${os} (${browser})`;
-};
-
-// ── Lấy phần mô tả thiết bị thân thiện để hiển thị ──
-const getDisplayDeviceName = (did) => {
-  if (!did) return 'Không rõ';
-  const match = did.match(/\(([^)]+)\)/);
-  return match ? match[1] : did.slice(0, 12) + '...';
-};
-
-// ── Rút gọn tên thiết bị để hiển thị gọn gàng trong bảng dữ liệu ──
-const formatCompactDeviceName = (name) => {
-  if (!name || typeof name !== 'string') return name || '—';
-  const s = name.trim();
-  const directMap = {
-    'iPhone 12 / 12 Pro / 13 / 14': 'iP 12-14',
-    'iPhone 14 Pro Max / 15 Pro Max': 'iP 14/15 PM',
-    'iPhone 12 Pro Max / 13 Pro Max': 'iP 12/13 PM',
-    'iPhone 14 Pro / 15 / 16': 'iP 14P/15/16',
-    'iPhone 16 Pro Max': 'iP 16 PM',
-    'iPhone 16 Pro': 'iP 16 Pro',
-    'iPhone 11 Pro Max / XS Max': 'iP 11PM/XS',
-    'iPhone 11 Pro / X / XS': 'iP 11P/X/XS',
-    'iPhone 11 / XR': 'iP 11/XR',
-    'iPhone 12 mini / 13 mini': 'iP 12/13m',
-    'iPhone 7 Plus / 8 Plus': 'iP 7+/8+',
-    'iPhone 7 / 8 / SE': 'iP 7/8/SE',
-    'iPhone 5 / 5s / SE1': 'iP 5/SE',
-    'iPad Pro 12.9"': 'iPad P12',
-    'iPad Pro 11"': 'iPad P11',
-    'iPad Air / Pro 10.5"': 'iPad Air/P',
-    'iPad Air 4/5 / Gen 10': 'iPad Air/G10',
-    'iPad Gen 7/8/9': 'iPad G7-9',
-    'Samsung S24 Ultra': 'SS S24U',
-    'Samsung S23 Ultra': 'SS S23U',
-    'Samsung S22 Ultra': 'SS S22U',
-    'Samsung S24 Series': 'SS S24',
-    'Samsung S23 Series': 'SS S23',
-    'Samsung S22 Series': 'SS S22'
-  };
-  if (directMap[s]) return directMap[s];
-
-  return s
-    .replace(/^iPhone\b/i, 'iP')
-    .replace(/^Samsung\b/i, 'SS')
-    .replace(/^Windows\s*10\/11/i, 'Win')
-    .replace(/^Windows\b/i, 'Win');
-};
-
-// ── Device Fingerprint (thuần JS, không cần thư viện ngoài) ──
-const generateDeviceId = async () => {
-  try {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    ctx.textBaseline = 'top';
-    ctx.font = '14px Arial';
-    ctx.fillText('device-fingerprint', 2, 2);
-    const canvasStr = canvas.toDataURL();
-    const navStr = [
-      navigator.userAgent,
-      navigator.language,
-      screen.width, screen.height, screen.colorDepth,
-      new Date().getTimezoneOffset()
-    ].join('|');
-    const raw = canvasStr + navStr;
-    // Simple hash
-    let hash = 0;
-    for (let i = 0; i < raw.length; i++) {
-      hash = ((hash << 5) - hash) + raw.charCodeAt(i);
-      hash |= 0;
-    }
-    const deviceName = await getDeviceDescription();
-    return `dev-${Math.abs(hash).toString(36)} (${deviceName})`;
-  } catch {
-    const deviceName = await getDeviceDescription().catch(() => 'Thiết bị');
-    return `dev-${Math.random().toString(36).slice(2, 10)} (${deviceName})`;
-  }
-};
-
-// HTML Escape helper for safe document.write / innerHTML templates
-const escapeHtml = (str) => String(str ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#039;');
-
-
-// Format capacity mapping (Mỗi ô kệ rộng tối đa 700mm)
-const SLOT_MAX_WIDTH_MM = 700;
-const FORMAT_CAPACITIES = {
-  'Kingsize': { width: 90, columns: 7, height: 6, total: 42 },
-  'SuperSlim': { width: 105, columns: 6, height: 10, total: 60 },
-  'Semi': { width: 98, columns: 7, height: 6, total: 42 },
-  'Demi': { width: 90, columns: 7, height: 7, total: 49 },
-  'Slim': { width: 105, columns: 6, height: 10, total: 60 }
-};
-
-const getFormatSpec = (fmt) => FORMAT_CAPACITIES[fmt] || FORMAT_CAPACITIES['Kingsize'];
-
-// Tạo mã QR dạng SVG nội tuyến (Offline 100%, không bao giờ mất mã QR khi in)
-const generateQrSvgMarkup = (text) => {
-  try {
-    const qr = QRCode.create(text || 'N/A', { errorCorrectionLevel: 'Q' });
-    const size = qr.modules.size;
-    const data = qr.modules.data;
-    const margin = 1;
-    const total = size + margin * 2;
-    let path = '';
-    for (let r = 0; r < size; r++) {
-      for (let c = 0; c < size; c++) {
-        if (data[r * size + c]) {
-          path += `M${c + margin},${r + margin}h1v1h-1z`;
-        }
-      }
-    }
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges" style="width:100%;height:auto;display:block;aspect-ratio:1/1;"><rect width="100%" height="100%" fill="#ffffff"/><path d="${path}" fill="#000000"/></svg>`;
-  } catch (e) {
-    console.error('QR generation error:', e);
-    return '';
-  }
-};
-
-const liveFormatDate = (value, prevValue) => {
-  if (prevValue && prevValue.length > value.length) {
-    return value;
-  }
-  let v = value.replace(/\D/g, '');
-  if (v.length > 8) v = v.slice(0, 8);
-  
-  if (v.length >= 5) {
-    return `${v.slice(0, 2)}/${v.slice(2, 4)}/${v.slice(4)}`;
-  } else if (v.length >= 3) {
-    return `${v.slice(0, 2)}/${v.slice(2)}`;
-  }
-  return v;
-};
-
-// Auto-format date typed in flexible shorthand (like 20/5/23 -> 20/05/2023)
-const autoFormatDate = (value) => {
-  if (!value) return value;
-  const cleaned = value.trim();
-  const parts = cleaned.split(/[\/\-\.]/);
-  if (parts.length !== 3) return value;
-  
-  let dayStr = parts[0];
-  let monthStr = parts[1];
-  let yearStr = parts[2];
-  
-  const day = parseInt(dayStr, 10);
-  const month = parseInt(monthStr, 10);
-  let year = parseInt(yearStr, 10);
-  
-  if (isNaN(day) || isNaN(month) || isNaN(year)) return value;
-  
-  const formattedDay = String(day).padStart(2, '0');
-  const formattedMonth = String(month).padStart(2, '0');
-  
-  if (yearStr.length === 2) {
-    year = year < 50 ? 2000 + year : 1900 + year;
-  }
-  const formattedYear = String(year);
-  
-  const d = new Date(year, month - 1, day);
-  if (d.getFullYear() === year && (d.getMonth() + 1) === month && d.getDate() === day) {
-    return `${formattedDay}/${formattedMonth}/${formattedYear}`;
-  }
-  return value;
-};
-
-// Auto-format time typed in flexible shorthand (like 9:5 -> 09:05)
-const autoFormatTime = (value) => {
-  if (!value) return value;
-  const cleaned = value.trim();
-  const parts = cleaned.split(/[\:\.]/);
-  if (parts.length !== 2) return value;
-  
-  const hour = parseInt(parts[0], 10);
-  const minute = parseInt(parts[1], 10);
-  
-  if (isNaN(hour) || isNaN(minute) || hour < 0 || hour >= 24 || minute < 0 || minute >= 60) {
-    return value;
-  }
-  
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-};
-
-// Format composite blend_batch containing box sequence number (like 123|15)
-const formatBlendBatch = (val) => {
-  if (!val) return '';
-  const parts = val.split('|');
-  if (parts.length === 2) {
-    return `Mẻ ${parts[0]}`;
-  }
-  return val;
-};
-
-const formatSamplingBox = (val) => {
-  if (!val) return '';
-  const parts = val.split('|');
-  if (parts.length === 2) {
-    return `(Thùng lấy mẫu: ${parts[1]})`;
-  }
-  return '';
-};
-
-// Format location into coordinate A1, B5, etc.
-const formatLocation = (shelf, slot, column) => {
-  if (!shelf || !slot) return '';
-  const letters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
-  const shelfLetter = letters[shelf] || `Kệ ${shelf}`;
-  const slotSuffix = slot === 5 ? ' (Lẻ)' : '';
-  const locStr = `${shelfLetter}${slot}${slotSuffix}`;
-  if (column !== undefined && column !== null) {
-    return `${shelfLetter}${slot} - Cột ${column}${slotSuffix}`;
-  }
-  return locStr;
-};
-
-// ── Giải mã Code 6 ký tự sản phẩm xuất khẩu (bảng mã SINGAPOREZ) thành ngày sản xuất ──
-const decodeExportProductionCode = (rawInput) => {
-  if (!rawInput) return null;
-  const code = rawInput.trim().toUpperCase();
-  if (!/^[SINGAPOREZ]{6}$/.test(code)) return null;
-
-  const dayMap = { S: 1, I: 2, N: 3, G: 4, A: 5, P: 6, O: 7 };
-  const dayNameMap = { S: 'Thứ Hai', I: 'Thứ Ba', N: 'Thứ Tư', G: 'Thứ Năm', A: 'Thứ Sáu', P: 'Thứ Bảy', O: 'Chủ Nhật' };
-  const digitMap = { S: 1, I: 2, N: 3, G: 4, A: 5, P: 6, O: 7, R: 8, E: 9, Z: 0 };
-  const yearMap = { S: 2021, I: 2022, N: 2023, G: 2024, A: 2025, P: 2026, O: 2027, R: 2028, E: 2029, Z: 2030 };
-
-  const isoDayOfWeek = dayMap[code[0]]; // 1 (Thứ Hai) -> 7 (Chủ Nhật)
-  if (!isoDayOfWeek) return null;
-
-  const d2 = digitMap[code[1]];
-  const d3 = digitMap[code[2]];
-  const year = yearMap[code[5]];
-  if (d2 === undefined || d3 === undefined || !year) return null;
-
-  const week = d2 * 10 + d3;
-  if (week < 1 || week > 53) return null;
-
-  // Tính ngày theo chuẩn ISO-8601 week date (Tuần 1 là tuần có ngày 04/01)
-  const jan4 = new Date(year, 0, 4);
-  const jan4Day = jan4.getDay() || 7; // Chủ Nhật = 7
-  const week1Monday = new Date(year, 0, 4 - (jan4Day - 1));
-
-  const targetDate = new Date(week1Monday);
-  targetDate.setDate(week1Monday.getDate() + (week - 1) * 7 + (isoDayOfWeek - 1));
-
-  const dd = String(targetDate.getDate()).padStart(2, '0');
-  const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
-  const yyyy = targetDate.getFullYear();
-
-  return {
-    code,
-    dayName: dayNameMap[code[0]],
-    week,
-    year,
-    dateObj: targetDate,
-    dmy: `${dd}/${mm}/${yyyy}`,
-    ymd: `${yyyy}-${mm}-${dd}`
-  };
-};
 
 export default function App() {
   // Authentication & Profile States
@@ -2231,7 +1853,7 @@ export default function App() {
     }
   };
 
-  const generateConsolidationPDF = () => {
+  const generateConsolidationPDF = async () => {
     if (!consolidationProposals || consolidationProposals.length === 0) return;
     
     let htmlContent = `
@@ -2318,6 +1940,7 @@ export default function App() {
 
     const element = document.createElement('div');
     element.innerHTML = DOMPurify.sanitize(htmlContent);
+    const html2pdf = (await import('html2pdf.js')).default;
     html2pdf().from(element).set({
       margin: [8, 10, 8, 10],
       filename: `Phieu_Don_Kho_${new Date().toISOString().slice(0,10)}.pdf`,
@@ -2568,6 +2191,7 @@ export default function App() {
   const [searchSelYear, setSearchSelYear] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
+  const [committedSearch, setCommittedSearch] = useState(null);
   const [takeQuantities, setTakeQuantities] = useState({});
   const [takeNotes, setTakeNotes] = useState({});
   const [loosePackEditQty, setLoosePackEditQty] = useState({});
@@ -2912,7 +2536,7 @@ export default function App() {
 
     if (!window.confirm(`Xác nhận yêu cầu ${displayName} phải khai báo lại tên?\nLần sau khi truy cập lại web, thiết bị này sẽ bắt buộc phải nhập lại tên mới.`)) return;
     try {
-      await supabase.from('visitor_resets').upsert({ device_id: targetDevId, is_blocked: false, reset_by: 'admin_reset' });
+      await resetVisitorDeviceName(targetDevId);
       showToast(`Đã yêu cầu thiết bị [${getDisplayDeviceName(targetDevId)}] khai lại tên. Lần truy cập sau sẽ bắt buộc nhập tên mới!`, 'success');
       fetchSearchLogs();
       fetchUsersAndVisitors();
@@ -2972,46 +2596,17 @@ export default function App() {
         return;
       }
 
-      // 1. Thêm log mới vào search_logs để đảm bảo timestamp mới nhất luôn trỏ về tên này
-      if (targetDevId) {
-        await supabase.from('search_logs').insert({
-          device_id: targetDevId,
-          user_name: trimmed,
-          keyword: '[Admin đổi tên]',
-          results_count: 0
-        });
-        try {
-          await supabase.from('search_logs').update({ user_name: trimmed }).eq('device_id', targetDevId);
-        } catch { /* ignore */ }
-      }
-
-      // 2. Cập nhật ghi chú trên tất cả các giao dịch lấy mẫu của khách này
       const affectedTxs = transactions.filter(t => !t.user_id && t.note && (
         (targetDevId && t.note.includes(`[dev: ${targetDevId}]`)) ||
         (oldName && t.note.includes(`[Khách: ${oldName}]`))
       ));
-      for (const tx of affectedTxs) {
-        const updatedNote = tx.note.replace(/\[(?:Khách|Người yêu cầu):\s*[^\]]*\]/i, `[Khách: ${trimmed}]`);
-        if (updatedNote !== tx.note) {
-          await supabase.from('transactions').update({ note: updatedNote }).eq('id', tx.id);
-        }
+      await renameVisitorDevice({ targetDevId, trimmedName: trimmed, affectedTxs });
+
+      // Nếu thiết bị được đổi tên chính là trình duyệt hiện tại thì cập nhật luôn vào máy
+      if (targetDevId === deviceId) {
+        localStorage.setItem('visitor_name', trimmed);
+        setVisitorName(trimmed);
       }
-
-      // 3. Đặt cờ trong visitor_resets để thiết bị khách tự động cập nhật tên mới trong lần truy cập sau
-      if (targetDevId) {
-        await supabase.from('visitor_resets').upsert({
-          device_id: targetDevId,
-          is_blocked: false,
-          reset_by: `rename:${trimmed}`
-        });
-
-        // Nếu thiết bị được đổi tên chính là trình duyệt hiện tại thì cập nhật luôn vào máy
-        if (targetDevId === deviceId) {
-          localStorage.setItem('visitor_name', trimmed);
-          setVisitorName(trimmed);
-        }
-      }
-
       showToast(`Đã đổi tên khách thành "${trimmed}" thành công!`, 'success');
       setRenameModalVisitor(null);
       fetchUsersAndVisitors();
@@ -3063,7 +2658,7 @@ export default function App() {
   const handleBlockVisitor = async (devId, userName) => {
     if (!window.confirm(`CHẶN VĨNH VIỄN thiết bị "${userName}"?\nHọ sẽ không vào được hệ thống nữa.`)) return;
     try {
-      await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: true, reset_by: 'admin' });
+      await blockVisitorDevice(devId);
       showToast(`Đã chặn vĩnh viễn thiết bị của "${userName}"!`, 'success');
       fetchSearchLogs();
       fetchUsersAndVisitors();
@@ -3075,7 +2670,7 @@ export default function App() {
   // Gỡ chặn thiết bị
   const handleUnblockVisitor = async (devId, userName) => {
     try {
-      await supabase.from('visitor_resets').delete().eq('device_id', devId);
+      await unblockVisitorDevice(devId);
       showToast(`Đã gỡ chặn thiết bị của "${userName}".`, 'success');
       fetchSearchLogs();
       fetchUsersAndVisitors();
@@ -3089,22 +2684,10 @@ export default function App() {
     if (isDemoMode) return;
     setUsersLoading(true);
     try {
-      const [{ data: profs }, { data: vLogs }, { data: resets }] = await Promise.all([
-        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        supabase.from('search_logs').select('*').order('searched_at', { ascending: false }).limit(2000),
-        supabase.from('visitor_resets').select('device_id, is_blocked, reset_by')
-      ]);
-      setProfilesList(profs || []);
-      setAllVisitorLogs(vLogs || []);
-      setResetDevices(resets || []);
-
-      // Tự động dọn dẹp các bản ghi mồ côi trong visitor_resets (không có nhật ký và không bị chặn)
-      const orphanResetIds = (resets || [])
-        .filter(r => !r.is_blocked && !(vLogs || []).some(l => l.device_id === r.device_id))
-        .map(r => r.device_id);
-      if (orphanResetIds.length > 0) {
-        supabase.from('visitor_resets').delete().in('device_id', orphanResetIds).then(() => {});
-      }
+      const { profiles: profs, visitorLogs: vLogs, resetDevices: resets } = await fetchProfilesAndVisitors();
+      setProfilesList(profs);
+      setAllVisitorLogs(vLogs);
+      setResetDevices(resets);
     } catch (e) {
       console.error('Error fetching users and visitors:', e);
     } finally {
@@ -3129,7 +2712,7 @@ export default function App() {
       if (isDemoMode) {
         setProfilesList(prev => prev.map(p => p.id === targetId ? { ...p, ...updates } : p));
       } else {
-        const { error } = await supabase.from('profiles').update(updates).eq('id', targetId);
+        const { error } = await updateUserProfile(targetId, updates);
         if (error) throw error;
         setProfilesList(prev => prev.map(p => p.id === targetId ? { ...p, ...updates } : p));
         if (profile && profile.id === targetId) {
@@ -3155,7 +2738,7 @@ export default function App() {
     try {
       setUsersLoading(true);
       if (!isDemoMode) {
-        const { error } = await supabase.from('profiles').delete().eq('id', prof.id);
+        const { error } = await deleteUserProfile(prof.id);
         if (error) throw error;
       }
       setProfilesList(prev => prev.filter(p => p.id !== prof.id));
@@ -3179,12 +2762,7 @@ export default function App() {
     try {
       setUsersLoading(true);
       if (!isDemoMode) {
-        await Promise.all([
-          // Chỉ xóa trường thiết bị (device_id = null), TUYỆT ĐỐI KHÔNG XÓA LOG TRA CỨU HOẶC GIAO DỊCH
-          supabase.from('search_logs').update({ device_id: null }).eq('device_id', devId),
-          // Xóa bản ghi trong visitor_resets
-          supabase.from('visitor_resets').delete().eq('device_id', devId)
-        ]);
+        await unlinkVisitorDevice(devId);
       }
       // Cập nhật state local: gỡ device_id để thiết bị biến mất khỏi danh sách lưu, giữ nguyên dữ liệu log
       setAllVisitorLogs(prev => prev.map(l => l.device_id === devId ? { ...l, device_id: null } : l));
@@ -3347,170 +2925,78 @@ export default function App() {
   const fetchDatabaseData = async () => {
     try {
       setLoading(true);
-      const { data: p } = await supabase.from('products').select('*').order('product_name');
-      let { data: s } = await supabase.from('samples').select('*, products(*)').order('created_at', { ascending: false });
-      const { data: b } = await supabase.from('boxes').select('*').order('created_at', { ascending: false });
-      let { data: t } = await supabase.from('transactions').select('*, samples(*, products(*)), profiles(*)').order('created_at', { ascending: false });
-      let { data: dl } = await supabase.from('destruction_logs').select('*').order('created_at', { ascending: false });
-      const { data: profs } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      const {
+        products: p,
+        samples: s,
+        boxes: b,
+        transactions: t,
+        destructionLogs: dl,
+        profiles: profs,
+        globalStates,
+        slotConfigs: sc
+      } = await fetchAllWarehouseData({ isAdminOrUser: profile?.role === 'admin' || !!user });
 
-      // Tự động chuẩn hóa các mẫu có ngày SX từ 01/2026 - 11/2026 bị đánh dấu hủy nhầm thành Đã lấy mẫu (Mục đích: Mẫu bị mất)
-      // Khôi phục lại biên bản hủy ngày 14/09/2026 (của các mẫu NSX 09/2025 trở về trước) nếu đã bị xóa nhầm
-      const septDestructionLog = {
-        id: '509b8f0d-6f4e-42a5-a373-ba1ad95cd687',
-        created_at: '2026-09-14T03:38:40.483726+00:00',
-        report_url: 'https://obfdrpqnntylboptkwin.supabase.co/storage/v1/object/public/destruction_reports/destruction_report_1789357119010.pdf',
-        num_samples_destroyed: 22,
-        created_by: null
-      };
-      if (!dl || !dl.some(log => log.id === septDestructionLog.id)) {
-        dl = [...(dl || []), septDestructionLog].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-        if (profile?.role === 'admin' || user) {
-          try {
-            await supabase.from('destruction_logs').upsert(septDestructionLog);
-          } catch (errLog) { /* ignore RLS if guest */ }
+      setProducts(p);
+      setSamples(s);
+      setBoxes(b);
+      setTransactions(t);
+      setDestructionLogs(dl);
+      setProfilesList(profs);
+      if (sc && sc.length > 0) setSlotConfigs(sc);
+
+      // Phân phối globalStates sang scanPreview, printQueue, pendingPrintSamples, lastAssignedIds, checkedSamples
+      if (globalStates) {
+        const spRow = globalStates.find(r => r.id === 'global-scan-preview');
+        if (spRow && spRow.rows_data) {
+          setScanPreview(spRow.rows_data);
+        } else {
+          setScanPreview(null);
         }
-      }
 
-      // Tự động chuẩn hóa nếu có mẫu bị lỗi cộng lố (available_qty > total_qty)
-      if (s && s.length > 0) {
-        const overStockSamples = s.filter(item => item.total_qty && item.available_qty > item.total_qty);
-        if (overStockSamples.length > 0) {
-          if (profile?.role === 'admin' || user) {
-            try {
-              for (const os of overStockSamples) {
-                supabase.from('samples').update({ available_qty: os.total_qty }).eq('id', os.id).then();
-              }
-            } catch (errOs) { /* ignore */ }
-          }
-          s = s.map(item => {
-            if (item.total_qty && item.available_qty > item.total_qty) {
-              return { ...item, available_qty: item.total_qty };
-            }
-            return item;
-          });
-        }
-      }
+        const sampleMap = new Map((s || []).map(item => [item.id, item]));
 
-      if (s && s.length > 0) {
-        const lostSamples = s.filter(item => (item.status === 'destroyed' || item.note === 'Mẫu bị mất') && item.packaging_date >= '2026-01-01' && item.packaging_date <= '2026-11-30');
-        if (lostSamples.length > 0) {
-          const lostIds = lostSamples.map(item => item.id);
-          // Nếu đang đăng nhập quyền Admin thì tự động cập nhật thẳng xuống Database Supabase
-          if (profile?.role === 'admin' || user) {
-            try {
-              const needDbUpdate = lostSamples.filter(item => item.status === 'destroyed').map(item => item.id);
-              if (needDbUpdate.length > 0) {
-                await supabase.from('samples').update({ status: 'dispatched', available_qty: 0, note: 'Mẫu bị mất' }).in('id', needDbUpdate);
-              }
-            } catch (errSync) { /* ignore RLS if guest */ }
-          }
-          // Chuẩn hóa ngay lập tức trên dữ liệu hiển thị cho cả Admin và Guest
-          s = s.map(item => {
-            if (lostIds.includes(item.id)) {
-              return { ...item, status: 'dispatched', available_qty: 0, note: 'Mẫu bị mất' };
-            }
-            return item;
-          });
-          // Bổ sung bản ghi lấy mẫu vào danh sách transactions hiển thị nếu chưa có
-          const existingTxSampleIds = new Set((t || []).filter(tx => tx.type === 'take_approve').map(tx => tx.sample_id));
-          const virtualTxs = lostSamples
-            .filter(ls => !existingTxSampleIds.has(ls.id))
-            .map(ls => ({
-              id: `lost-${ls.id}`,
-              sample_id: ls.id,
-              samples: ls,
-              type: 'take_approve',
-              quantity: 10,
-              status: 'approved',
-              note: 'Mẫu bị mất',
-              created_at: ls.entry_date ? `${ls.entry_date}T08:00:00Z` : ls.created_at
-            }));
-          t = [...virtualTxs, ...(t || [])];
-        }
-      }
-      
-      setProducts(p || []);
-      setSamples(s || []);
-      setBoxes(b || []);
-      setTransactions(t || []);
-      setDestructionLogs(dl || []);
-      setProfilesList(profs || []);
-
-      // Tải lại tiến trình scanPreview, printQueue, pendingPrintSamples, lastAssignedIds đồng bộ giữa các máy
-      try {
-        const { data: globalStates } = await supabase
-          .from('bulk_import_drafts')
-          .select('id, rows_data')
-          .in('id', ['global-scan-preview', 'global-print-queue', 'global-pending-print-samples', 'global-last-assigned-ids']);
-
-        if (globalStates) {
-          const spRow = globalStates.find(r => r.id === 'global-scan-preview');
-          if (spRow && spRow.rows_data) {
-            setScanPreview(spRow.rows_data);
-          } else {
-            setScanPreview(null);
-          }
-
-          const sampleMap = new Map((s || []).map(item => [item.id, item]));
-
-          const pqRow = globalStates.find(r => r.id === 'global-print-queue');
-          if (pqRow) {
-            const dbQueue = Array.isArray(pqRow.rows_data) ? pqRow.rows_data : [];
-            if (dbQueue.length === 0) {
-              // Trên DB đã chủ động xóa sạch hàng đợi -> Xóa sạch state và localStorage của máy này ngay lập tức!
-              setPrintQueueState([]);
-              try { localStorage.removeItem('print_queue'); } catch { /* ignore */ }
-            } else {
-              const refreshedQueue = deduplicateQueue(dbQueue.map(qItem => {
-                const fresh = sampleMap.get(qItem.id);
-                return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
-              }));
-              setPrintQueueState(refreshedQueue);
-              try { localStorage.setItem('print_queue', JSON.stringify(refreshedQueue)); } catch { /* ignore */ }
-            }
-          } else {
-            // Không có hàng đợi trên DB -> Xóa sạch hàng đợi local để tránh tự hồi sinh mẫu cũ
+        const pqRow = globalStates.find(r => r.id === 'global-print-queue');
+        if (pqRow) {
+          const dbQueue = Array.isArray(pqRow.rows_data) ? pqRow.rows_data : [];
+          if (dbQueue.length === 0) {
             setPrintQueueState([]);
             try { localStorage.removeItem('print_queue'); } catch { /* ignore */ }
-          }
-
-          const ppsRow = globalStates.find(r => r.id === 'global-pending-print-samples');
-          if (ppsRow && Array.isArray(ppsRow.rows_data) && ppsRow.rows_data.length > 0) {
-            const refreshedPending = ppsRow.rows_data.map(pItem => sampleMap.get(pItem.id) || pItem);
-            setPendingPrintSamplesState(refreshedPending);
           } else {
-            setPendingPrintSamplesState(null);
+            const refreshedQueue = deduplicateQueue(dbQueue.map(qItem => {
+              const fresh = sampleMap.get(qItem.id);
+              return fresh ? { ...fresh, isReprint: qItem.isReprint } : qItem;
+            }));
+            setPrintQueueState(refreshedQueue);
+            try { localStorage.setItem('print_queue', JSON.stringify(refreshedQueue)); } catch { /* ignore */ }
           }
-
-          const laiRow = globalStates.find(r => r.id === 'global-last-assigned-ids');
-          if (laiRow && Array.isArray(laiRow.rows_data) && laiRow.rows_data.length > 0) {
-            setLastAssignedIdsState(laiRow.rows_data);
-            try { localStorage.setItem('last_assigned_ids', JSON.stringify(laiRow.rows_data)); } catch { /* ignore */ }
-          } else {
-            setLastAssignedIdsState(null);
-            localStorage.removeItem('last_assigned_ids');
-          }
-
-          const checkedRow = globalStates.find(r => r.id === 'global-checked-loose-samples');
-          if (checkedRow && checkedRow.rows_data) {
-            const remoteChecked = typeof checkedRow.rows_data === 'object' && !Array.isArray(checkedRow.rows_data) ? checkedRow.rows_data : {};
-            setCheckedSamples(remoteChecked);
-            try { localStorage.setItem('checked_loose_samples', JSON.stringify(remoteChecked)); } catch { /* ignore */ }
-          }
+        } else {
+          setPrintQueueState([]);
+          try { localStorage.removeItem('print_queue'); } catch { /* ignore */ }
         }
-      } catch (e) { /* ignore */ }
 
-      // Load slotconfigs defensively
-      try {
-        const { data: sc, error: scErr } = await supabase.from('slot_configs').select('*');
-        if (!scErr && sc) {
-          setSlotConfigs(sc);
-        } else if (scErr) {
-          console.warn("Table slot_configs does not exist or fetch failed:", scErr.message);
+        const ppsRow = globalStates.find(r => r.id === 'global-pending-print-samples');
+        if (ppsRow && Array.isArray(ppsRow.rows_data) && ppsRow.rows_data.length > 0) {
+          const refreshedPending = ppsRow.rows_data.map(pItem => sampleMap.get(pItem.id) || pItem);
+          setPendingPrintSamplesState(refreshedPending);
+        } else {
+          setPendingPrintSamplesState(null);
         }
-      } catch (scEx) {
-        console.warn("Ex fetching slot_configs:", scEx);
+
+        const laiRow = globalStates.find(r => r.id === 'global-last-assigned-ids');
+        if (laiRow && Array.isArray(laiRow.rows_data) && laiRow.rows_data.length > 0) {
+          setLastAssignedIdsState(laiRow.rows_data);
+          try { localStorage.setItem('last_assigned_ids', JSON.stringify(laiRow.rows_data)); } catch { /* ignore */ }
+        } else {
+          setLastAssignedIdsState(null);
+          localStorage.removeItem('last_assigned_ids');
+        }
+
+        const checkedRow = globalStates.find(r => r.id === 'global-checked-loose-samples');
+        if (checkedRow && checkedRow.rows_data) {
+          const remoteChecked = typeof checkedRow.rows_data === 'object' && !Array.isArray(checkedRow.rows_data) ? checkedRow.rows_data : {};
+          setCheckedSamples(remoteChecked);
+          try { localStorage.setItem('checked_loose_samples', JSON.stringify(remoteChecked)); } catch { /* ignore */ }
+        }
       }
     } catch (e) {
       console.error("Error loading database:", e);
@@ -4613,6 +4099,7 @@ export default function App() {
       : [];
     setSearchResultSlots(matchedConfigs);
 
+    setCommittedSearch({ nameVal, orderVal, monthVal, activeProd });
     setSearchResults(filtered);
     if (filtered.length === 0) {
       const decodedCode = trimmedName ? decodeExportProductionCode(trimmedName) : null;
@@ -4645,54 +4132,18 @@ export default function App() {
     executeSearch(searchName, monthVal, searchOrderNumber, selectedProduct);
   };
 
-  // Phục vụ tính năng tìm kiếm động / thời gian thực khi gõ bất kỳ kí tự nào hoặc khi chọn sản phẩm
+  // Chỉ đồng bộ lại kết quả mẫu trong kho khi dữ liệu kho thay đổi VÀ người dùng đã nhấn Enter / Tìm kiếm xác nhận
   useEffect(() => {
-    if (searchDebounceTimerRef.current) {
-      clearTimeout(searchDebounceTimerRef.current);
-      searchDebounceTimerRef.current = null;
-    }
-
-    const trimmed = searchName.trim();
-    const trimmedOrder = searchOrderNumber.trim();
-    if (trimmed.length >= 1 || trimmedOrder.length >= 1 || selectedProduct) {
-      const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + "-" + searchSelMonth) : "";
-      const filtered = filterSamplesList(samples, searchName, searchOrderNumber, monthVal, selectedProduct);
-
-      const searchLower = trimmed.toLowerCase();
-      const matchedConfigs = (trimmed && !selectedProduct)
-        ? slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(searchLower))
-        : [];
-      setSearchResultSlots(matchedConfigs);
-      setSearchResults(filtered);
-
-      // Chỉ ghi log sau khi người dùng dừng gõ ít nhất 2.5 giây
-      searchDebounceTimerRef.current = setTimeout(async () => {
-        const logParts = [];
-        if (selectedProduct) {
-          logParts.push(selectedProduct.warning_code ? `${selectedProduct.product_name} [${selectedProduct.warning_code}]` : selectedProduct.product_name);
-        } else if (trimmed) {
-          const decodedCode = decodeExportProductionCode(trimmed);
-          logParts.push(decodedCode ? `${trimmed.toUpperCase()} (${decodedCode.dmy})` : trimmed);
-        }
-        if (trimmedOrder) logParts.push(`ĐH: ${trimmedOrder}`);
-
-        if (logParts.length > 0) {
-          await logSearchToDatabase(logParts.join(" | "), monthVal, filtered.length);
-        }
-      }, 2500);
-
-    } else {
-      setSearchResultSlots([]);
-      setSearchResults([]);
-    }
-
-    return () => {
-      if (searchDebounceTimerRef.current) {
-        clearTimeout(searchDebounceTimerRef.current);
-        searchDebounceTimerRef.current = null;
-      }
-    };
-  }, [searchName, searchOrderNumber, searchSelMonth, searchSelYear, selectedProduct, samples]);
+    if (!committedSearch) return;
+    const { nameVal, orderVal, monthVal, activeProd } = committedSearch;
+    const filtered = filterSamplesList(samples, nameVal, orderVal, monthVal, activeProd);
+    const trimmed = (nameVal || "").trim().toLowerCase();
+    const matchedConfigs = (trimmed && !activeProd)
+      ? slotConfigs.filter(c => c.note && c.note.toLowerCase().includes(trimmed))
+      : [];
+    setSearchResultSlots(matchedConfigs);
+    setSearchResults(filtered);
+  }, [samples, slotConfigs, committedSearch]);
 
   const handleSearchInputChange = (val) => {
     setSearchName(val);
@@ -4705,13 +4156,13 @@ export default function App() {
       }
     }
     const trimmed = val.trim().toLowerCase();
-    if (trimmed.length >= 1 && activeTab === 'search') {
+    if (trimmed.length >= 1) {
       const matches = products.filter(p => {
         const pName = (p.product_name || '').toLowerCase();
         const pWarn = (p.warning_code || '').toLowerCase();
         const combined = `${pName} ${pWarn}`;
         return pName.includes(trimmed) || pWarn.includes(trimmed) || combined.includes(trimmed);
-      }).slice(0, 10);
+      }).slice(0, 12);
       setSearchSuggestions(matches);
     } else {
       setSearchSuggestions([]);
@@ -5259,8 +4710,29 @@ export default function App() {
       try {
         setLoading(true);
 
-        // 1. Cập nhật Sample vị trí và số lượng
-        const { error: sError } = await supabase
+        // Thử gọi RPC nguyên khối trên Supabase Backend trước
+        let rpcSuccess = false;
+        try {
+          const { data: rpcRes, error: rpcErr } = await supabase.rpc('rpc_approve_take_request', {
+            p_tx_id: tx.id,
+            p_custom_qty: qtyToTake,
+            p_admin_id: profile?.id || null
+          });
+          if (!rpcErr && rpcRes && rpcRes.success) {
+            rpcSuccess = true;
+          } else if (rpcErr && !rpcErr.message?.includes('function') && rpcErr.code !== 'PGRST202') {
+            throw rpcErr;
+          }
+        } catch (rpcEx) {
+          if (rpcEx.message && !rpcEx.message.includes('function') && rpcEx.code !== 'PGRST202') {
+            throw rpcEx;
+          }
+        }
+
+        // Fallback: Nếu RPC chưa được nạp trên DB -> Chạy logic cũ bình thường
+        if (!rpcSuccess) {
+          // 1. Cập nhật Sample vị trí và số lượng
+          const { error: sError } = await supabase
           .from('samples')
           .update({
             available_qty: newQty,
@@ -5298,6 +4770,8 @@ export default function App() {
           status: 'approved',
           note: `Đã duyệt cấp ${qtyToTake} bao${noteSuffix}. Vị trí cũ: ${sample.shelf ? formatLocation(sample.shelf, sample.slot, sample.column_number) : (sample.box_id ? 'Thùng' : 'Chưa có')}. Vị trí mới: ${nextSlot === 5 ? formatLocation(sample.shelf, 5, 1) : (newQty === 0 ? 'Hết mẫu' : formatLocation(nextShelf, nextSlot, nextColumn))} [RESTORE:${sample.shelf || ''}|${sample.slot || ''}|${sample.column_number || ''}|${sample.box_id || ''}|${sample.status || 'stored'}]`
         });
+
+        }
 
         showToast(`Đã phê duyệt cấp ${qtyToTake} bao thành công!`, "success");
         await fetchDatabaseData();
@@ -5438,7 +4912,26 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       setLoading(true);
 
       if (isApproved) {
-        // Tìm thông tin vị trí cũ từ giao dịch take_approve tương ứng
+        // Thử gọi RPC hoàn tác trên Supabase Backend trước
+        let rpcSuccess = false;
+        try {
+          const { data: rpcRes, error: rpcErr } = await supabase.rpc('rpc_revert_take_request', {
+            p_tx_id: tx.id,
+            p_admin_id: profile?.id || null
+          });
+          if (!rpcErr && rpcRes && rpcRes.success) {
+            rpcSuccess = true;
+          } else if (rpcErr && !rpcErr.message?.includes('function') && rpcErr.code !== 'PGRST202') {
+            throw rpcErr;
+          }
+        } catch (rpcEx) {
+          if (rpcEx.message && !rpcEx.message.includes('function') && rpcEx.code !== 'PGRST202') {
+            throw rpcEx;
+          }
+        }
+
+        if (!rpcSuccess) {
+          // Tìm thông tin vị trí cũ từ giao dịch take_approve tương ứng
         const approveTx = transactions.find(t => 
           t.type === 'take_approve' && 
           t.sample_id === tx.sample_id && 
@@ -5511,10 +5004,15 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
           }
         }
 
+        const restoredQty = currentSample.total_qty
+          ? Math.min(currentSample.total_qty, (currentSample.available_qty || 0) + (Number(tx.quantity) || 0))
+          : (currentSample.available_qty || 0) + (Number(tx.quantity) || 0);
+
         // Cập nhật lại kho cho mẫu
         const { error: sUpdateErr } = await supabase
           .from('samples')
           .update({
+            available_qty: restoredQty,
             shelf: restoredShelf,
             slot: restoredSlot,
             column_number: restoredCol,
@@ -5539,6 +5037,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
           status: 'approved',
           note: `Hoàn tác cấp mẫu về chờ duyệt: Vị trí phục hồi ${restoredShelf ? formatLocation(restoredShelf, restoredSlot, restoredCol) : 'Thùng'}`
         });
+        }
       } else if (isCancelled) {
         // Chuyển lại pending: Tồn khả dụng tự động tính trừ qua getSampleEffectiveAvailable
       }
@@ -5618,48 +5117,74 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
     } else {
       try {
         setLoading(true);
-        // Find existing box or create new one
-        let savedBox = boxes.find(b => b.box_name === boxName || b.box_name === altBoxName);
-        if (!savedBox) {
-          const { data: existingInDb } = await supabase
-            .from('boxes')
-            .select('*')
-            .in('box_name', [boxName, altBoxName])
-            .limit(1)
-            .maybeSingle();
 
-          if (existingInDb) {
-            savedBox = existingInDb;
-          } else {
-            const { data: createdBox, error: bError } = await supabase
-              .from('boxes')
-              .insert({ box_name: boxName })
-              .select()
-              .single();
-
-            if (bError) throw bError;
-            savedBox = createdBox;
+        // Thử gọi RPC đóng thùng trên Supabase Backend trước
+        let rpcSuccess = false;
+        try {
+          const { data: rpcRes, error: rpcErr } = await supabase.rpc('rpc_pack_samples_to_box', {
+            p_box_name: boxName,
+            p_alt_box_name: altBoxName,
+            p_sample_ids: samplesToBox.map(s => s.id)
+          });
+          if (!rpcErr && rpcRes && rpcRes.success) {
+            rpcSuccess = true;
+            let targetBox = { id: rpcRes.box_id, box_name: rpcRes.box_name, status: 'stored' };
+            setManifestModal({ ...targetBox, samples: samplesToBox });
+          } else if (rpcErr && !rpcErr.message?.includes('function') && rpcErr.code !== 'PGRST202') {
+            throw rpcErr;
+          }
+        } catch (rpcEx) {
+          if (rpcEx.message && !rpcEx.message.includes('function') && rpcEx.code !== 'PGRST202') {
+            throw rpcEx;
           }
         }
 
-        // Update samples
-        for (let s of samplesToBox) {
-          const { error: sError } = await supabase
-            .from('samples')
-            .update({
-              shelf: null,
-              slot: null,
-              column_number: null,
-              box_id: savedBox.id,
-              status: 'boxed'
-            })
-            .eq('id', s.id);
-          
-          if (sError) throw sError;
+        // Fallback: Nếu RPC chưa nạp trên DB -> Chạy logic cũ bình thường
+        if (!rpcSuccess) {
+          // Find existing box or create new one
+          let savedBox = boxes.find(b => b.box_name === boxName || b.box_name === altBoxName);
+          if (!savedBox) {
+            const { data: existingInDb } = await supabase
+              .from('boxes')
+              .select('*')
+              .in('box_name', [boxName, altBoxName])
+              .limit(1)
+              .maybeSingle();
+
+            if (existingInDb) {
+              savedBox = existingInDb;
+            } else {
+              const { data: createdBox, error: bError } = await supabase
+                .from('boxes')
+                .insert({ box_name: boxName })
+                .select()
+                .single();
+
+              if (bError) throw bError;
+              savedBox = createdBox;
+            }
+          }
+
+          // Update samples
+          for (let s of samplesToBox) {
+            const { error: sError } = await supabase
+              .from('samples')
+              .update({
+                shelf: null,
+                slot: null,
+                column_number: null,
+                box_id: savedBox.id,
+                status: 'boxed'
+              })
+              .eq('id', s.id);
+            
+            if (sError) throw sError;
+          }
+
+          setManifestModal({ ...savedBox, samples: samplesToBox });
         }
 
-        showToast(`Đóng thùng thành công vào ${savedBox.box_name}!`, "success");
-        setManifestModal({ ...savedBox, samples: samplesToBox });
+        showToast(`Đóng thùng thành công vào ${boxName}!`, "success");
         fetchDatabaseData();
       } catch (e) {
         showToast(e.message, "error");
@@ -5808,11 +5333,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
         if (!isDemoMode) {
           try {
-            await supabase.from('bulk_import_drafts').upsert({
-              id: 'global-checked-loose-samples',
-              rows_data: nextChecked,
-              updated_at: new Date().toISOString()
-            });
+            await saveLooseShelfCheckedState(nextChecked);
           } catch (e) { /* ignore */ }
         }
       }
@@ -5851,11 +5372,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
     if (!isDemoMode) {
       try {
-        await supabase.from('bulk_import_drafts').upsert({
-          id: 'global-checked-loose-samples',
-          rows_data: next,
-          updated_at: new Date().toISOString()
-        });
+        await saveLooseShelfCheckedState(next);
       } catch (err) {
         console.warn('Sync checked sample err:', err);
       }
@@ -5874,13 +5391,9 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
     if (!isDemoMode) {
       try {
-        await supabase.from('bulk_import_drafts').upsert({
-          id: 'global-checked-loose-samples',
-          rows_data: next,
-          updated_at: new Date().toISOString()
-        });
+        await saveLooseShelfCheckedState(next);
       } catch (err) {
-        console.warn('Sync reset checked err:', err);
+        console.warn('Sync checked sample err:', err);
       }
     }
     showToast("Đã đặt lại trạng thái kiểm tra cho ô này!", "info");
@@ -7531,21 +7044,75 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (searchName.trim()) {
-                      handleSearchInputChange(searchName.trim());
+                    if (searchName.trim() || selectedProduct) {
+                      setSearchSuggestions([]);
                       setPreviousTabBeforeSearch('dashboard');
                       setActiveTab('search');
+                      const monthVal = (searchSelYear && searchSelMonth) ? `${searchSelYear}-${searchSelMonth}` : "";
+                      executeSearch(searchName.trim(), monthVal, searchOrderNumber, selectedProduct);
                     }
                   }}
                   className="search-input-pill"
+                  style={{ position: 'relative' }}
                 >
                   <input
                     type="text"
-                    placeholder="Tìm tên mẫu, SKU, mẻ..."
+                    placeholder="Tìm tên sản phẩm, nhấn Enter để xem kho..."
                     value={searchName}
-                    onChange={(e) => setSearchName(e.target.value)}
+                    onChange={(e) => handleSearchInputChange(e.target.value)}
+                    onBlur={() => setTimeout(() => setSearchSuggestions([]), 250)}
+                    autoComplete="off"
                   />
-                  <GoogleIcon name="search" />
+                  <button type="submit" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'inherit' }} title="Nhấn Enter hoặc bấm để tìm trong kho">
+                    <GoogleIcon name="search" />
+                  </button>
+                  {activeTab !== 'search' && searchSuggestions.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 6px)',
+                      left: 0,
+                      right: 0,
+                      minWidth: '300px',
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--glass-border)',
+                      borderRadius: 'var(--border-radius-sm)',
+                      boxShadow: '0 12px 36px rgba(0, 0, 0, 0.7)',
+                      zIndex: 9999,
+                      maxHeight: '280px',
+                      overflowY: 'auto'
+                    }}>
+                      {searchSuggestions.map(p => (
+                        <div
+                          key={p.id}
+                          style={{
+                            padding: '10px 14px',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            fontSize: '13.5px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '10px',
+                            color: 'var(--text-primary)'
+                          }}
+                          onMouseDown={() => {
+                            setSelectedProduct(p);
+                            const displayName = p.warning_code ? `${p.product_name} [${p.warning_code}]` : p.product_name;
+                            setSearchName(displayName);
+                            setSearchSuggestions([]);
+                          }}
+                          className="suggestion-item"
+                        >
+                          <span style={{ fontWeight: 600 }}>{p.product_name}</span>
+                          {p.warning_code && (
+                            <span style={{ fontSize: '11px', background: 'rgba(56,189,248,0.15)', color: 'var(--accent-blue)', padding: '2px 7px', borderRadius: '4px', fontWeight: 600, border: '1px solid rgba(56,189,248,0.3)', whiteSpace: 'nowrap' }}>
+                              {p.warning_code}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </form>
 
 
@@ -7812,6 +7379,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                         setSearchSuggestions([]);
                         setSearchResults([]);
                         setSearchResultSlots([]);
+                        setCommittedSearch(null);
                       }}
                       style={{
                         position: 'absolute',
@@ -7870,8 +7438,6 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                           const displayName = p.warning_code ? `${p.product_name} [${p.warning_code}]` : p.product_name;
                           setSearchName(displayName);
                           setSearchSuggestions([]);
-                          const monthVal = (searchSelYear && searchSelMonth) ? (searchSelYear + '-' + searchSelMonth) : '';
-                          executeSearch(displayName, monthVal, searchOrderNumber, p);
                         }}
                         className="suggestion-item"
                       >
@@ -7900,7 +7466,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                     <span style={{ background: 'rgba(56,189,248,0.15)', color: 'var(--accent-blue)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, border: '1px solid rgba(56,189,248,0.3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                       <span>{selectedProduct.product_name}</span>
                       {selectedProduct.warning_code && <span style={{ opacity: 0.85 }}>({selectedProduct.warning_code})</span>}
-                      <X size={13} style={{ cursor: 'pointer', marginLeft: '4px' }} onClick={() => { setSelectedProduct(null); setSearchName(''); setSearchResults([]); setSearchResultSlots([]); }} title="Bỏ lọc sản phẩm này" />
+                      <X size={13} style={{ cursor: 'pointer', marginLeft: '4px' }} onClick={() => { setSelectedProduct(null); setSearchName(''); setSearchResults([]); setSearchResultSlots([]); setCommittedSearch(null); }} title="Bỏ lọc sản phẩm này" />
                     </span>
                   </div>
                 )}
@@ -8011,7 +7577,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                     {selectedProduct && (
                       <span style={{ fontSize: '12px', background: 'rgba(56,189,248,0.12)', color: 'var(--accent-blue)', padding: '3px 10px', borderRadius: '12px', border: '1px solid rgba(56,189,248,0.3)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                         Lọc theo: <strong>{selectedProduct.product_name}</strong> {selectedProduct.warning_code && `[${selectedProduct.warning_code}]`}
-                        <X size={13} style={{ cursor: 'pointer' }} onClick={() => { setSelectedProduct(null); setSearchName(''); setSearchResults([]); setSearchResultSlots([]); }} title="Xóa lọc" />
+                        <X size={13} style={{ cursor: 'pointer' }} onClick={() => { setSelectedProduct(null); setSearchName(''); setSearchResults([]); setSearchResultSlots([]); setCommittedSearch(null); }} title="Xóa lọc" />
                       </span>
                     )}
                   </h3>
@@ -8141,11 +7707,14 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                     {searchResults.length === 0 && (
                       <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                         {(() => {
+                          if (!committedSearch) {
+                            return 'Nhập tên sản phẩm (chọn từ danh sách gợi ý), số đơn hàng hoặc mã code rồi nhấn Enter (hoặc bấm "Tìm kiếm") để hiển thị các mẫu trong kho.';
+                          }
                           const decoded = decodeExportProductionCode(searchName);
                           if (decoded) {
                             return `Không tìm thấy sản phẩm nào sản xuất vào ngày ${decoded.dmy} (Mã code: ${decoded.code} — ${decoded.dayName}, Tuần ${decoded.week}/${decoded.year}).`;
                           }
-                          return 'Không tìm thấy mẫu phù hợp. Vui lòng nhập tên sản phẩm, số đơn hàng hoặc mã code 6 ký tự (ví dụ: SGZPOP).';
+                          return 'Không tìm thấy mẫu phù hợp trong kho.';
                         })()}
                       </div>
                     )}
@@ -10855,1116 +10424,64 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
             {/* SEARCH LOGS PAGE (Admin only) */}
             {activeTab === 'search_logs' && profile?.role === 'admin' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {/* Bento KPI Mini Row */}
-                <div className="metrics-row">
-                  <div className="metric-card">
-                    <div className="metric-icon-box icon-box-blue">
-                      <GoogleIcon name="history" style={{ fontSize: '22px' }} />
-                    </div>
-                    <div className="metric-data">
-                      <div className="metric-value">{searchLogs.length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>lượt</span></div>
-                      <div className="metric-label-row">
-                        <span className="metric-label">Tổng lượt tìm kiếm mẫu</span>
-                        <span className="metric-trend trend-up">Ghi nhận</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-icon-box icon-box-green">
-                      <GoogleIcon name="date_range" style={{ fontSize: '22px' }} />
-                    </div>
-                    <div className="metric-data">
-                      <div className="metric-value">{logFilterStartDate ? logFilterStartDate.split('-').reverse().join('/') : 'Tất cả'} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>- {logFilterEndDate ? logFilterEndDate.split('-').reverse().join('/') : 'nay'}</span></div>
-                      <div className="metric-label-row">
-                        <span className="metric-label">Khoảng ngày lọc dữ liệu</span>
-                        <span className="metric-trend trend-up">Linh hoạt</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-icon-box icon-box-red">
-                      <GoogleIcon name="device_hub" style={{ fontSize: '22px' }} />
-                    </div>
-                    <div className="metric-data">
-                      <div className="metric-value">{new Set(searchLogs.map(l => l.device_id).filter(Boolean)).size} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>thiết bị</span></div>
-                      <div className="metric-label-row">
-                        <span className="metric-label">Khách & nhân sự tra cứu</span>
-                        <span className="metric-trend trend-up">Hoạt động</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="table-card">
-                  <div className="table-header" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-                  <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                    <FileText size={22} color="var(--accent-blue)" /> Nhật Ký Tìm Kiếm Mẫu
-                  </h2>
-                  
-                  {/* Bộ lọc khoảng ngày */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Từ ngày:</span>
-                      <input 
-                        type="date" 
-                        value={logFilterStartDate} 
-                        onChange={e => setLogFilterStartDate(e.target.value)}
-                        style={{ padding: '6px 12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Đến ngày:</span>
-                      <input 
-                        type="date" 
-                        value={logFilterEndDate} 
-                        onChange={e => setLogFilterEndDate(e.target.value)}
-                        style={{ padding: '6px 12px', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }}
-                      />
-                    </div>
-                    <button className="btn btn-primary" onClick={fetchSearchLogs} disabled={searchLogsLoading} style={{ padding: '6px 16px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {searchLogsLoading ? <Loader size={14} className="spin" /> : <Search size={14} />} Lọc dữ liệu
-                    </button>
-                  </div>
-                </div>
-
-                {searchLogsLoading ? (
-                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    <Loader size={32} className="spin" style={{ marginBottom: '12px' }} />
-                    <p>Đang tải nhật ký...</p>
-                  </div>
-                ) : searchLogs.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    <FileText size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
-                    <p>Chưa có nhật ký tìm kiếm nào.</p>
-                  </div>
-                ) : (() => {
-                  const SEARCH_LOGS_PAGE_SIZE = 30;
-                  const totalLogPages = Math.max(1, Math.ceil(searchLogs.length / SEARCH_LOGS_PAGE_SIZE));
-                  const currentLogPage = Math.min(searchLogsPage, totalLogPages);
-                  const startLogIdx = (currentLogPage - 1) * SEARCH_LOGS_PAGE_SIZE;
-                  const paginatedLogs = searchLogs.slice(startLogIdx, startLogIdx + SEARCH_LOGS_PAGE_SIZE);
-
-                  return (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      <div>
-                        Tổng cộng <strong style={{ color: 'var(--accent-blue)' }}>{searchLogs.length}</strong> lượt tìm kiếm được ghi nhận
-                        {totalLogPages > 1 && (
-                          <span style={{ color: 'var(--text-muted)', marginLeft: '8px', fontVariantNumeric: 'tabular-nums' }}>
-                            (Hiển thị {startLogIdx + 1} – {Math.min(startLogIdx + SEARCH_LOGS_PAGE_SIZE, searchLogs.length)})
-                          </span>
-                        )}
-                      </div>
-                      {totalLogPages > 1 && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontVariantNumeric: 'tabular-nums' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginRight: '4px' }}>
-                            Trang {currentLogPage} / {totalLogPages}
-                          </span>
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: '4px 10px', fontSize: '12px', opacity: currentLogPage === 1 ? 0.4 : 1, cursor: currentLogPage === 1 ? 'not-allowed' : 'pointer' }}
-                            disabled={currentLogPage === 1}
-                            onClick={() => setSearchLogsPage(p => Math.max(1, p - 1))}
-                          >
-                            ← Trước
-                          </button>
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: '4px 10px', fontSize: '12px', opacity: currentLogPage === totalLogPages ? 0.4 : 1, cursor: currentLogPage === totalLogPages ? 'not-allowed' : 'pointer' }}
-                            disabled={currentLogPage === totalLogPages}
-                            onClick={() => setSearchLogsPage(p => Math.min(totalLogPages, p + 1))}
-                          >
-                            Sau →
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    {/* Desktop View: Bảng tra cứu tối ưu cột & không bị vỡ dòng */}
-                    <div className="search-logs-desktop-view">
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', tableLayout: 'fixed' }}>
-                        <thead>
-                          <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '95px', whiteSpace: 'nowrap' }}>Thời gian</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '120px', whiteSpace: 'nowrap' }}>Tên người dùng</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '95px', whiteSpace: 'nowrap' }}>Thiết bị</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '135px', maxWidth: '135px', whiteSpace: 'nowrap' }}>Từ khóa</th>
-                            <th style={{ padding: '8px 6px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '65px', whiteSpace: 'nowrap' }}>Lọc tháng</th>
-                            <th style={{ padding: '8px 6px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '70px', whiteSpace: 'nowrap' }}>Kết quả</th>
-                            <th style={{ padding: '8px 10px', textAlign: 'right', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '160px', whiteSpace: 'nowrap' }}>Thao tác</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {paginatedLogs.map((log, i) => {
-                            const status = resetDevices.find(d => d.device_id === log.device_id);
-                            const isBlocked = !!status && status.is_blocked;
-                            const isPendingReset = !!status && !status.is_blocked && !status.reset_by?.startsWith('rename:');
-
-                            return (
-                              <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                <td style={{ padding: '8px 10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: '11.5px', fontVariantNumeric: 'tabular-nums' }} title={new Date(log.searched_at).toLocaleString()}>
-                                  {(() => {
-                                    const d = new Date(log.searched_at);
-                                    const hh = String(d.getHours()).padStart(2, '0');
-                                    const mm = String(d.getMinutes()).padStart(2, '0');
-                                    const DD = String(d.getDate()).padStart(2, '0');
-                                    const MM = String(d.getMonth() + 1).padStart(2, '0');
-                                    const YY = String(d.getFullYear()).slice(-2);
-                                    return `${hh}:${mm} ${DD}/${MM}/${YY}`;
-                                  })()}
-                                </td>
-                                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 600, maxWidth: '100%', overflow: 'hidden' }}>
-                                    <User size={12} color="var(--accent-blue)" style={{ flexShrink: 0 }} />
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.user_name}>
-                                      {log.user_name}
-                                    </span>
-                                    {isBlocked && (
-                                      <span style={{ fontSize: '9.5px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '1px 4px', borderRadius: '4px', border: '1px solid rgba(239,68,68,0.3)', flexShrink: 0 }}>🚫 Chặn</span>
-                                    )}
-                                    {!isBlocked && isPendingReset && (
-                                      <span style={{ fontSize: '9.5px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '1px 4px', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)', flexShrink: 0 }}>⏳ Chờ</span>
-                                    )}
-                                  </span>
-                                </td>
-                                <td style={{ padding: '8px 10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }} title={`${getDisplayDeviceName(log.device_id)} (${log.device_id})`}>
-                                  <code style={{
-                                    background: 'rgba(255,255,255,0.06)',
-                                    padding: '2px 6px',
-                                    borderRadius: '4px',
-                                    fontSize: '10.5px',
-                                    whiteSpace: 'nowrap',
-                                    display: 'inline-block',
-                                    maxWidth: '100%',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    verticalAlign: 'middle'
-                                  }}>
-                                    {formatCompactDeviceName(getDisplayDeviceName(log.device_id))}
-                                  </code>
-                                </td>
-                                <td style={{ padding: '8px 10px', width: '135px', maxWidth: '135px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                  <span
-                                    title={log.keyword}
-                                    style={{
-                                      background: 'rgba(99,102,241,0.15)',
-                                      color: 'var(--accent-blue)',
-                                      padding: '2px 8px',
-                                      borderRadius: '6px',
-                                      fontWeight: 600,
-                                      fontSize: '11.5px',
-                                      display: 'inline-block',
-                                      maxWidth: '115px',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                      verticalAlign: 'middle'
-                                    }}
-                                  >
-                                    🔍 {log.keyword && log.keyword.length > 25 ? log.keyword.slice(0, 25) + '...' : (log.keyword || '')}
-                                  </span>
-                                </td>
-                                <td style={{ padding: '8px 6px', color: 'var(--text-muted)', fontSize: '11.5px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                                  {log.month_filter || <span style={{ opacity: 0.4 }}>Tất cả</span>}
-                                </td>
-                                <td style={{ padding: '8px 6px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                                  <span style={{ 
-                                    fontWeight: 'bold', 
-                                    color: log.results_count === 0 ? 'var(--status-error)' : 'var(--status-success)',
-                                    background: log.results_count === 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
-                                    padding: '2px 6px', borderRadius: '6px', fontSize: '11px',
-                                    whiteSpace: 'nowrap', display: 'inline-block'
-                                  }}>
-                                    {log.results_count} mẫu
-                                  </span>
-                                </td>
-                                <td style={{ padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                  <div style={{ display: 'inline-flex', gap: '4px', justifyContent: 'flex-end', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-                                    {isBlocked ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUnblockVisitor(log.device_id, log.user_name)}
-                                        title="Bỏ chặn thiết bị này"
-                                        style={{
-                                          background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)',
-                                          color: 'var(--status-success)', borderRadius: '5px',
-                                          padding: '3px 7px', fontSize: '11px', cursor: 'pointer',
-                                          fontWeight: 600, whiteSpace: 'nowrap'
-                                        }}
-                                      >
-                                        🟢 Gỡ chặn
-                                      </button>
-                                    ) : (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setRenameModalVisitor({ deviceId: log.device_id, currentName: log.user_name });
-                                            setRenameNewName(log.user_name || '');
-                                          }}
-                                          title="Admin trực tiếp đổi tên cho khách này"
-                                          style={{
-                                            background: 'rgba(201,164,106,0.12)',
-                                            border: '1px solid rgba(201,164,106,0.3)',
-                                            color: 'var(--bento-kraft)',
-                                            borderRadius: '5px',
-                                            padding: '3px 7px', fontSize: '11px', cursor: 'pointer',
-                                            fontWeight: 600, whiteSpace: 'nowrap'
-                                          }}
-                                        >
-                                          ✏️ Đổi
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleResetVisitor(log.device_id, log.user_name)}
-                                          title="Yêu cầu thiết bị này nhập lại tên vào lần truy cập sau"
-                                          disabled={isPendingReset}
-                                          style={{
-                                            background: isPendingReset ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', 
-                                            border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
-                                            color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)', 
-                                            borderRadius: '5px',
-                                            padding: '3px 7px', fontSize: '11px', cursor: isPendingReset ? 'not-allowed' : 'pointer',
-                                            fontWeight: 600, whiteSpace: 'nowrap'
-                                          }}
-                                        >
-                                          🔄 Khai lại
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleBlockVisitor(log.device_id, log.user_name)}
-                                          title="Chặn thiết bị này truy cập hệ thống"
-                                          style={{
-                                            background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
-                                            color: 'var(--status-error)', borderRadius: '5px',
-                                            padding: '3px 7px', fontSize: '11px', cursor: 'pointer',
-                                            fontWeight: 600, whiteSpace: 'nowrap'
-                                          }}
-                                        >
-                                          🚫 Chặn
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Mobile & Tablet Card View: Không cần cuộn ngang, nút bấm to rõ ràng */}
-                    <div className="search-logs-mobile-view">
-                      {paginatedLogs.map((log) => {
-                        const status = resetDevices.find(d => d.device_id === log.device_id);
-                        const isBlocked = !!status && status.is_blocked;
-                        const isPendingReset = !!status && !status.is_blocked && !status.reset_by?.startsWith('rename:');
-
-                        return (
-                          <div key={log.id} className="search-log-card">
-                            <div className="search-log-card-header">
-                              <div className="search-log-card-user">
-                                <User size={14} color="var(--accent-blue)" />
-                                <span>{log.user_name}</span>
-                                {isBlocked && (
-                                  <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(239,68,68,0.3)' }}>🚫 Bị chặn</span>
-                                )}
-                                {!isBlocked && isPendingReset && (
-                                  <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.3)' }}>⏳ Chờ nhập lại</span>
-                                )}
-                              </div>
-                              <span className="search-log-card-time">
-                                {new Date(log.searched_at).toLocaleString()}
-                              </span>
-                            </div>
-
-                            <div className="search-log-card-body">
-                              <span style={{
-                                background: 'rgba(99,102,241,0.15)',
-                                color: 'var(--accent-blue)',
-                                padding: '4px 10px',
-                                borderRadius: '12px',
-                                fontWeight: 600,
-                                fontSize: '12.5px',
-                                maxWidth: '100%',
-                                wordBreak: 'break-word'
-                              }}>
-                                🔍 {log.keyword && log.keyword.length > 25 ? log.keyword.slice(0, 25) + '...' : (log.keyword || '')}
-                              </span>
-                              <span style={{ 
-                                fontWeight: 'bold', 
-                                color: log.results_count === 0 ? 'var(--status-error)' : 'var(--status-success)',
-                                background: log.results_count === 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
-                                padding: '3px 9px', borderRadius: '10px', fontSize: '11.5px'
-                              }}>
-                                {log.results_count} mẫu
-                              </span>
-                              {log.month_filter && (
-                                <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.04)', padding: '3px 8px', borderRadius: '6px' }}>
-                                  Tháng {log.month_filter}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="search-log-card-meta">
-                              <span>💻 {getDisplayDeviceName(log.device_id)}</span>
-                            </div>
-
-                            <div className="search-log-card-actions">
-                              {isBlocked ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUnblockVisitor(log.device_id, log.user_name)}
-                                  style={{
-                                    background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)',
-                                    color: 'var(--status-success)'
-                                  }}
-                                >
-                                  🟢 Gỡ chặn
-                                </button>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setRenameModalVisitor({ deviceId: log.device_id, currentName: log.user_name });
-                                      setRenameNewName(log.user_name || '');
-                                    }}
-                                    style={{
-                                      background: 'rgba(201,164,106,0.12)',
-                                      border: '1px solid rgba(201,164,106,0.3)',
-                                      color: 'var(--bento-kraft)'
-                                    }}
-                                  >
-                                    ✏️ Đổi tên
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleResetVisitor(log.device_id, log.user_name)}
-                                    disabled={isPendingReset}
-                                    style={{
-                                      background: isPendingReset ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)', 
-                                      border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
-                                      color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)'
-                                    }}
-                                  >
-                                    🔄 {isPendingReset ? 'Chờ khai lại' : 'Khai lại tên'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleBlockVisitor(log.device_id, log.user_name)}
-                                    style={{
-                                      background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
-                                      color: 'var(--status-error)'
-                                    }}
-                                  >
-                                    🚫 Chặn
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Phân trang: 30 mục / trang */}
-                    {totalLogPages > 1 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', padding: '12px 18px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--glass-border)', flexWrap: 'wrap', gap: '12px', fontVariantNumeric: 'tabular-nums' }}>
-                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                          Hiển thị <strong>{startLogIdx + 1}</strong> – <strong>{Math.min(startLogIdx + SEARCH_LOGS_PAGE_SIZE, searchLogs.length)}</strong> trong tổng số <strong>{searchLogs.length}</strong> lượt tìm kiếm (Trang {currentLogPage}/{totalLogPages})
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: '6px 12px', fontSize: '12.5px', opacity: currentLogPage === 1 ? 0.4 : 1, cursor: currentLogPage === 1 ? 'not-allowed' : 'pointer' }}
-                            disabled={currentLogPage === 1}
-                            onClick={() => setSearchLogsPage(p => Math.max(1, p - 1))}
-                          >
-                            ← Trước
-                          </button>
-
-                          {Array.from({ length: totalLogPages }, (_, i) => i + 1)
-                            .filter(p => p === 1 || p === totalLogPages || Math.abs(p - currentLogPage) <= 2)
-                            .map((p, idx, arr) => {
-                              const prev = arr[idx - 1];
-                              return (
-                                <React.Fragment key={p}>
-                                  {prev && p - prev > 1 && (
-                                    <span style={{ color: 'var(--text-muted)', padding: '0 4px', fontSize: '12px' }}>...</span>
-                                  )}
-                                  <button
-                                    className={`btn ${currentLogPage === p ? 'btn-primary' : 'btn-secondary'}`}
-                                    style={{
-                                      minWidth: '34px',
-                                      height: '32px',
-                                      padding: '0 8px',
-                                      fontSize: '12.5px',
-                                      fontWeight: currentLogPage === p ? 'bold' : 'normal',
-                                      borderColor: currentLogPage === p ? 'var(--accent-blue)' : 'rgba(255,255,255,0.1)'
-                                    }}
-                                    onClick={() => setSearchLogsPage(p)}
-                                  >
-                                    {p}
-                                  </button>
-                                </React.Fragment>
-                              );
-                            })}
-
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: '6px 12px', fontSize: '12.5px', opacity: currentLogPage === totalLogPages ? 0.4 : 1, cursor: currentLogPage === totalLogPages ? 'not-allowed' : 'pointer' }}
-                            disabled={currentLogPage === totalLogPages}
-                            onClick={() => setSearchLogsPage(p => Math.min(totalLogPages, p + 1))}
-                          >
-                            Sau →
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                  );
-                })()}
-                </div>
-              </div>
+              <React.Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted, #64748b)' }}><Loader className="spin" size={24} style={{ display: 'inline-block', marginRight: '8px', verticalAlign: 'middle' }} /> Đang tải Nhật ký tra cứu...</div>}>
+                <SearchLogsTab
+                  searchLogs={searchLogs}
+                  searchLogsLoading={searchLogsLoading}
+                  logFilterStartDate={logFilterStartDate}
+                  setLogFilterStartDate={setLogFilterStartDate}
+                  logFilterEndDate={logFilterEndDate}
+                  setLogFilterEndDate={setLogFilterEndDate}
+                  searchLogsPage={searchLogsPage}
+                  setSearchLogsPage={setSearchLogsPage}
+                  fetchSearchLogs={fetchSearchLogs}
+                  resetDevices={resetDevices}
+                  handleUnblockVisitor={handleUnblockVisitor}
+                  handleResetVisitor={handleResetVisitor}
+                  handleBlockVisitor={handleBlockVisitor}
+                  setRenameModalVisitor={setRenameModalVisitor}
+                  setRenameNewName={setRenameNewName}
+                />
+              </React.Suspense>
             )}
 
             {/* USERS & SAVED VISITORS MANAGEMENT PAGE (Admin only) */}
             {activeTab === 'users' && profile?.role === 'admin' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {/* Bento KPI Mini Row */}
-                <div className="metrics-row">
-                  <div className="metric-card">
-                    <div className="metric-icon-box icon-box-blue">
-                      <GoogleIcon name="badge" style={{ fontSize: '22px' }} />
-                    </div>
-                    <div className="metric-data">
-                      <div className="metric-value">{profilesList.length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>nhân sự</span></div>
-                      <div className="metric-label-row">
-                        <span className="metric-label">Tài khoản hệ thống nội bộ</span>
-                        <span className="metric-trend trend-up">Đã kích hoạt</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-icon-box icon-box-green">
-                      <GoogleIcon name="admin_panel_settings" style={{ fontSize: '22px' }} />
-                    </div>
-                    <div className="metric-data">
-                      <div className="metric-value">{profilesList.filter(p => p.role === 'admin').length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>tài khoản</span></div>
-                      <div className="metric-label-row">
-                        <span className="metric-label">Phân quyền Thủ kho (Admin)</span>
-                        <span className="metric-trend trend-up">Toàn quyền</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="metric-card">
-                    <div className="metric-icon-box icon-box-red">
-                      <GoogleIcon name="devices" style={{ fontSize: '22px' }} />
-                    </div>
-                    <div className="metric-data">
-                      <div className="metric-value">{(() => {
-                        const map = new Map();
-                        allVisitorLogs.forEach(l => { if (l.device_id && !map.has(l.device_id)) map.set(l.device_id, l); });
-                        resetDevices.forEach(r => { if (r.device_id && !map.has(r.device_id)) map.set(r.device_id, { device_id: r.device_id, user_name: 'Thiết bị chưa rõ tên', searched_at: null }); });
-                        return map.size;
-                      })()} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>thiết bị</span></div>
-                      <div className="metric-label-row">
-                        <span className="metric-label">Khách quét mã QR tra cứu</span>
-                        <span className="metric-trend trend-up">Lưu vết</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="table-card">
-                  <div className="table-header" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-                  <h2 style={{ fontSize: '20px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                    <User size={22} color="#10b981" /> Quản Lý Tài Khoản & Khách Đã Lưu
-                  </h2>
-
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button
-                      className={`btn ${userMgmtSubTab === 'accounts' ? 'btn-primary' : 'btn-secondary'}`}
-                      onClick={() => setUserMgmtSubTab('accounts')}
-                      style={{ padding: '7px 16px', fontSize: '13px' }}
-                    >
-                      👤 Tài khoản hệ thống ({profilesList.length})
-                    </button>
-                    <button
-                      className={`btn ${userMgmtSubTab === 'visitors' ? 'btn-primary' : 'btn-secondary'}`}
-                      onClick={() => setUserMgmtSubTab('visitors')}
-                      style={{ padding: '7px 16px', fontSize: '13px' }}
-                    >
-                      📱 Khách & Thiết bị đã lưu ({(() => {
-                        const map = new Map();
-                        allVisitorLogs.forEach(l => { if (l.device_id && !map.has(l.device_id)) map.set(l.device_id, l); });
-                        resetDevices.forEach(r => { if (r.device_id && !map.has(r.device_id)) map.set(r.device_id, { device_id: r.device_id, user_name: 'Thiết bị chưa rõ tên', searched_at: null }); });
-                        return map.size;
-                      })()})
-                    </button>
-                    <button className="btn btn-secondary" onClick={fetchUsersAndVisitors} disabled={usersLoading} style={{ padding: '7px 14px', fontSize: '13px' }}>
-                      {usersLoading ? <Loader size={14} className="spin" /> : '🔄 Làm mới'}
-                    </button>
-                  </div>
-                </div>
-
-                {userMgmtSubTab === 'accounts' ? (
-                  <div>
-                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                      Danh sách các tài khoản đã đăng ký trong hệ thống (bảng <code>profiles</code>). Bạn có thể chỉnh sửa tên, mã nhân viên, phòng ban và phân quyền <strong>Thủ kho (Admin)</strong> hoặc <strong>Nhân viên (Staff)</strong>.
-                    </p>
-                    {profilesList.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                        Chưa có tài khoản nào được lưu trong bảng profiles.
-                      </div>
-                    ) : (
-                      <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', tableLayout: 'fixed' }}>
-                          <thead>
-                            <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '130px', whiteSpace: 'nowrap' }}>Họ và tên</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '80px', whiteSpace: 'nowrap' }}>Mã NV</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '95px', whiteSpace: 'nowrap' }}>Phòng ban</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '135px', whiteSpace: 'nowrap' }}>Vai trò (Quyền)</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '130px', whiteSpace: 'nowrap' }}>Hoạt động</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '80px', whiteSpace: 'nowrap' }}>Ngày tạo</th>
-                              <th style={{ padding: '8px 10px', textAlign: 'right', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '175px', whiteSpace: 'nowrap' }}>Thao tác</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {profilesList.map((p, idx) => {
-                              const isEditing = editingProfileId === p.id;
-                              const isHistoryOpen = expandedUserHistoryId === p.id;
-                              const userTxs = transactions.filter(t => t.user_id === p.id);
-                              const userSearchItems = allVisitorLogs.filter(l => l.user_name === p.full_name && l.keyword !== '[Khai báo tên]');
-                              const totalActions = userTxs.length + userSearchItems.length;
-
-                              return (
-                                <React.Fragment key={p.id}>
-                                  <tr style={{ borderBottom: isHistoryOpen ? 'none' : '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                    <td style={{ padding: '8px 10px', fontWeight: 600, width: '130px', maxWidth: '130px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                      {isEditing ? (
-                                        <input className="form-input" style={{ padding: '4px 7px', fontSize: '12px', width: '100%' }} value={editProfileName} onChange={e => setEditProfileName(e.target.value)} />
-                                      ) : (
-                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', maxWidth: '100%' }}>
-                                          <User size={13} color="var(--accent-blue)" style={{ flexShrink: 0 }} />
-                                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.full_name}>
-                                            {p.full_name}
-                                          </span>
-                                          {p.id === user?.id && <span style={{ fontSize: '9.5px', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '1px 4px', borderRadius: '4px', flexShrink: 0 }}>Bạn</span>}
-                                        </div>
-                                      )}
-                                    </td>
-                                    <td style={{ padding: '8px 10px', width: '80px', maxWidth: '80px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                      {isEditing ? (
-                                        <input className="form-input" style={{ padding: '4px 7px', fontSize: '12px', width: '100%' }} value={editProfileCode} onChange={e => setEditProfileCode(e.target.value)} placeholder="Mã NV" />
-                                      ) : (
-                                        <code style={{ background: 'rgba(255,255,255,0.05)', padding: '2px 5px', borderRadius: '4px', fontSize: '11px', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.employee_code || '—'}</code>
-                                      )}
-                                    </td>
-                                    <td style={{ padding: '8px 10px', width: '95px', maxWidth: '95px', overflow: 'hidden', whiteSpace: 'nowrap' }} title={p.department || ''}>
-                                      {isEditing ? (
-                                        <input className="form-input" style={{ padding: '4px 7px', fontSize: '12px', width: '100%' }} value={editProfileDept} onChange={e => setEditProfileDept(e.target.value)} placeholder="Phòng ban" />
-                                      ) : (
-                                        <span style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.department || '—'}</span>
-                                      )}
-                                    </td>
-                                    <td style={{ padding: '8px 10px', width: '135px', maxWidth: '135px', whiteSpace: 'nowrap' }}>
-                                      {isEditing ? (
-                                        <select className="form-select" style={{ padding: '4px 7px', fontSize: '12px', width: '100%' }} value={editProfileRole} onChange={e => setEditProfileRole(e.target.value)}>
-                                          <option value="staff">Nhân viên (Staff)</option>
-                                          <option value="admin">Thủ kho (Admin)</option>
-                                        </select>
-                                      ) : (
-                                        <span style={{
-                                          fontSize: '11px',
-                                          fontWeight: 600,
-                                          padding: '2px 7px',
-                                          borderRadius: '6px',
-                                          background: p.role === 'admin' ? 'rgba(15, 135, 255, 0.15)' : 'rgba(255, 255, 255, 0.06)',
-                                          color: p.role === 'admin' ? 'var(--accent-blue)' : 'var(--text-secondary)',
-                                          border: p.role === 'admin' ? '1px solid rgba(15, 135, 255, 0.3)' : '1px solid var(--glass-border)',
-                                          display: 'inline-block',
-                                          maxWidth: '100%',
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis'
-                                        }}>
-                                          {p.role === 'admin' ? '👑 Thủ kho' : '👤 Nhân viên'}
-                                        </span>
-                                      )}
-                                    </td>
-                                    <td style={{ padding: '8px 10px', width: '130px', whiteSpace: 'nowrap' }}>
-                                      <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'nowrap', fontSize: '11px' }}>
-                                        <span style={{ background: 'rgba(5, 150, 105, 0.12)', color: 'var(--status-success)', padding: '2px 6px', borderRadius: '5px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                          {userTxs.length} GD
-                                        </span>
-                                        <span style={{ background: 'rgba(15, 135, 255, 0.12)', color: 'var(--accent-blue)', padding: '2px 6px', borderRadius: '5px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                          {userSearchItems.length} tra cứu
-                                        </span>
-                                      </div>
-                                    </td>
-                                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontSize: '11.5px', textAlign: 'center', width: '80px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={p.created_at ? new Date(p.created_at).toLocaleString() : ''}>
-                                      {(() => {
-                                        if (!p.created_at) return '—';
-                                        const d = new Date(p.created_at);
-                                        const DD = String(d.getDate()).padStart(2, '0');
-                                        const MM = String(d.getMonth() + 1).padStart(2, '0');
-                                        const YY = String(d.getFullYear()).slice(-2);
-                                        return `${DD}/${MM}/${YY}`;
-                                      })()}
-                                    </td>
-                                    <td style={{ padding: '8px 10px', textAlign: 'right', width: '175px', whiteSpace: 'nowrap' }}>
-                                      {isEditing ? (
-                                        <div style={{ display: 'inline-flex', gap: '4px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
-                                          <button className="btn btn-primary" style={{ padding: '3px 8px', fontSize: '11px', borderRadius: '5px' }} onClick={() => handleUpdateUserProfile(p.id)}>
-                                            Lưu
-                                          </button>
-                                          <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: '11px', borderRadius: '5px' }} onClick={() => setEditingProfileId(null)}>
-                                            Hủy
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <div style={{ display: 'inline-flex', gap: '4px', justifyContent: 'flex-end', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-                                          <button
-                                            className="btn btn-secondary"
-                                            style={{
-                                              padding: '3px 7px',
-                                              fontSize: '11px',
-                                              borderRadius: '5px',
-                                              color: isHistoryOpen ? '#fff' : 'var(--accent-blue)',
-                                              background: isHistoryOpen ? 'var(--accent-blue)' : 'transparent',
-                                              borderColor: 'var(--accent-blue)',
-                                              whiteSpace: 'nowrap'
-                                            }}
-                                            onClick={() => setExpandedUserHistoryId(isHistoryOpen ? null : p.id)}
-                                            title={`Xem lịch sử (${totalActions})`}
-                                          >
-                                            📜 Lịch sử
-                                          </button>
-                                          <button
-                                            className="btn btn-secondary"
-                                            style={{ padding: '3px 7px', fontSize: '11px', borderRadius: '5px', color: '#7DBEFF', borderColor: 'rgba(125, 190, 255, 0.3)', whiteSpace: 'nowrap' }}
-                                            onClick={() => {
-                                              setEditingProfileId(p.id);
-                                              setEditProfileName(p.full_name || '');
-                                              setEditProfileCode(p.employee_code || '');
-                                              setEditProfileDept(p.department || '');
-                                              setEditProfileRole(p.role || 'staff');
-                                            }}
-                                          >
-                                            ✏️ Sửa
-                                          </button>
-                                          {p.id !== user?.id && (
-                                            <button
-                                              className="btn btn-secondary"
-                                              style={{ padding: '3px 7px', fontSize: '11px', borderRadius: '5px', color: 'var(--status-error)', borderColor: 'rgba(239,68,68,0.3)', whiteSpace: 'nowrap' }}
-                                              onClick={() => handleDeleteUserProfile(p)}
-                                            >
-                                              🗑️ Xóa
-                                            </button>
-                                          )}
-                                        </div>
-                                      )}
-                                    </td>
-                                  </tr>
-                                  {isHistoryOpen && (
-                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(15,23,42,0.5)' }}>
-                                      <td colSpan={7} style={{ padding: '14px 20px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                          <strong style={{ fontSize: '13px', color: 'var(--accent-blue)' }}>
-                                            📜 Nhật ký thao tác của tài khoản: {p.full_name} ({p.employee_code || 'Không mã NV'})
-                                          </strong>
-                                          <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => setExpandedUserHistoryId(null)}>
-                                            Đóng ×
-                                          </button>
-                                        </div>
-                                        {(() => {
-                                          const combined = [
-                                            ...userTxs.map(t => ({
-                                              id: `tx-${t.id}`,
-                                              time: t.created_at,
-                                              category: t.type === 'import' ? 'Nhập kho' : t.type === 'move' ? 'Di chuyển' : t.type === 'take_request' ? 'Đăng ký lấy mẫu' : t.type === 'take_approve' ? 'Duyệt cấp mẫu' : t.type === 'destroy' ? 'Hủy mẫu' : t.type,
-                                              badgeColor: t.type === 'import' ? 'var(--status-success)' : t.type === 'move' ? '#7DBEFF' : t.type === 'take_request' ? 'var(--status-warning)' : t.type === 'take_approve' ? 'var(--accent-blue)' : 'var(--status-error)',
-                                              product: t.samples?.products?.product_name || t.samples?.product_name || '—',
-                                              qty: `${t.quantity || 0} bao`,
-                                              detail: t.note || (t.status === 'pending' ? 'Đang chờ duyệt' : t.status === 'approved' ? 'Đã duyệt' : '')
-                                            })),
-                                            ...userSearchItems.map(s => ({
-                                              id: `sr-${s.id}`,
-                                              time: s.searched_at,
-                                              category: 'Tra cứu',
-                                              badgeColor: 'var(--accent-blue)',
-                                              product: `Từ khóa: "${s.keyword}"`,
-                                              qty: `${s.results_count} kết quả`,
-                                              detail: s.month_filter ? `Lọc tháng: ${s.month_filter} • Thiết bị: ${getDisplayDeviceName(s.device_id)}` : `Thiết bị: ${getDisplayDeviceName(s.device_id)}`
-                                            }))
-                                          ].sort((a, b) => new Date(b.time) - new Date(a.time));
-
-                                          if (combined.length === 0) {
-                                            return (
-                                              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12.5px' }}>
-                                                Tài khoản này chưa có lịch sử thao tác hoặc tra cứu nào.
-                                              </div>
-                                            );
-                                          }
-
-                                          return (
-                                            <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
-                                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                                                <thead>
-                                                  <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
-                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Thời gian</th>
-                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Loại thao tác</th>
-                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Sản phẩm / Từ khóa</th>
-                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Số lượng / KQ</th>
-                                                    <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Chi tiết / Ghi chú</th>
-                                                  </tr>
-                                                </thead>
-                                                <tbody>
-                                                  {combined.slice(0, 100).map(item => (
-                                                    <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                                                      <td style={{ padding: '6px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                                                        {(() => {
-    if (!item.time) return '—';
-    const d = new Date(item.time);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const DD = String(d.getDate()).padStart(2, '0');
-    const MM = String(d.getMonth() + 1).padStart(2, '0');
-    const YY = String(d.getFullYear()).slice(-2);
-    return `${hh}:${mm} ${DD}/${MM}/${YY}`;
-  })()}
-                                                      </td>
-                                                      <td style={{ padding: '6px 12px' }}>
-                                                        <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: `${item.badgeColor}22`, color: item.badgeColor }}>
-                                                          {item.category}
-                                                        </span>
-                                                      </td>
-                                                      <td style={{ padding: '6px 12px', fontWeight: 500 }}>{item.product}</td>
-                                                      <td style={{ padding: '6px 12px', fontWeight: 600 }}>{item.qty}</td>
-                                                      <td style={{ padding: '6px 12px', color: 'var(--text-secondary)' }}>{item.detail}</td>
-                                                    </tr>
-                                                  ))}
-                                                </tbody>
-                                              </table>
-                                            </div>
-                                          );
-                                        })()}
-                                      </td>
-                                    </tr>
-                                  )}
-                                </React.Fragment>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                      Danh sách các khách truy cập & thiết bị đã khai báo tên trên hệ thống. Bạn có thể yêu cầu khách khai báo lại tên, chặn truy cập thiết bị hoặc xóa khỏi danh sách.
-                    </p>
-                    {(() => {
-                      const visitorMap = new Map();
-                      allVisitorLogs.forEach(log => {
-                        if (!log.device_id) return;
-                        if (!visitorMap.has(log.device_id)) {
-                          visitorMap.set(log.device_id, {
-                            device_id: log.device_id,
-                            user_name: log.user_name || 'Khách ẩn danh',
-                            last_active: log.searched_at,
-                            search_count: log.keyword === '[Khai báo tên]' ? 0 : 1,
-                            last_keyword: log.keyword
-                          });
-                        } else {
-                          const entry = visitorMap.get(log.device_id);
-                          if (log.keyword !== '[Khai báo tên]') entry.search_count += 1;
-                          if ((entry.user_name === 'Khách ẩn danh' || entry.user_name === 'Thiết bị bị chặn') && log.user_name && log.user_name !== 'Khách ẩn danh') {
-                            entry.user_name = log.user_name;
-                          }
-                        }
-                      });
-                      resetDevices.forEach(r => {
-                        // Chỉ hiển thị thiết bị chưa có log nếu đang bị chặn để admin có thể gỡ chặn
-                        if (r.device_id && !visitorMap.has(r.device_id) && r.is_blocked) {
-                          visitorMap.set(r.device_id, {
-                            device_id: r.device_id,
-                            user_name: 'Thiết bị bị chặn',
-                            last_active: null,
-                            search_count: 0,
-                            last_keyword: '—'
-                          });
-                        }
-                      });
-                      const visitorsList = Array.from(visitorMap.values());
-
-                      if (visitorsList.length === 0) {
-                        return (
-                          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                            Chưa có khách hoặc thiết bị nào được lưu.
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', tableLayout: 'fixed' }}>
-                            <thead>
-                              <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
-                                <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '115px', whiteSpace: 'nowrap' }}>Tên khách</th>
-                                <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '85px', whiteSpace: 'nowrap' }}>Thiết bị</th>
-                                <th style={{ padding: '8px 8px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '95px', whiteSpace: 'nowrap' }}>Lượt hoạt động</th>
-                                <th style={{ padding: '8px 8px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '85px', whiteSpace: 'nowrap' }}>Gần nhất</th>
-                                <th style={{ padding: '8px 8px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '75px', whiteSpace: 'nowrap' }}>Trạng thái</th>
-                                <th style={{ padding: '8px 8px', textAlign: 'right', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '285px', whiteSpace: 'nowrap' }}>Thao tác</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {visitorsList.map((v, idx) => {
-                                const status = resetDevices.find(d => d.device_id === v.device_id);
-                                const isBlocked = !!status && status.is_blocked;
-                                const isPendingReset = !!status && !status.is_blocked && !status.reset_by?.startsWith('rename:');
-                                const isVHistoryOpen = expandedVisitorHistoryId === v.device_id;
-                                const vLogs = allVisitorLogs.filter(l => l.device_id === v.device_id && l.keyword !== '[Khai báo tên]');
-                                const vTxs = transactions.filter(t => !t.user_id && t.note && t.note.includes(`[Khách: ${v.user_name}]`));
-                                const totalVActions = vLogs.length + vTxs.length;
-
-                                return (
-                                  <React.Fragment key={v.device_id}>
-                                    <tr style={{ borderBottom: isVHistoryOpen ? 'none' : '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                                      <td style={{ padding: '8px 8px', fontWeight: 600, width: '115px', maxWidth: '115px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', maxWidth: '100%' }}>
-                                          <User size={13} color="#10b981" style={{ flexShrink: 0 }} />
-                                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={v.user_name}>
-                                            {v.user_name}
-                                          </span>
-                                        </div>
-                                      </td>
-                                      <td style={{ padding: '8px 8px', color: 'var(--text-secondary)', width: '85px', maxWidth: '85px', overflow: 'hidden', whiteSpace: 'nowrap' }} title={`${getDisplayDeviceName(v.device_id)} (${v.device_id})`}>
-                                        <code style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 5px', borderRadius: '4px', fontSize: '10.5px', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle' }}>
-                                          {formatCompactDeviceName(getDisplayDeviceName(v.device_id))}
-                                        </code>
-                                      </td>
-                                      <td style={{ padding: '8px 8px', width: '95px', whiteSpace: 'nowrap' }}>
-                                        <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'nowrap' }}>
-                                          <span style={{ background: 'rgba(15, 135, 255, 0.12)', color: 'var(--accent-blue)', padding: '2px 5px', borderRadius: '5px', fontSize: '10.5px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                            {v.search_count} tra cứu
-                                          </span>
-                                          {vTxs.length > 0 && (
-                                            <span style={{ background: 'rgba(125, 190, 255, 0.12)', color: '#7DBEFF', padding: '2px 5px', borderRadius: '5px', fontSize: '10.5px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                              {vTxs.length} mẫu
-                                            </span>
-                                          )}
-                                        </div>
-                                      </td>
-                                      <td style={{ padding: '8px 8px', color: 'var(--text-muted)', fontSize: '11px', textAlign: 'center', width: '85px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={v.last_active ? new Date(v.last_active).toLocaleString() : ''}>
-                                        {(() => {
-                                          if (!v.last_active) return '—';
-                                          const d = new Date(v.last_active);
-                                          const hh = String(d.getHours()).padStart(2, '0');
-                                          const mm = String(d.getMinutes()).padStart(2, '0');
-                                          const DD = String(d.getDate()).padStart(2, '0');
-                                          const MM = String(d.getMonth() + 1).padStart(2, '0');
-                                          const YY = String(d.getFullYear()).slice(-2);
-                                          return `${hh}:${mm} ${DD}/${MM}/${YY}`;
-                                        })()}
-                                      </td>
-                                      <td style={{ padding: '8px 8px', textAlign: 'center', width: '75px', whiteSpace: 'nowrap' }}>
-                                        {isBlocked ? (
-                                          <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.15)', color: 'var(--status-error)', padding: '2px 4px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>🚫 Bị chặn</span>
-                                        ) : isPendingReset ? (
-                                          <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.15)', color: 'var(--status-warning)', padding: '2px 4px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>⏳ Chờ</span>
-                                        ) : (
-                                          <span style={{ fontSize: '10px', background: 'rgba(16,185,129,0.12)', color: '#10b981', padding: '2px 4px', borderRadius: '4px', fontWeight: 600, whiteSpace: 'nowrap' }}>✓ Tốt</span>
-                                        )}
-                                      </td>
-                                      <td style={{ padding: '8px 8px', textAlign: 'right', width: '285px', whiteSpace: 'nowrap' }}>
-                                        <div style={{ display: 'inline-flex', gap: '3px', justifyContent: 'flex-end', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-                                          <button
-                                            type="button"
-                                            onClick={() => setExpandedVisitorHistoryId(isVHistoryOpen ? null : v.device_id)}
-                                            title={`Xem lịch sử thao tác (${totalVActions})`}
-                                            style={{
-                                              background: isVHistoryOpen ? 'var(--accent-blue)' : 'rgba(59,130,246,0.12)',
-                                              border: '1px solid var(--accent-blue)',
-                                              color: isVHistoryOpen ? '#fff' : 'var(--accent-blue)',
-                                              borderRadius: '5px',
-                                              padding: '2.5px 5.5px',
-                                              fontSize: '10.5px',
-                                              cursor: 'pointer',
-                                              fontWeight: 600,
-                                              whiteSpace: 'nowrap'
-                                            }}
-                                          >
-                                            📜 Lịch sử
-                                          </button>
-                                          {isBlocked ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleUnblockVisitor(v.device_id, v.user_name)}
-                                              style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: 'var(--status-success)', borderRadius: '5px', padding: '2.5px 5.5px', fontSize: '10.5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-                                            >
-                                              🟢 Gỡ
-                                            </button>
-                                          ) : (
-                                            <>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setRenameModalVisitor({ deviceId: v.device_id, currentName: v.user_name });
-                                                  setRenameNewName(v.user_name || '');
-                                                }}
-                                                title="Admin trực tiếp đổi tên cho khách này"
-                                                style={{
-                                                  background: 'rgba(201,164,106,0.12)',
-                                                  border: '1px solid rgba(201,164,106,0.35)',
-                                                  color: 'var(--bento-kraft)',
-                                                  borderRadius: '5px',
-                                                  padding: '2.5px 5.5px',
-                                                  fontSize: '10.5px',
-                                                  cursor: 'pointer',
-                                                  fontWeight: 600,
-                                                  whiteSpace: 'nowrap'
-                                                }}
-                                              >
-                                                ✏️ Đổi
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => handleResetVisitor(v.device_id, v.user_name)}
-                                                disabled={isPendingReset}
-                                                title="Bắt buộc thiết bị này phải khai lại tên vào lần truy cập sau"
-                                                style={{
-                                                  background: isPendingReset ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.12)',
-                                                  border: isPendingReset ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(245,158,11,0.3)',
-                                                  color: isPendingReset ? 'var(--text-muted)' : 'var(--status-warning)',
-                                                  borderRadius: '5px',
-                                                  padding: '2.5px 5.5px',
-                                                  fontSize: '10.5px',
-                                                  cursor: isPendingReset ? 'not-allowed' : 'pointer',
-                                                  fontWeight: 600,
-                                                  whiteSpace: 'nowrap'
-                                                }}
-                                              >
-                                                🔄 Khai lại
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => handleBlockVisitor(v.device_id, v.user_name)}
-                                                title="Chặn thiết bị này truy cập"
-                                                style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--status-error)', borderRadius: '5px', padding: '2.5px 5.5px', fontSize: '10.5px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-                                              >
-                                                🚫 Chặn
-                                              </button>
-                                            </>
-                                          )}
-                                          <button
-                                            type="button"
-                                            onClick={() => handleDeleteSavedVisitor(v.device_id, v.user_name)}
-                                            title="Xóa khách này khỏi danh sách đã lưu"
-                                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: 'var(--text-secondary)', borderRadius: '5px', padding: '2.5px 5.5px', fontSize: '10.5px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                                          >
-                                            🗑️ Xóa
-                                          </button>
-                                        </div>
-                                      </td>
-                                    </tr>
-                                    {isVHistoryOpen && (
-                                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(15,23,42,0.5)' }}>
-                                        <td colSpan={6} style={{ padding: '14px 20px' }}>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                            <strong style={{ fontSize: '13px', color: '#10b981' }}>
-                                              📜 Lịch sử tra cứu & đăng ký lấy mẫu của khách: {v.user_name} ({getDisplayDeviceName(v.device_id)})
-                                            </strong>
-                                            <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => setExpandedVisitorHistoryId(null)}>
-                                              Đóng ×
-                                            </button>
-                                          </div>
-                                          {(() => {
-                                            const combinedV = [
-                                              ...vTxs.map(t => ({
-                                                id: `vtx-${t.id}`,
-                                                time: t.created_at,
-                                                category: 'Đăng ký lấy mẫu',
-                                                badgeColor: '#f59e0b',
-                                                target: t.samples?.products?.product_name || t.samples?.product_name || '—',
-                                                qty: `${t.quantity || 0} bao`,
-                                                detail: `${t.status === 'pending' ? '⏳ Chờ duyệt' : t.status === 'approved' ? '✅ Đã cấp' : t.status} • ${t.note || ''}`
-                                              })),
-                                              ...vLogs.map(l => ({
-                                                id: `vl-${l.id}`,
-                                                time: l.searched_at,
-                                                category: l.keyword === '[Truy cập bị chặn]' ? 'Bị chặn truy cập' : 'Tra cứu',
-                                                badgeColor: l.keyword === '[Truy cập bị chặn]' ? '#ef4444' : '#0ea5e9',
-                                                target: `Từ khóa: "${l.keyword}"`,
-                                                qty: `${l.results_count} kết quả`,
-                                                detail: l.month_filter ? `Lọc tháng: ${l.month_filter}` : 'Tất cả các tháng'
-                                              }))
-                                            ].sort((a, b) => new Date(b.time) - new Date(a.time));
-
-                                            if (combinedV.length === 0) {
-                                              return (
-                                                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12.5px' }}>
-                                                  Thiết bị này mới khai báo tên, chưa thực hiện lượt tra cứu hoặc đăng ký lấy mẫu nào.
-                                                </div>
-                                              );
-                                            }
-
-                                            return (
-                                              <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
-                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                                                  <thead>
-                                                    <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
-                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Thời gian</th>
-                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Loại thao tác</th>
-                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Sản phẩm / Từ khóa</th>
-                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Số lượng / KQ</th>
-                                                      <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Chi tiết</th>
-                                                    </tr>
-                                                  </thead>
-                                                  <tbody>
-                                                    {combinedV.slice(0, 100).map(item => (
-                                                      <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                                                        <td style={{ padding: '6px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                                                          {item.time ? new Date(item.time).toLocaleString() : '—'}
-                                                        </td>
-                                                        <td style={{ padding: '6px 12px' }}>
-                                                          <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: `${item.badgeColor}22`, color: item.badgeColor }}>
-                                                            {item.category}
-                                                          </span>
-                                                        </td>
-                                                        <td style={{ padding: '6px 12px', fontWeight: 500, whiteSpace: 'nowrap' }} title={item.target}>
-    {item.target && item.target.length > 25 ? item.target.slice(0, 25) + '...' : (item.target || '—')}
-  </td>
-                                                        <td style={{ padding: '6px 12px', fontWeight: 600 }}>{item.qty}</td>
-                                                        <td style={{ padding: '6px 12px', color: 'var(--text-secondary)' }}>{item.detail}</td>
-                                                      </tr>
-                                                    ))}
-                                                  </tbody>
-                                                </table>
-                                              </div>
-                                            );
-                                          })()}
-                                        </td>
-                                      </tr>
-                                    )}
-                                  </React.Fragment>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
-                </div>
-              </div>
+              <React.Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted, #64748b)' }}><Loader className="spin" size={24} style={{ display: 'inline-block', marginRight: '8px', verticalAlign: 'middle' }} /> Đang tải Quản lý Tài khoản & Khách...</div>}>
+                <UserVisitorManagerTab
+                  profilesList={profilesList}
+                  allVisitorLogs={allVisitorLogs}
+                  resetDevices={resetDevices}
+                  userMgmtSubTab={userMgmtSubTab}
+                  setUserMgmtSubTab={setUserMgmtSubTab}
+                  fetchUsersAndVisitors={fetchUsersAndVisitors}
+                  usersLoading={usersLoading}
+                  editingProfileId={editingProfileId}
+                  setEditingProfileId={setEditingProfileId}
+                  editProfileName={editProfileName}
+                  setEditProfileName={setEditProfileName}
+                  editProfileCode={editProfileCode}
+                  setEditProfileCode={setEditProfileCode}
+                  editProfileDept={editProfileDept}
+                  setEditProfileDept={setEditProfileDept}
+                  editProfileRole={editProfileRole}
+                  setEditProfileRole={setEditProfileRole}
+                  expandedUserHistoryId={expandedUserHistoryId}
+                  setExpandedUserHistoryId={setExpandedUserHistoryId}
+                  expandedVisitorHistoryId={expandedVisitorHistoryId}
+                  setExpandedVisitorHistoryId={setExpandedVisitorHistoryId}
+                  transactions={transactions}
+                  user={user}
+                  handleUpdateUserProfile={handleUpdateUserProfile}
+                  handleDeleteUserProfile={handleDeleteUserProfile}
+                  handleUnblockVisitor={handleUnblockVisitor}
+                  handleResetVisitor={handleResetVisitor}
+                  handleBlockVisitor={handleBlockVisitor}
+                  handleDeleteSavedVisitor={handleDeleteSavedVisitor}
+                  setRenameModalVisitor={setRenameModalVisitor}
+                  setRenameNewName={setRenameNewName}
+                />
+              </React.Suspense>
             )}
 
             {/* OVERCAPACITY BOXES & EXPIRATION REPORTS PAGE */}
@@ -12231,28 +10748,32 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
 
             {/* KIỂM KÊ KHO BẰNG QUÉT QR CAMERA LIÊN TỤC */}
             {activeTab === 'audit' && profile?.role === 'admin' && (
-              <WarehouseAudit
-                samples={samples}
-                boxes={boxes}
-                products={products}
-                formatLocation={formatLocation}
-                formatBlendBatch={formatBlendBatch}
-                showToast={showToast}
-                profile={profile}
-                fetchDatabaseData={fetchDatabaseData}
-                onClose={() => setActiveTab('dashboard')}
-              />
+              <React.Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted, #64748b)' }}><Loader className="spin" size={24} style={{ display: 'inline-block', marginRight: '8px', verticalAlign: 'middle' }} /> Đang tải mô-đun Kiểm kê kho...</div>}>
+                <WarehouseAudit
+                  samples={samples}
+                  boxes={boxes}
+                  products={products}
+                  formatLocation={formatLocation}
+                  formatBlendBatch={formatBlendBatch}
+                  showToast={showToast}
+                  profile={profile}
+                  fetchDatabaseData={fetchDatabaseData}
+                  onClose={() => setActiveTab('dashboard')}
+                />
+              </React.Suspense>
             )}
 
             {/* BÁO CÁO THỐNG KÊ NHẬP & TIÊU HỦY MẪU HÀNG THÁNG */}
             {activeTab === 'analytics' && (
-              <MonthlyAnalytics
-                samples={samples}
-                destructionLogs={destructionLogs}
-                transactions={transactions}
-                products={products}
-                onClose={() => setActiveTab('dashboard')}
-              />
+              <React.Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted, #64748b)' }}><Loader className="spin" size={24} style={{ display: 'inline-block', marginRight: '8px', verticalAlign: 'middle' }} /> Đang tải Báo cáo Thống kê...</div>}>
+                <MonthlyAnalytics
+                  samples={samples}
+                  destructionLogs={destructionLogs}
+                  transactions={transactions}
+                  products={products}
+                  onClose={() => setActiveTab('dashboard')}
+                />
+              </React.Suspense>
             )}
             </div>
           </main>

@@ -3,7 +3,7 @@ import {
   Warehouse, Search, Camera, Printer, Layers, Box, Plus,
   ArrowRightLeft, CheckSquare, Clock, ClipboardList, UploadCloud, FileText,
   User, ChevronRight, X, BarChart3, ArrowUpRight, ArrowDownRight, Eye, Trash2
-} from './GoogleIcons';
+} from '../GoogleIcons';
 
 const SLOT_MAX_WIDTH_MM = 700;
 const FORMAT_CAPACITIES = {
