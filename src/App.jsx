@@ -3097,6 +3097,14 @@ export default function App() {
       setProfilesList(profs || []);
       setAllVisitorLogs(vLogs || []);
       setResetDevices(resets || []);
+
+      // Tự động dọn dẹp các bản ghi mồ côi trong visitor_resets (không có nhật ký và không bị chặn)
+      const orphanResetIds = (resets || [])
+        .filter(r => !r.is_blocked && !(vLogs || []).some(l => l.device_id === r.device_id))
+        .map(r => r.device_id);
+      if (orphanResetIds.length > 0) {
+        supabase.from('visitor_resets').delete().in('device_id', orphanResetIds).then(() => {});
+      }
     } catch (e) {
       console.error('Error fetching users and visitors:', e);
     } finally {
@@ -3159,20 +3167,34 @@ export default function App() {
     }
   };
 
-  // Xóa khách khỏi danh sách đã lưu (xóa lịch sử thiết bị và đặt lệnh reset tên)
+  // Xóa thiết bị khỏi danh sách đã lưu (chỉ xóa trường device_id, giữ nguyên 100% lịch sử tra cứu & giao dịch lấy mẫu)
   const handleDeleteSavedVisitor = async (devId, userName) => {
-    if (!window.confirm(`Xóa khách "${userName}" khỏi danh sách đã lưu và yêu cầu thiết bị này khai báo lại tên khi truy cập lần sau?`)) return;
+    const devLabel = formatCompactDeviceName(getDisplayDeviceName(devId));
+    const displayName = (userName && userName !== 'Thiết bị chưa có lịch sử' && userName !== 'Thiết bị bị chặn')
+      ? `khách "${userName}" (${devLabel})`
+      : `thiết bị [${devLabel}]`;
+    if (!window.confirm(`Xác nhận xóa ${displayName} khỏi danh sách lưu?` +
+      `\n- Thiết bị sẽ biến mất khỏi danh sách quản lý thiết bị.` +
+      `\n- Mọi lịch sử tra cứu và hành động lấy mẫu, số lượng mẫu vẫn được giữ nguyên 100%.`)) return;
     try {
       setUsersLoading(true);
       if (!isDemoMode) {
-        await supabase.from('search_logs').delete().eq('device_id', devId);
-        await supabase.from('visitor_resets').upsert({ device_id: devId, is_blocked: false, reset_by: 'admin' });
+        await Promise.all([
+          // Chỉ xóa trường thiết bị (device_id = null), TUYỆT ĐỐI KHÔNG XÓA LOG TRA CỨU HOẶC GIAO DỊCH
+          supabase.from('search_logs').update({ device_id: null }).eq('device_id', devId),
+          // Xóa bản ghi trong visitor_resets
+          supabase.from('visitor_resets').delete().eq('device_id', devId)
+        ]);
       }
-      showToast(`Đã xóa khách "${userName}" và đặt yêu cầu khai lại tên!`, 'success');
+      // Cập nhật state local: gỡ device_id để thiết bị biến mất khỏi danh sách lưu, giữ nguyên dữ liệu log
+      setAllVisitorLogs(prev => prev.map(l => l.device_id === devId ? { ...l, device_id: null } : l));
+      setSearchLogs(prev => prev.map(l => l.device_id === devId ? { ...l, device_id: null } : l));
+      setResetDevices(prev => prev.filter(d => d.device_id !== devId));
+      showToast(`Đã xóa thiết bị khỏi danh sách lưu (lịch sử tra cứu & lấy mẫu được giữ nguyên)!`, 'success');
       fetchUsersAndVisitors();
       fetchSearchLogs();
     } catch (e) {
-      showToast('Lỗi khi xóa khách: ' + e.message, 'error');
+      showToast('Lỗi khi xóa thiết bị: ' + e.message, 'error');
     } finally {
       setUsersLoading(false);
     }
@@ -11668,10 +11690,11 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                         }
                       });
                       resetDevices.forEach(r => {
-                        if (r.device_id && !visitorMap.has(r.device_id)) {
+                        // Chỉ hiển thị thiết bị chưa có log nếu đang bị chặn để admin có thể gỡ chặn
+                        if (r.device_id && !visitorMap.has(r.device_id) && r.is_blocked) {
                           visitorMap.set(r.device_id, {
                             device_id: r.device_id,
-                            user_name: 'Thiết bị chưa có lịch sử',
+                            user_name: 'Thiết bị bị chặn',
                             last_active: null,
                             search_count: 0,
                             last_keyword: '—'
