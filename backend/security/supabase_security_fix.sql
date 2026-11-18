@@ -4,6 +4,18 @@
 -- Dán toàn bộ nội dung file này vào và bấm RUN (chạy một lần duy nhất).
 -- =================================================================================
 
+-- 0. Bổ sung cột quản lý tài khoản vào public.profiles & đồng bộ email
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS email TEXT,
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now());
+
+UPDATE public.profiles p
+SET email = u.email
+FROM auth.users u
+WHERE p.id = u.id
+  AND (p.email IS NULL OR p.email IS DISTINCT FROM u.email);
+
 -- 1. HÀM KIỂM TRA QUYỀN ADMIN AN TOÀN (SECURITY DEFINER + search_path cố định chống Search Path Hijacking)
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN
@@ -12,7 +24,9 @@ SET search_path = public
 STABLE AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.profiles
-    WHERE id = auth.uid() AND role = 'admin'
+    WHERE id = auth.uid()
+      AND role = 'admin'
+      AND is_active = true
   );
 $$;
 
@@ -48,18 +62,18 @@ BEGIN
   END LOOP;
 END $$;
 
--- 3. BẢO MẬT BẢNG PROFILES (Chặn khách lạ đọc dữ liệu nhân viên, Chặn tự nâng quyền Admin)
-CREATE POLICY "Authenticated users view profiles" ON public.profiles
-  FOR SELECT USING (auth.role() = 'authenticated' OR public.is_admin());
+-- 3. BẢO MẬT BẢNG PROFILES (Chỉ xem profile của mình hoặc Admin xem tất cả; chỉ Admin được thêm/sửa/xóa)
+CREATE POLICY "Users view own profile or admin views all" ON public.profiles
+  FOR SELECT USING (auth.uid() = id OR public.is_admin());
 
-CREATE POLICY "Users insert default staff profile" ON public.profiles
-  FOR INSERT WITH CHECK (auth.uid() = id AND role = 'staff');
+CREATE POLICY "Only admin inserts profiles" ON public.profiles
+  FOR INSERT WITH CHECK (public.is_admin());
 
-CREATE POLICY "Allow user update profile" ON public.profiles
-  FOR UPDATE USING (auth.uid() = id OR public.is_admin())
-  WITH CHECK (
-    public.is_admin() OR (auth.uid() = id AND role <> 'admin')
-  );
+CREATE POLICY "Only admin updates profiles" ON public.profiles
+  FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+CREATE POLICY "Only admin deletes profiles" ON public.profiles
+  FOR DELETE USING (public.is_admin());
 
 -- 4. BẢO MẬT BẢNG PRODUCTS, BOXES, SAMPLES
 CREATE POLICY "Tất cả mọi người được đọc danh mục sản phẩm" ON public.products
@@ -304,17 +318,29 @@ BEGIN
       WHEN 'UPDATE' THEN 'Cập nhật cấu hình Kệ ' || COALESCE(v_ref->>'shelf', '?') || ' - Ô ' || COALESCE(v_ref->>'slot', '?') || ' [' || array_to_string(v_changed_fields, ', ') || ']'
       WHEN 'DELETE' THEN 'Xóa cấu hình Kệ ' || COALESCE(v_ref->>'shelf', '?') || ' - Ô ' || COALESCE(v_ref->>'slot', '?')
     END;
+  ELSIF TG_TABLE_NAME = 'profiles' THEN
+    v_summary := CASE TG_OP
+      WHEN 'INSERT' THEN 'Cấp tài khoản ' || COALESCE(NULLIF(trim(v_ref->>'full_name'), ''), v_ref->>'email', v_record_id)
+        || COALESCE(' (' || NULLIF(trim(v_ref->>'email'), '') || ')', '')
+        || ' - Vai trò: ' || COALESCE(v_ref->>'role', 'staff')
+      WHEN 'UPDATE' THEN 'Cập nhật tài khoản ' || COALESCE(NULLIF(trim(v_ref->>'full_name'), ''), v_ref->>'email', v_record_id)
+        || ' [' || array_to_string(v_changed_fields, ', ') || ']'
+      WHEN 'DELETE' THEN 'Xóa tài khoản ' || COALESCE(NULLIF(trim(v_ref->>'full_name'), ''), v_ref->>'email', v_record_id)
+        || COALESCE(' (' || NULLIF(trim(v_ref->>'email'), '') || ')', '')
+    END;
   ELSE
     v_summary := TG_OP || ' ' || TG_TABLE_NAME || ' (' || v_record_id || ')';
   END IF;
 
-  INSERT INTO public.warehouse_audit_logs (
-    table_name, record_id, action, actor_id, actor_name, actor_role,
-    old_data, new_data, changed_fields, summary
-  ) VALUES (
-    TG_TABLE_NAME, v_record_id, TG_OP, v_actor_id, v_actor_name, v_actor_role,
-    v_old, v_new, v_changed_fields, v_summary
-  );
+  IF to_regclass('public.warehouse_audit_logs') IS NOT NULL THEN
+    INSERT INTO public.warehouse_audit_logs (
+      table_name, record_id, action, actor_id, actor_name, actor_role,
+      old_data, new_data, changed_fields, summary
+    ) VALUES (
+      TG_TABLE_NAME, v_record_id, TG_OP, v_actor_id, v_actor_name, v_actor_role,
+      v_old, v_new, v_changed_fields, v_summary
+    );
+  END IF;
 
   RETURN COALESCE(NEW, OLD);
 END;
@@ -323,7 +349,7 @@ $$;
 DO $$
 DECLARE
   tbl TEXT;
-  audited_tables TEXT[] := ARRAY['samples', 'boxes', 'products', 'slot_configs', 'transactions'];
+  audited_tables TEXT[] := ARRAY['samples', 'boxes', 'products', 'slot_configs', 'transactions', 'profiles'];
 BEGIN
   FOREACH tbl IN ARRAY audited_tables LOOP
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = tbl) THEN
@@ -401,6 +427,265 @@ CREATE POLICY "Admin read warehouse_audit_logs" ON public.warehouse_audit_logs
 
 REVOKE ALL ON public.warehouse_audit_logs FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.warehouse_audit_logs TO authenticated, service_role;
+
+-- 12. RPC QUẢN LÝ TÀI KHOẢN & ĐỒNG BỘ EMAIL (SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION public.rpc_admin_provision_profile(
+  p_user_id UUID,
+  p_email TEXT,
+  p_full_name TEXT,
+  p_employee_code TEXT DEFAULT NULL,
+  p_department TEXT DEFAULT NULL,
+  p_role TEXT DEFAULT 'staff'
+)
+RETURNS public.profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_auth_email TEXT;
+  v_email TEXT;
+  v_full_name TEXT;
+  v_employee_code TEXT;
+  v_department TEXT;
+  v_role TEXT;
+  v_profile public.profiles;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Forbidden: Chỉ Admin mới được phép cấp tài khoản';
+  END IF;
+
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'Thiếu user_id của tài khoản';
+  END IF;
+
+  SELECT u.email INTO v_auth_email
+  FROM auth.users u
+  WHERE u.id = p_user_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Không tìm thấy tài khoản xác thực tương ứng';
+  END IF;
+
+  v_full_name := NULLIF(trim(p_full_name), '');
+  IF v_full_name IS NULL THEN
+    RAISE EXCEPTION 'Họ và tên không được để trống';
+  END IF;
+
+  v_role := COALESCE(NULLIF(trim(lower(p_role)), ''), 'staff');
+  IF v_role NOT IN ('admin', 'staff') THEN
+    RAISE EXCEPTION 'Vai trò không hợp lệ (chỉ chấp nhận admin hoặc staff)';
+  END IF;
+
+  v_email := COALESCE(NULLIF(trim(lower(p_email)), ''), v_auth_email);
+  v_employee_code := NULLIF(trim(p_employee_code), '');
+  v_department := NULLIF(trim(p_department), '');
+
+  INSERT INTO public.profiles (
+    id, email, full_name, employee_code, department, role, is_active, updated_at
+  ) VALUES (
+    p_user_id, v_email, v_full_name, v_employee_code, v_department, v_role, true, timezone('utc'::text, now())
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    full_name = EXCLUDED.full_name,
+    employee_code = EXCLUDED.employee_code,
+    department = EXCLUDED.department,
+    role = EXCLUDED.role,
+    updated_at = timezone('utc'::text, now())
+  RETURNING * INTO v_profile;
+
+  BEGIN
+    UPDATE auth.users
+    SET email_confirmed_at = COALESCE(email_confirmed_at, timezone('utc'::text, now()))
+    WHERE id = p_user_id AND email_confirmed_at IS NULL;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
+  RETURN v_profile;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.rpc_admin_provision_profile(UUID, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_admin_provision_profile(UUID, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.rpc_admin_update_account(
+  p_target_id UUID,
+  p_full_name TEXT,
+  p_employee_code TEXT,
+  p_department TEXT,
+  p_role TEXT,
+  p_is_active BOOLEAN
+)
+RETURNS public.profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_existing public.profiles;
+  v_updated public.profiles;
+  v_full_name TEXT;
+  v_employee_code TEXT;
+  v_department TEXT;
+  v_role TEXT;
+  v_is_active BOOLEAN;
+  v_active_admin_count INTEGER;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Forbidden: Chỉ Admin mới được phép cập nhật tài khoản';
+  END IF;
+
+  IF p_target_id IS NULL THEN
+    RAISE EXCEPTION 'Thiếu mã tài khoản cần cập nhật';
+  END IF;
+
+  SELECT * INTO v_existing
+  FROM public.profiles
+  WHERE id = p_target_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Không tìm thấy hồ sơ tài khoản';
+  END IF;
+
+  v_full_name := COALESCE(NULLIF(trim(p_full_name), ''), v_existing.full_name);
+  v_employee_code := NULLIF(trim(p_employee_code), '');
+  v_department := NULLIF(trim(p_department), '');
+  v_role := COALESCE(NULLIF(trim(lower(p_role)), ''), v_existing.role);
+  v_is_active := COALESCE(p_is_active, v_existing.is_active);
+
+  IF v_role NOT IN ('admin', 'staff') THEN
+    RAISE EXCEPTION 'Vai trò không hợp lệ (chỉ chấp nhận admin hoặc staff)';
+  END IF;
+
+  IF p_target_id = auth.uid() AND v_is_active = false THEN
+    RAISE EXCEPTION 'Không thể tự khóa tài khoản của chính mình';
+  END IF;
+
+  IF p_target_id = auth.uid() AND v_existing.role = 'admin' AND v_role <> 'admin' THEN
+    RAISE EXCEPTION 'Không thể tự hạ quyền Admin của chính mình';
+  END IF;
+
+  IF v_existing.role = 'admin' AND v_existing.is_active = true AND (v_role <> 'admin' OR v_is_active = false) THEN
+    SELECT count(*) INTO v_active_admin_count
+    FROM public.profiles
+    WHERE role = 'admin'
+      AND is_active = true
+      AND id <> p_target_id;
+
+    IF v_active_admin_count = 0 THEN
+      RAISE EXCEPTION 'Không thể khóa hoặc hạ quyền Admin đang hoạt động cuối cùng trong hệ thống';
+    END IF;
+  END IF;
+
+  UPDATE public.profiles
+  SET full_name = v_full_name,
+      employee_code = v_employee_code,
+      department = v_department,
+      role = v_role,
+      is_active = v_is_active,
+      updated_at = timezone('utc'::text, now())
+  WHERE id = p_target_id
+  RETURNING * INTO v_updated;
+
+  RETURN v_updated;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.rpc_admin_update_account(UUID, TEXT, TEXT, TEXT, TEXT, BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_admin_update_account(UUID, TEXT, TEXT, TEXT, TEXT, BOOLEAN) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.rpc_admin_delete_account(
+  p_target_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_existing public.profiles;
+  v_remaining_admin_count INTEGER;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Forbidden: Chỉ Admin mới được phép xóa tài khoản';
+  END IF;
+
+  IF p_target_id IS NULL THEN
+    RAISE EXCEPTION 'Thiếu mã tài khoản cần xóa';
+  END IF;
+
+  IF p_target_id = auth.uid() THEN
+    RAISE EXCEPTION 'Không thể tự xóa tài khoản của chính mình';
+  END IF;
+
+  SELECT * INTO v_existing
+  FROM public.profiles
+  WHERE id = p_target_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Không tìm thấy hồ sơ tài khoản cần xóa';
+  END IF;
+
+  IF v_existing.role = 'admin' THEN
+    SELECT count(*) INTO v_remaining_admin_count
+    FROM public.profiles
+    WHERE role = 'admin'
+      AND is_active = true
+      AND id <> p_target_id;
+
+    IF v_remaining_admin_count = 0 THEN
+      RAISE EXCEPTION 'Không thể xóa Admin đang hoạt động cuối cùng trong hệ thống';
+    END IF;
+  END IF;
+
+  DELETE FROM auth.users WHERE id = p_target_id;
+  DELETE FROM public.profiles WHERE id = p_target_id;
+
+  RETURN true;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.rpc_admin_delete_account(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_admin_delete_account(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.rpc_sync_my_email()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+  v_email TEXT;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized: Cần đăng nhập để đồng bộ email';
+  END IF;
+
+  SELECT u.email INTO v_email
+  FROM auth.users u
+  WHERE u.id = v_uid;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Không tìm thấy tài khoản xác thực';
+  END IF;
+
+  UPDATE public.profiles
+  SET email = v_email,
+      updated_at = timezone('utc'::text, now())
+  WHERE id = v_uid
+    AND email IS DISTINCT FROM v_email;
+
+  RETURN v_email;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.rpc_sync_my_email() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_sync_my_email() TO authenticated;
 
 NOTIFY pgrst, 'reload schema';
 

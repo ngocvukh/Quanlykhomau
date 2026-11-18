@@ -1,4 +1,7 @@
 import { supabase } from '../supabaseClient';
+import { adminCreateUserAccount, sendPasswordResetEmail } from './authService';
+
+export { adminCreateUserAccount };
 
 /**
  * Tải danh sách hồ sơ hệ thống, nhật ký khách và thiết bị reset/bị chặn
@@ -104,16 +107,90 @@ export const unlinkVisitorDevice = async (devId) => {
 };
 
 /**
- * Cập nhật thông tin tài khoản người dùng
+ * Cập nhật thông tin tài khoản người dùng (legacy wrapper)
  */
 export const updateUserProfile = async (targetId, updates) => {
   return await supabase.from('profiles').update(updates).eq('id', targetId);
 };
 
 /**
- * Xóa tài khoản người dùng
+ * Xóa tài khoản người dùng (legacy wrapper)
  */
 export const deleteUserProfile = async (profId) => {
   return await supabase.from('profiles').delete().eq('id', profId);
+};
+
+const isMissingRpcError = (error) => {
+  if (!error) return false;
+  const msg = String(error.message || '').toLowerCase();
+  return (
+    error.code === 'PGRST202' ||
+    error.code === '42883' ||
+    msg.includes('could not find the function') ||
+    (msg.includes('function') && msg.includes('does not exist'))
+  );
+};
+
+/**
+ * Admin cập nhật thông tin, phân quyền và trạng thái hoạt động tài khoản (ưu tiên RPC, fallback profiles.update nếu RPC chưa nạp)
+ */
+export const adminUpdateUserAccount = async (targetId, {
+  full_name,
+  employee_code = null,
+  department = null,
+  role = 'staff',
+  is_active = true
+}) => {
+  const { data, error } = await supabase.rpc('rpc_admin_update_account', {
+    p_target_id: targetId,
+    p_full_name: full_name,
+    p_employee_code: employee_code || null,
+    p_department: department || null,
+    p_role: role,
+    p_is_active: typeof is_active === 'boolean' ? is_active : true
+  });
+
+  if (error) {
+    if (isMissingRpcError(error)) {
+      const updates = {
+        full_name,
+        employee_code: employee_code || null,
+        department: department || null,
+        role
+      };
+      if (typeof is_active === 'boolean') {
+        updates.is_active = is_active;
+      }
+      return await supabase.from('profiles').update(updates).eq('id', targetId);
+    }
+    return { data: null, error };
+  }
+
+  return { data, error: null };
+};
+
+/**
+ * Admin xóa tài khoản (ưu tiên RPC rpc_admin_delete_account, fallback profiles.delete nếu RPC chưa nạp)
+ */
+export const adminDeleteUserAccount = async (targetId) => {
+  const { data, error } = await supabase.rpc('rpc_admin_delete_account', {
+    p_target_id: targetId
+  });
+
+  if (error) {
+    if (isMissingRpcError(error)) {
+      return await supabase.from('profiles').delete().eq('id', targetId);
+    }
+    return { data: null, error };
+  }
+
+  return { data, error: null };
+};
+
+/**
+ * Admin gửi email đặt lại mật khẩu cho nhân viên
+ */
+export const adminSendPasswordReset = async (email) => {
+  return await sendPasswordResetEmail(email);
 };
 

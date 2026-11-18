@@ -8,7 +8,7 @@ import {
   FileText, Check, X, ShieldAlert, Archive, QrCode, Save, Tags, Tag, Barcode,
   ClipboardList, Info, Trash2, User, ChevronRight, Box, ArrowRightLeft, Loader,
   UploadCloud, ChevronDown, ChevronUp, AlertTriangle, Bell, Move, Printer, Calendar,
-  PackageMinus, Ruler, RotateCcw, CheckSquare, ArrowLeft, Camera, BarChart3, Boxes
+  PackageMinus, Ruler, RotateCcw, CheckSquare, ArrowLeft, Camera, BarChart3, Boxes, Key
 } from './GoogleIcons';
 const WarehouseAudit = React.lazy(() => import('./components/WarehouseAudit'));
 const MonthlyAnalytics = React.lazy(() => import('./components/MonthlyAnalytics'));
@@ -16,7 +16,13 @@ import BentoDashboard from './components/BentoDashboard';
 const SearchLogsTab = React.lazy(() => import('./components/SearchLogsTab'));
 const UserVisitorManagerTab = React.lazy(() => import('./components/UserVisitorManagerTab'));
 const WarehouseAuditLogsTab = React.lazy(() => import('./components/WarehouseAuditLogsTab'));
+const AccountModal = React.lazy(() => import('./components/AccountModal'));
 import { attachAuditReason } from './services/auditLogService';
+import {
+  loginWithPassword,
+  sendPasswordResetEmail,
+  getLoginLockRemainingSeconds
+} from './services/authService';
 import {
   getIphoneModel,
   getIpadModel,
@@ -50,7 +56,11 @@ import {
   renameVisitorDevice,
   unlinkVisitorDevice,
   updateUserProfile,
-  deleteUserProfile
+  deleteUserProfile,
+  adminUpdateUserAccount,
+  adminDeleteUserAccount,
+  adminSendPasswordReset,
+  adminCreateUserAccount
 } from './services/visitorService';
 import {
   fetchAllWarehouseData,
@@ -93,7 +103,13 @@ export default function App() {
   const [authFullName, setAuthFullName] = useState('');
   const [authEmployeeCode, setAuthEmployeeCode] = useState('');
   const [authRole, setAuthRole] = useState('staff'); // 'admin' or 'staff'
-  const [authMode, setAuthMode] = useState('login'); // 'login', 'signup', or 'guest'
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'guest'
+  const [loginModalTab, setLoginModalTab] = useState('login'); // 'login' | 'forgot'
+  const [loginErrorMsg, setLoginErrorMsg] = useState('');
+  const [loginLockSeconds, setLoginLockSeconds] = useState(0);
+  const [forgotEmailSent, setForgotEmailSent] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [isPasswordRecoveryMode, setIsPasswordRecoveryMode] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Undo States — persisted to localStorage and Supabase so undo works across devices
@@ -2710,16 +2726,18 @@ export default function App() {
     }
     try {
       setUsersLoading(true);
+      const targetProf = profilesList.find(p => p.id === targetId);
       const updates = {
         full_name: editProfileName.trim(),
         employee_code: editProfileCode.trim() || null,
         department: editProfileDept.trim() || null,
-        role: editProfileRole
+        role: editProfileRole,
+        is_active: targetProf?.is_active !== false
       };
       if (isDemoMode) {
         setProfilesList(prev => prev.map(p => p.id === targetId ? { ...p, ...updates } : p));
       } else {
-        const { error } = await updateUserProfile(targetId, updates);
+        const { error } = await adminUpdateUserAccount(targetId, updates);
         if (error) throw error;
         setProfilesList(prev => prev.map(p => p.id === targetId ? { ...p, ...updates } : p));
         if (profile && profile.id === targetId) {
@@ -2745,7 +2763,7 @@ export default function App() {
     try {
       setUsersLoading(true);
       if (!isDemoMode) {
-        const { error } = await deleteUserProfile(prof.id);
+        const { error } = await adminDeleteUserAccount(prof.id);
         if (error) throw error;
       }
       setProfilesList(prev => prev.filter(p => p.id !== prof.id));
@@ -2755,6 +2773,79 @@ export default function App() {
     } finally {
       setUsersLoading(false);
     }
+  };
+
+  // Khóa / Mở khóa tài khoản
+  const handleToggleUserActive = async (prof) => {
+    if (prof.id === user?.id) {
+      showToast('Không thể tự khóa tài khoản đang đăng nhập!', 'warning');
+      return;
+    }
+    const nextActive = prof.is_active === false;
+    const actionLabel = nextActive ? 'mở khóa' : 'khóa';
+    if (!window.confirm(`Xác nhận ${actionLabel} tài khoản "${prof.full_name}"?`)) return;
+    try {
+      setUsersLoading(true);
+      const updates = {
+        full_name: prof.full_name,
+        employee_code: prof.employee_code || null,
+        department: prof.department || null,
+        role: prof.role || 'staff',
+        is_active: nextActive
+      };
+      if (!isDemoMode) {
+        const { error } = await adminUpdateUserAccount(prof.id, updates);
+        if (error) throw error;
+      }
+      setProfilesList(prev => prev.map(p => p.id === prof.id ? { ...p, is_active: nextActive } : p));
+      showToast(`Đã ${actionLabel} tài khoản "${prof.full_name}"!`, 'success');
+    } catch (e) {
+      showToast(`Lỗi ${actionLabel} tài khoản: ` + e.message, 'error');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  // Admin gửi email đặt lại mật khẩu
+  const handleAdminSendReset = async (prof) => {
+    if (!prof.email) {
+      showToast('Tài khoản này chưa có email để gửi đặt lại mật khẩu.', 'warning');
+      return;
+    }
+    if (!window.confirm(`Gửi email đặt lại mật khẩu tới ${prof.email}?`)) return;
+    try {
+      setUsersLoading(true);
+      if (!isDemoMode) {
+        await adminSendPasswordReset(prof.email);
+      }
+      showToast(`Đã gửi email đặt lại mật khẩu tới ${prof.email}!`, 'success');
+    } catch (e) {
+      showToast('Lỗi gửi email đặt lại mật khẩu: ' + e.message, 'error');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  // Admin cấp tài khoản mới
+  const handleAdminCreateAccount = async (payload) => {
+    if (isDemoMode) {
+      const mockNew = {
+        id: `demo-${Date.now()}`,
+        email: payload.email,
+        full_name: payload.fullName,
+        employee_code: payload.employeeCode || null,
+        department: payload.department || null,
+        role: payload.role || 'staff',
+        is_active: true,
+        created_at: new Date().toISOString()
+      };
+      setProfilesList(prev => [mockNew, ...prev]);
+      showToast(`Đã cấp tài khoản Demo cho "${payload.fullName}"!`, 'success');
+      return;
+    }
+    await adminCreateUserAccount(payload);
+    await fetchUsersAndVisitors();
+    showToast(`Đã cấp tài khoản mới cho "${payload.fullName}"!`, 'success');
   };
 
   // Xóa thiết bị khỏi danh sách đã lưu (chỉ xóa trường device_id, giữ nguyên 100% lịch sử tra cứu & giao dịch lấy mẫu)
@@ -2845,8 +2936,15 @@ export default function App() {
             .select('*')
             .eq('id', session.user.id)
             .single()
-            .then(({ data: prof }) => {
+            .then(async ({ data: prof }) => {
               if (prof) {
+                if (prof.is_active === false) {
+                  await supabase.auth.signOut();
+                  setUser(null);
+                  setProfile(null);
+                  showToast('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Thủ kho (Admin).', 'error');
+                  return;
+                }
                 setProfile(prof);
                 setActiveTab('dashboard');
               }
@@ -2854,7 +2952,12 @@ export default function App() {
         }
       });
 
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecoveryMode(true);
+          setShowAccountModal(true);
+          setShowLoginModal(false);
+        }
         if (session) {
           setUser(session.user);
           fetchProfile(session.user.id);
@@ -2873,6 +2976,17 @@ export default function App() {
     }
   }, []);
 
+  // Đếm ngược khóa tạm đăng nhập khi nhập sai quá 5 lần
+  useEffect(() => {
+    if (loginLockSeconds <= 0) return;
+    const timer = setInterval(() => {
+      const rem = getLoginLockRemainingSeconds();
+      setLoginLockSeconds(rem);
+      if (rem <= 0) setLoginErrorMsg('');
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [loginLockSeconds]);
+
   // Fetch user profile from profiles table (Không can thiệp activeTab nữa)
   const fetchProfile = async (userId) => {
     try {
@@ -2883,27 +2997,17 @@ export default function App() {
         .single();
       
       if (error) throw error;
+      if (data && data.is_active === false) {
+        await supabase.auth.signOut();
+        setUser(null);
+        setProfile(null);
+        showToast('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Thủ kho (Admin).', 'error');
+        return;
+      }
       setProfile(data);
     } catch (err) {
       console.error("Error fetching profile:", err);
-      // Auto-create profile if missing
-      createFallbackProfile(userId);
-    }
-  };
-
-  const createFallbackProfile = async (userId) => {
-    const fallback = {
-      id: userId,
-      full_name: authFullName || user?.email?.split('@')[0] || "Người dùng",
-      employee_code: authEmployeeCode || `NV-${Math.floor(Math.random() * 10000)}`,
-      role: 'staff', // Luôn mặc định là staff khi tự đăng ký để tránh leo thang đặc quyền
-      department: 'QC'
-    };
-    try {
-      await supabase.from('profiles').insert(fallback);
-      setProfile(fallback);
-    } catch (e) {
-      console.error("Error creating profile:", e);
+      setProfile(null);
     }
   };
 
@@ -3114,56 +3218,67 @@ export default function App() {
   // Auth Operations
   const handleAuth = async (e) => {
     e.preventDefault();
+    setLoginErrorMsg('');
+
+    if (loginModalTab === 'forgot') {
+      if (isDemoMode) {
+        setForgotEmailSent(true);
+        showToast('Chế độ Demo: Đã mô phỏng gửi email đặt lại mật khẩu.', 'info');
+        return false;
+      }
+      try {
+        setLoading(true);
+        await sendPasswordResetEmail(authEmail);
+        setForgotEmailSent(true);
+        showToast('Đã gửi email đặt lại mật khẩu! Vui lòng kiểm tra hộp thư.', 'success');
+      } catch (error) {
+        const msg = error.message || 'Không thể gửi email đặt lại mật khẩu.';
+        setLoginErrorMsg(msg);
+        showToast(msg, 'error');
+      } finally {
+        setLoading(false);
+      }
+      return false;
+    }
+
     if (isDemoMode) {
       // Offline mock authentication
-      const mockUser = { id: authMode === 'signup' ? 'admin' : 'staff', email: authEmail };
+      const mockUser = { id: 'staff', email: authEmail };
       const mockProfile = {
         id: mockUser.id,
+        email: authEmail,
         full_name: authFullName || 'Người dùng Demo',
         employee_code: authEmployeeCode || 'NV-DEMO',
         role: authRole,
-        department: 'QC'
+        department: 'QC',
+        is_active: true
       };
       setUser(mockUser);
       setProfile(mockProfile);
       showToast(`Đăng nhập thành công với vai trò: ${authRole}`, 'success');
       setActiveTab('dashboard');
-      return;
+      return true;
     }
 
     try {
       setLoading(true);
-      if (authMode === 'login') {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: authEmail,
-          password: authPassword
-        });
-        if (error) throw error;
-        showToast("Đăng nhập thành công!", "success");
-
-        // Đặt activeTab dựa vào role của profile ngay sau khi đăng nhập thành công
-        const { data: prof } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', data.user.id)
-          .maybeSingle();
-        if (prof) {
-          setActiveTab('dashboard');
-        }
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email: authEmail,
-          password: authPassword
-        });
-        if (error) throw error;
-        showToast("Đăng ký thành công! Đang tạo thông tin...", "success");
-        if (data.user) {
-          await createFallbackProfile(data.user.id);
-          setActiveTab('dashboard');
-        }
+      const { user: loggedInUser, profile: prof } = await loginWithPassword(authEmail, authPassword);
+      setUser(loggedInUser);
+      if (prof) {
+        setProfile(prof);
       }
+      setAuthPassword('');
+      setLoginErrorMsg('');
+      setLoginLockSeconds(0);
+      showToast("Đăng nhập thành công!", "success");
+      setActiveTab('dashboard');
+      return true;
     } catch (error) {
-      showToast(error.message, "error");
+      const rem = getLoginLockRemainingSeconds();
+      if (rem > 0) setLoginLockSeconds(rem);
+      setLoginErrorMsg(error.message || 'Đăng nhập thất bại.');
+      showToast(error.message || 'Đăng nhập thất bại.', "error");
+      return false;
     } finally {
       setLoading(false);
     }
@@ -6962,6 +7077,14 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   </span>
                 </div>
               </div>
+              <button
+                type="button"
+                className="theme-toggle"
+                onClick={() => { setIsPasswordRecoveryMode(false); setShowAccountModal(true); }}
+                title="Tài khoản & Bảo mật"
+              >
+                <Key size={18} />
+              </button>
               <button className="theme-toggle" onClick={handleLogout} title="Đăng xuất">
                 <LogOut size={18} />
               </button>
@@ -6988,7 +7111,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                 type="button"
                 className="btn btn-primary"
                 style={{ padding: '8px 18px', fontSize: '13.5px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
-                onClick={() => { setAuthMode('login'); setShowLoginModal(true); }}
+                onClick={() => { setAuthMode('login'); setLoginModalTab('login'); setLoginErrorMsg(''); setForgotEmailSent(false); setShowLoginModal(true); }}
               >
                 <LogIn size={15} /> Đăng nhập
               </button>
@@ -7197,13 +7320,36 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
               <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '3px', fontSize: '12px' }}>
                 {profile?.full_name || visitorName || 'Nhân viên QC'}
               </div>
-              <div style={{ color: 'var(--text-sub)', fontSize: '11px', marginBottom: (!user && !profile) ? '8px' : '0' }}>
+              <div style={{ color: 'var(--text-sub)', fontSize: '11px', marginBottom: '8px' }}>
                 {profile?.role === 'admin' ? 'Quản trị viên (Admin)' : 'Nhân viên / Khách'}
               </div>
-              {(!user && !profile) && (
+              {(user && profile) ? (
                 <button
                   type="button"
-                  onClick={() => setAuthMode('login')}
+                  onClick={() => { setIsPasswordRecoveryMode(false); setShowAccountModal(true); }}
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-subtle)',
+                    color: 'var(--text-main)',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <Key size={13} />
+                  <span>Tài khoản & Mật khẩu</span>
+                </button>
+              ) : (!user && !profile) && (
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('login'); setLoginModalTab('login'); setLoginErrorMsg(''); setForgotEmailSent(false); setShowLoginModal(true); }}
                   style={{
                     width: '100%',
                     padding: '7px 10px',
@@ -7445,16 +7591,31 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                 </div>
 
                 )}
-                {/* Avatar Badge tròn */}
-                <div
-                  className="avatar-badge"
-                  title="Tài khoản cá nhân (Bấm để đăng xuất)"
-                  onClick={() => {
-                    if (confirm("Bạn có muốn đăng xuất khỏi hệ thống không?")) handleLogout();
-                  }}
-                >
-                  {profile?.full_name ? profile.full_name.slice(0, 2).toUpperCase() : 'QC'}
-                </div>
+                {/* Avatar Badge tròn -> Mở Tài khoản & Bảo mật */}
+                {(user && profile) && (
+                  <>
+                    <div
+                      className="avatar-badge"
+                      title="Tài khoản & Bảo mật"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        setIsPasswordRecoveryMode(false);
+                        setShowAccountModal(true);
+                      }}
+                    >
+                      {profile?.full_name ? profile.full_name.slice(0, 2).toUpperCase() : 'QC'}
+                    </div>
+                    <div
+                      className="action-btn-circle"
+                      title="Đăng xuất"
+                      onClick={() => {
+                        if (window.confirm("Bạn có muốn đăng xuất khỏi hệ thống không?")) handleLogout();
+                      }}
+                    >
+                      <LogOut size={17} />
+                    </div>
+                  </>
+                )}
               </div>
             </header>
           
@@ -10701,12 +10862,16 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   user={user}
                   handleUpdateUserProfile={handleUpdateUserProfile}
                   handleDeleteUserProfile={handleDeleteUserProfile}
+                  handleToggleUserActive={handleToggleUserActive}
+                  handleAdminSendReset={handleAdminSendReset}
+                  handleAdminCreateAccount={handleAdminCreateAccount}
                   handleUnblockVisitor={handleUnblockVisitor}
                   handleResetVisitor={handleResetVisitor}
                   handleBlockVisitor={handleBlockVisitor}
                   handleDeleteSavedVisitor={handleDeleteSavedVisitor}
                   setRenameModalVisitor={setRenameModalVisitor}
                   setRenameNewName={setRenameNewName}
+                  showToast={showToast}
                 />
               </React.Suspense>
             )}
@@ -13681,7 +13846,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       )}
 
     
-      {/* MODAL ĐĂNG NHẬP DÀNH CHO ADMIN / THỦ KHO */}
+      {/* MODAL ĐĂNG NHẬP & QUÊN MẬT KHẨU */}
       {showLoginModal && !user && !profile && (
         <div
           className="modal-overlay"
@@ -13714,9 +13879,9 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <LogIn size={20} color="var(--primary)" />
+                {loginModalTab === "login" ? <LogIn size={20} color="var(--primary)" /> : <Key size={20} color="var(--primary)" />}
                 <h3 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "var(--text-main)" }}>
-                  {authMode === "login" ? "Đăng Nhập Quản Trị" : "Đăng Ký Tài Khoản"}
+                  {loginModalTab === "login" ? "Đăng Nhập Hệ Thống" : "Quên Mật Khẩu"}
                 </h3>
               </div>
               <button
@@ -13737,18 +13902,18 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
               </button>
             </div>
 
-            {/* Tabs Đăng nhập / Đăng ký */}
+            {/* Tabs Đăng nhập / Quên mật khẩu (không cho tự đăng ký công khai) */}
             <div style={{
               display: "flex",
               background: "var(--bg-subtle)",
               borderRadius: "10px",
               padding: "4px",
-              marginBottom: "20px",
+              marginBottom: "18px",
               gap: "4px"
             }}>
               <button
                 type="button"
-                onClick={() => setAuthMode("login")}
+                onClick={() => { setLoginModalTab("login"); setLoginErrorMsg(""); setForgotEmailSent(false); }}
                 style={{
                   flex: 1,
                   padding: "8px",
@@ -13757,15 +13922,15 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   fontSize: "13px",
                   fontWeight: 600,
                   cursor: "pointer",
-                  background: authMode === "login" ? "var(--primary)" : "transparent",
-                  color: authMode === "login" ? "#ffffff" : "var(--text-muted)"
+                  background: loginModalTab === "login" ? "var(--primary)" : "transparent",
+                  color: loginModalTab === "login" ? "#ffffff" : "var(--text-muted)"
                 }}
               >
                 Đăng nhập
               </button>
               <button
                 type="button"
-                onClick={() => setAuthMode("signup")}
+                onClick={() => { setLoginModalTab("forgot"); setLoginErrorMsg(""); setForgotEmailSent(false); }}
                 style={{
                   flex: 1,
                   padding: "8px",
@@ -13774,40 +13939,91 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   fontSize: "13px",
                   fontWeight: 600,
                   cursor: "pointer",
-                  background: authMode === "signup" ? "var(--primary)" : "transparent",
-                  color: authMode === "signup" ? "#ffffff" : "var(--text-muted)"
+                  background: loginModalTab === "forgot" ? "var(--primary)" : "transparent",
+                  color: loginModalTab === "forgot" ? "#ffffff" : "var(--text-muted)"
                 }}
               >
-                Đăng ký
+                Quên mật khẩu
               </button>
             </div>
 
-            <form onSubmit={async (e) => {
-              await handleAuth(e);
-              setShowLoginModal(false);
-            }} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              {authMode === "signup" && (
-                <>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: "12.5px" }}>Họ và tên</label>
-                    <input className="form-input" type="text" required value={authFullName} onChange={e => setAuthFullName(e.target.value)} placeholder="Nguyễn Văn A" />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: "12.5px" }}>Mã nhân viên</label>
-                    <input className="form-input" type="text" required value={authEmployeeCode} onChange={e => setAuthEmployeeCode(e.target.value)} placeholder="QC-001" />
-                  </div>
-                </>
-              )}
+            {(loginErrorMsg || (loginModalTab === "login" && loginLockSeconds > 0)) && (
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "8px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                background: "rgba(239, 68, 68, 0.12)",
+                border: "1px solid rgba(239, 68, 68, 0.35)",
+                color: "var(--status-error)",
+                fontSize: "12.5px",
+                marginBottom: "14px"
+              }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "1px" }} />
+                <span>
+                  {loginLockSeconds > 0
+                    ? `Tạm khóa đăng nhập do nhập sai nhiều lần. Vui lòng thử lại sau ${loginLockSeconds} giây.`
+                    : loginErrorMsg}
+                </span>
+              </div>
+            )}
 
+            {loginModalTab === "forgot" && forgotEmailSent && (
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "8px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                background: "rgba(16, 185, 129, 0.12)",
+                border: "1px solid rgba(16, 185, 129, 0.35)",
+                color: "var(--status-success)",
+                fontSize: "12.5px",
+                marginBottom: "14px"
+              }}>
+                <Check size={16} style={{ flexShrink: 0, marginTop: "1px" }} />
+                <span>Đã gửi liên kết đặt lại mật khẩu tới email của bạn. Vui lòng kiểm tra hộp thư (kể cả mục Spam).</span>
+              </div>
+            )}
+
+            <form onSubmit={async (e) => {
+              const ok = await handleAuth(e);
+              if (ok) setShowLoginModal(false);
+            }} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label" style={{ fontSize: "12.5px" }}>Email đăng nhập</label>
-                <input className="form-input" type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="email@gmail.com" />
+                <input
+                  className="form-input"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={authEmail}
+                  onChange={e => setAuthEmail(e.target.value)}
+                  placeholder="email@congty.com"
+                />
               </div>
 
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ fontSize: "12.5px" }}>Mật khẩu</label>
-                <input className="form-input" type="password" required value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="••••••••" />
-              </div>
+              {loginModalTab === "login" && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" style={{ fontSize: "12.5px" }}>Mật khẩu</label>
+                  <input
+                    className="form-input"
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    value={authPassword}
+                    onChange={e => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                </div>
+              )}
+
+              {loginModalTab === "forgot" && (
+                <div style={{ fontSize: "12px", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                  Nhập email tài khoản đã được Admin cấp. Hệ thống sẽ gửi liên kết đặt lại mật khẩu về hộp thư của bạn.
+                </div>
+              )}
 
               <button
                 className="btn btn-primary"
@@ -13823,13 +14039,13 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   gap: "8px",
                   borderRadius: "10px"
                 }}
-                disabled={loading}
+                disabled={loading || (loginModalTab === "login" && loginLockSeconds > 0)}
               >
-                {loading ? <Loader className="spin" size={16} /> : (authMode === "login" ? "Đăng Nhập" : "Tạo Tài Khoản")}
+                {loading ? <Loader className="spin" size={16} /> : (loginModalTab === "login" ? "Đăng Nhập" : "Gửi Email Đặt Lại")}
               </button>
             </form>
 
-            {isDemoMode && authMode === "login" && (
+            {isDemoMode && loginModalTab === "login" && (
               <div style={{ marginTop: "16px", padding: "10px 12px", border: "1px dashed var(--border-color)", borderRadius: "10px", background: "var(--bg-subtle)", fontSize: "12.5px" }}>
                 <div style={{ fontWeight: 600, color: "var(--text-muted)", marginBottom: "8px", textAlign: "center" }}>Đăng nhập nhanh Demo:</div>
                 <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
@@ -13838,7 +14054,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                     setAuthPassword("admin123");
                     setAuthRole("admin");
                     const mockUser = { id: "admin", email: "admin@gmail.com" };
-                    const mockProfile = { id: "admin", full_name: "Thủ kho (Admin)", employee_code: "TK-001", role: "admin", department: "QC" };
+                    const mockProfile = { id: "admin", email: "admin@gmail.com", full_name: "Thủ kho (Admin)", employee_code: "TK-001", role: "admin", department: "QC", is_active: true };
                     setUser(mockUser);
                     setProfile(mockProfile);
                     showToast("Đăng nhập Thủ kho (Admin) thành công!", "success");
@@ -13851,7 +14067,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                     setAuthPassword("staff123");
                     setAuthRole("staff");
                     const mockUser = { id: "staff", email: "staff@gmail.com" };
-                    const mockProfile = { id: "staff", full_name: "Nhân viên QC A", employee_code: "NV-9902", role: "staff", department: "Sản xuất" };
+                    const mockProfile = { id: "staff", email: "staff@gmail.com", full_name: "Nhân viên QC A", employee_code: "NV-9902", role: "staff", department: "Sản xuất", is_active: true };
                     setUser(mockUser);
                     setProfile(mockProfile);
                     showToast("Đăng nhập Nhân viên (Staff) thành công!", "success");
@@ -13864,6 +14080,30 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
           </div>
         </div>
       )}
+
+      {/* MODAL TÀI KHOẢN & BẢO MẬT (Đổi mật khẩu, Thông tin & Email, Password Recovery) */}
+      <React.Suspense fallback={null}>
+        <AccountModal
+          isOpen={showAccountModal}
+          onClose={() => {
+            setShowAccountModal(false);
+            setIsPasswordRecoveryMode(false);
+          }}
+          user={user}
+          profile={profile}
+          isRecoveryMode={isPasswordRecoveryMode}
+          onRecoveryComplete={() => {
+            setIsPasswordRecoveryMode(false);
+            setShowAccountModal(false);
+          }}
+          isDemoMode={isDemoMode}
+          showToast={showToast}
+          onEmailUpdated={(updatedEmail) => {
+            if (user) setUser({ ...user, email: updatedEmail });
+            if (profile) setProfile({ ...profile, email: updatedEmail });
+          }}
+        />
+      </React.Suspense>
 </div>
   );
 }

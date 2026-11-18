@@ -1,6 +1,21 @@
-import React from 'react';
-import { GoogleIcon, User, Loader } from '../GoogleIcons';
+import React, { useState, useMemo } from 'react';
+import {
+  GoogleIcon,
+  User,
+  Loader,
+  Search,
+  Plus,
+  Lock,
+  Unlock,
+  Key,
+  X,
+  Eye,
+  EyeOff,
+  Check,
+  AlertTriangle
+} from '../GoogleIcons';
 import { formatCompactDeviceName, getDisplayDeviceName } from '../utils/deviceUtils';
+import { validatePasswordStrength } from '../services/authService';
 
 export default function UserVisitorManagerTab({
   profilesList = [],
@@ -28,6 +43,9 @@ export default function UserVisitorManagerTab({
   user = null,
   handleUpdateUserProfile,
   handleDeleteUserProfile,
+  handleToggleUserActive,
+  handleAdminSendReset,
+  handleAdminCreateAccount,
   handleUnblockVisitor,
   handleResetVisitor,
   handleBlockVisitor,
@@ -35,6 +53,94 @@ export default function UserVisitorManagerTab({
   setRenameModalVisitor,
   setRenameNewName
 }) {
+  const [accountSearch, setAccountSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all'); // 'all' | 'admin' | 'staff'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'active' | 'locked'
+
+  // Create Account Modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createEmail, setCreateEmail] = useState('');
+  const [createPassword, setCreatePassword] = useState('');
+  const [showCreatePwd, setShowCreatePwd] = useState(true);
+  const [createFullName, setCreateFullName] = useState('');
+  const [createEmpCode, setCreateEmpCode] = useState('');
+  const [createDept, setCreateDept] = useState('QC');
+  const [createRole, setCreateRole] = useState('staff');
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createError, setCreateError] = useState('');
+
+  const filteredProfiles = useMemo(() => {
+    const q = accountSearch.trim().toLowerCase();
+    return profilesList.filter((p) => {
+      const isActive = p.is_active !== false;
+      if (roleFilter !== 'all' && p.role !== roleFilter) return false;
+      if (statusFilter === 'active' && !isActive) return false;
+      if (statusFilter === 'locked' && isActive) return false;
+      if (!q) return true;
+      return (
+        (p.full_name || '').toLowerCase().includes(q) ||
+        (p.email || '').toLowerCase().includes(q) ||
+        (p.employee_code || '').toLowerCase().includes(q) ||
+        (p.department || '').toLowerCase().includes(q)
+      );
+    });
+  }, [profilesList, accountSearch, roleFilter, statusFilter]);
+
+  const activeCount = profilesList.filter(p => p.is_active !== false).length;
+  const lockedCount = profilesList.length - activeCount;
+
+  const generateTempPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
+    const digits = '23456789';
+    let pwd = '';
+    for (let i = 0; i < 6; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+    for (let i = 0; i < 4; i++) pwd += digits[Math.floor(Math.random() * digits.length)];
+    setCreatePassword(pwd);
+  };
+
+  const openCreateModal = () => {
+    setCreateEmail('');
+    setCreatePassword('');
+    setShowCreatePwd(true);
+    setCreateFullName('');
+    setCreateEmpCode('');
+    setCreateDept('QC');
+    setCreateRole('staff');
+    setCreateError('');
+    setShowCreateModal(true);
+  };
+
+  const onSubmitCreateAccount = async (e) => {
+    e.preventDefault();
+    setCreateError('');
+    const strength = validatePasswordStrength(createPassword);
+    if (!strength.valid) {
+      setCreateError(strength.message);
+      return;
+    }
+    if (!handleAdminCreateAccount) {
+      setCreateError('Chức năng cấp tài khoản chưa được kết nối.');
+      return;
+    }
+    try {
+      setCreateSubmitting(true);
+      await handleAdminCreateAccount({
+        email: createEmail.trim(),
+        password: createPassword,
+        fullName: createFullName.trim(),
+        employeeCode: createEmpCode.trim(),
+        department: createDept.trim(),
+        role: createRole
+      });
+      setShowCreateModal(false);
+    } catch (err) {
+      setCreateError(err.message || 'Không thể cấp tài khoản mới.');
+    } finally {
+      setCreateSubmitting(false);
+    }
+  };
+
+  const createStrength = validatePasswordStrength(createPassword);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Bento KPI Mini Row */}
@@ -47,7 +153,7 @@ export default function UserVisitorManagerTab({
             <div className="metric-value">{profilesList.length} <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-sub)' }}>nhân sự</span></div>
             <div className="metric-label-row">
               <span className="metric-label">Tài khoản hệ thống nội bộ</span>
-              <span className="metric-trend trend-up">Đã kích hoạt</span>
+              <span className="metric-trend trend-up">{activeCount} hoạt động{lockedCount > 0 ? ` • ${lockedCount} khóa` : ''}</span>
             </div>
           </div>
         </div>
@@ -116,68 +222,132 @@ export default function UserVisitorManagerTab({
 
         {userMgmtSubTab === 'accounts' ? (
           <div>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              Danh sách các tài khoản đã đăng ký trong hệ thống (bảng <code>profiles</code>). Bạn có thể chỉnh sửa tên, mã nhân viên, phòng ban và phân quyền <strong>Thủ kho (Admin)</strong> hoặc <strong>Nhân viên (Staff)</strong>.
-            </p>
-            {profilesList.length === 0 ? (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+              marginBottom: '16px'
+            }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', flex: '1 1 320px' }}>
+                <div style={{ position: 'relative', flex: '1 1 210px', maxWidth: '300px' }}>
+                  <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={accountSearch}
+                    onChange={(e) => setAccountSearch(e.target.value)}
+                    placeholder="Tìm tên, email, mã NV, phòng..."
+                    style={{ paddingLeft: '32px', paddingTop: '7px', paddingBottom: '7px', fontSize: '13px' }}
+                  />
+                </div>
+                <select
+                  className="form-select"
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  style={{ width: 'auto', minWidth: '140px', padding: '7px 10px', fontSize: '13px' }}
+                >
+                  <option value="all">Tất cả vai trò</option>
+                  <option value="admin">Thủ kho (Admin)</option>
+                  <option value="staff">Nhân viên (Staff)</option>
+                </select>
+                <select
+                  className="form-select"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  style={{ width: 'auto', minWidth: '140px', padding: '7px 10px', fontSize: '13px' }}
+                >
+                  <option value="all">Tất cả trạng thái</option>
+                  <option value="active">Hoạt động</option>
+                  <option value="locked">Đã khóa</option>
+                </select>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={openCreateModal}
+                style={{ padding: '8px 14px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Plus size={15} />
+                <span>Cấp tài khoản mới</span>
+              </button>
+            </div>
+
+            {filteredProfiles.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                Chưa có tài khoản nào được lưu trong bảng profiles.
+                {profilesList.length === 0
+                  ? 'Chưa có tài khoản nào được lưu trong bảng profiles.'
+                  : 'Không tìm thấy tài khoản nào khớp với bộ lọc hiện tại.'}
               </div>
             ) : (
               <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', tableLayout: 'fixed' }}>
+                <table style={{ width: '100%', minWidth: '920px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
                   <thead>
                     <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '130px', whiteSpace: 'nowrap' }}>Họ và tên</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '80px', whiteSpace: 'nowrap' }}>Mã NV</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '95px', whiteSpace: 'nowrap' }}>Phòng ban</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '135px', whiteSpace: 'nowrap' }}>Vai trò (Quyền)</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '130px', whiteSpace: 'nowrap' }}>Hoạt động</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '80px', whiteSpace: 'nowrap' }}>Ngày tạo</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, width: '175px', whiteSpace: 'nowrap' }}>Thao tác</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Họ và tên / Email</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Mã NV</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Phòng ban</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Vai trò</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Trạng thái</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Hoạt động</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'center', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Ngày tạo</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'right', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Thao tác</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {profilesList.map((p, idx) => {
+                    {filteredProfiles.map((p, idx) => {
                       const isEditing = editingProfileId === p.id;
                       const isHistoryOpen = expandedUserHistoryId === p.id;
+                      const isSelf = p.id === user?.id;
+                      const isActive = p.is_active !== false;
                       const userTxs = transactions.filter(t => t.user_id === p.id);
                       const userSearchItems = allVisitorLogs.filter(l => l.user_name === p.full_name && l.keyword !== '[Khai báo tên]');
                       const totalActions = userTxs.length + userSearchItems.length;
 
                       return (
                         <React.Fragment key={p.id}>
-                          <tr style={{ borderBottom: isHistoryOpen ? 'none' : '1px solid rgba(255,255,255,0.03)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                            <td style={{ padding: '8px 10px', fontWeight: 600, width: '130px', maxWidth: '130px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                          <tr style={{
+                            borderBottom: isHistoryOpen ? 'none' : '1px solid rgba(255,255,255,0.03)',
+                            background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                            opacity: isActive ? 1 : 0.72
+                          }}>
+                            <td style={{ padding: '8px 10px', fontWeight: 600, maxWidth: '210px' }}>
                               {isEditing ? (
                                 <input className="form-input" style={{ padding: '4px 7px', fontSize: '12px', width: '100%' }} value={editProfileName} onChange={e => setEditProfileName(e.target.value)} />
                               ) : (
-                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', maxWidth: '100%' }}>
-                                  <User size={13} color="var(--accent-blue)" style={{ flexShrink: 0 }} />
-                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.full_name}>
-                                    {p.full_name}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', maxWidth: '100%' }}>
+                                    <User size={13} color="var(--accent-blue)" style={{ flexShrink: 0 }} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.full_name}>
+                                      {p.full_name}
+                                    </span>
+                                    {isSelf && <span style={{ fontSize: '9.5px', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>Bạn</span>}
+                                  </div>
+                                  <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.email || ''}>
+                                    {p.email || 'Chưa có email'}
                                   </span>
-                                  {p.id === user?.id && <span style={{ fontSize: '9.5px', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '1px 4px', borderRadius: '4px', flexShrink: 0 }}>Bạn</span>}
                                 </div>
                               )}
                             </td>
-                            <td style={{ padding: '8px 10px', width: '80px', maxWidth: '80px', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                               {isEditing ? (
-                                <input className="form-input" style={{ padding: '4px 7px', fontSize: '12px', width: '100%' }} value={editProfileCode} onChange={e => setEditProfileCode(e.target.value)} placeholder="Mã NV" />
+                                <input className="form-input" style={{ padding: '4px 7px', fontSize: '12px', width: '90px' }} value={editProfileCode} onChange={e => setEditProfileCode(e.target.value)} placeholder="Mã NV" />
                               ) : (
-                                <code style={{ background: 'rgba(255,255,255,0.05)', padding: '2px 5px', borderRadius: '4px', fontSize: '11px', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.employee_code || '—'}</code>
+                                <code style={{ background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px' }}>{p.employee_code || '—'}</code>
                               )}
                             </td>
-                            <td style={{ padding: '8px 10px', width: '95px', maxWidth: '95px', overflow: 'hidden', whiteSpace: 'nowrap' }} title={p.department || ''}>
+                            <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }} title={p.department || ''}>
                               {isEditing ? (
-                                <input className="form-input" style={{ padding: '4px 7px', fontSize: '12px', width: '100%' }} value={editProfileDept} onChange={e => setEditProfileDept(e.target.value)} placeholder="Phòng ban" />
+                                <input className="form-input" style={{ padding: '4px 7px', fontSize: '12px', width: '100px' }} value={editProfileDept} onChange={e => setEditProfileDept(e.target.value)} placeholder="Phòng ban" />
                               ) : (
-                                <span style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.department || '—'}</span>
+                                <span>{p.department || '—'}</span>
                               )}
                             </td>
-                            <td style={{ padding: '8px 10px', width: '135px', maxWidth: '135px', whiteSpace: 'nowrap' }}>
+                            <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                               {isEditing ? (
-                                <select className="form-select" style={{ padding: '4px 7px', fontSize: '12px', width: '100%' }} value={editProfileRole} onChange={e => setEditProfileRole(e.target.value)}>
+                                <select className="form-select" style={{ padding: '4px 7px', fontSize: '12px', width: '130px' }} value={editProfileRole} onChange={e => setEditProfileRole(e.target.value)} disabled={isSelf}>
                                   <option value="staff">Nhân viên (Staff)</option>
                                   <option value="admin">Thủ kho (Admin)</option>
                                 </select>
@@ -185,21 +355,31 @@ export default function UserVisitorManagerTab({
                                 <span style={{
                                   fontSize: '11px',
                                   fontWeight: 600,
-                                  padding: '2px 7px',
+                                  padding: '2px 8px',
                                   borderRadius: '6px',
                                   background: p.role === 'admin' ? 'rgba(15, 135, 255, 0.15)' : 'rgba(255, 255, 255, 0.06)',
                                   color: p.role === 'admin' ? 'var(--accent-blue)' : 'var(--text-secondary)',
                                   border: p.role === 'admin' ? '1px solid rgba(15, 135, 255, 0.3)' : '1px solid var(--glass-border)',
-                                  display: 'inline-block',
-                                  maxWidth: '100%',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis'
+                                  display: 'inline-block'
                                 }}>
-                                  {p.role === 'admin' ? '👑 Thủ kho' : '👤 Nhân viên'}
+                                  {p.role === 'admin' ? 'Thủ kho' : 'Nhân viên'}
                                 </span>
                               )}
                             </td>
-                            <td style={{ padding: '8px 10px', width: '130px', whiteSpace: 'nowrap' }}>
+                            <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                              <span style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                background: isActive ? 'rgba(16, 185, 129, 0.14)' : 'rgba(239, 68, 68, 0.14)',
+                                color: isActive ? 'var(--status-success)' : 'var(--status-error)',
+                                border: isActive ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)'
+                              }}>
+                                {isActive ? 'Hoạt động' : 'Đã khóa'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                               <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'nowrap', fontSize: '11px' }}>
                                 <span style={{ background: 'rgba(5, 150, 105, 0.12)', color: 'var(--status-success)', padding: '2px 6px', borderRadius: '5px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                   {userTxs.length} GD
@@ -209,7 +389,7 @@ export default function UserVisitorManagerTab({
                                 </span>
                               </div>
                             </td>
-                            <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontSize: '11.5px', textAlign: 'center', width: '80px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={p.created_at ? new Date(p.created_at).toLocaleString() : ''}>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-muted)', fontSize: '11.5px', textAlign: 'center', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={p.created_at ? new Date(p.created_at).toLocaleString() : ''}>
                               {(() => {
                                 if (!p.created_at) return '—';
                                 const d = new Date(p.created_at);
@@ -219,13 +399,13 @@ export default function UserVisitorManagerTab({
                                 return `${DD}/${MM}/${YY}`;
                               })()}
                             </td>
-                            <td style={{ padding: '8px 10px', textAlign: 'right', width: '175px', whiteSpace: 'nowrap' }}>
+                            <td style={{ padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                               {isEditing ? (
                                 <div style={{ display: 'inline-flex', gap: '4px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
-                                  <button className="btn btn-primary" style={{ padding: '3px 8px', fontSize: '11px', borderRadius: '5px' }} onClick={() => handleUpdateUserProfile(p.id)}>
+                                  <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '5px' }} onClick={() => handleUpdateUserProfile(p.id)}>
                                     Lưu
                                   </button>
-                                  <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: '11px', borderRadius: '5px' }} onClick={() => setEditingProfileId(null)}>
+                                  <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '5px' }} onClick={() => setEditingProfileId(null)}>
                                     Hủy
                                   </button>
                                 </div>
@@ -245,7 +425,7 @@ export default function UserVisitorManagerTab({
                                     onClick={() => setExpandedUserHistoryId(isHistoryOpen ? null : p.id)}
                                     title={`Xem lịch sử (${totalActions})`}
                                   >
-                                    📜 Lịch sử
+                                    Lịch sử
                                   </button>
                                   <button
                                     className="btn btn-secondary"
@@ -258,15 +438,47 @@ export default function UserVisitorManagerTab({
                                       setEditProfileRole(p.role || 'staff');
                                     }}
                                   >
-                                    ✏️ Sửa
+                                    Sửa
                                   </button>
-                                  {p.id !== user?.id && (
+                                  {p.email && handleAdminSendReset && (
+                                    <button
+                                      className="btn btn-secondary"
+                                      style={{ padding: '3px 7px', fontSize: '11px', borderRadius: '5px', color: 'var(--status-warning)', borderColor: 'rgba(245, 158, 11, 0.35)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                                      onClick={() => handleAdminSendReset(p)}
+                                      title="Gửi email đặt lại mật khẩu"
+                                    >
+                                      <Key size={11} />
+                                      <span>Đặt lại MK</span>
+                                    </button>
+                                  )}
+                                  {!isSelf && handleToggleUserActive && (
+                                    <button
+                                      className="btn btn-secondary"
+                                      style={{
+                                        padding: '3px 7px',
+                                        fontSize: '11px',
+                                        borderRadius: '5px',
+                                        color: isActive ? 'var(--status-warning)' : 'var(--status-success)',
+                                        borderColor: isActive ? 'rgba(245, 158, 11, 0.35)' : 'rgba(16, 185, 129, 0.35)',
+                                        whiteSpace: 'nowrap',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}
+                                      onClick={() => handleToggleUserActive(p)}
+                                      title={isActive ? 'Khóa tài khoản' : 'Mở khóa tài khoản'}
+                                    >
+                                      {isActive ? <Lock size={11} /> : <Unlock size={11} />}
+                                      <span>{isActive ? 'Khóa' : 'Mở khóa'}</span>
+                                    </button>
+                                  )}
+                                  {!isSelf && (
                                     <button
                                       className="btn btn-secondary"
                                       style={{ padding: '3px 7px', fontSize: '11px', borderRadius: '5px', color: 'var(--status-error)', borderColor: 'rgba(239,68,68,0.3)', whiteSpace: 'nowrap' }}
                                       onClick={() => handleDeleteUserProfile(p)}
                                     >
-                                      🗑️ Xóa
+                                      Xóa
                                     </button>
                                   )}
                                 </div>
@@ -274,13 +486,13 @@ export default function UserVisitorManagerTab({
                             </td>
                           </tr>
                           {isHistoryOpen && (
-                            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(15,23,42,0.5)' }}>
-                              <td colSpan={7} style={{ padding: '14px 20px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-subtle)' }}>
+                              <td colSpan={8} style={{ padding: '14px 20px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
                                   <strong style={{ fontSize: '13px', color: 'var(--accent-blue)' }}>
                                     📜 Nhật ký thao tác của tài khoản: {p.full_name} ({p.employee_code || 'Không mã NV'})
                                   </strong>
-                                  <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => setExpandedUserHistoryId(null)}>
+                                  <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: '11.5px' }} onClick={() => setExpandedUserHistoryId(null)}>
                                     Đóng ×
                                   </button>
                                 </div>
@@ -315,21 +527,21 @@ export default function UserVisitorManagerTab({
                                   }
 
                                   return (
-                                    <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
-                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                    <div style={{ maxHeight: '280px', overflowY: 'auto', overflowX: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', color: 'var(--text-main)' }}>
                                         <thead>
-                                          <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
-                                            <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Thời gian</th>
-                                            <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Loại thao tác</th>
-                                            <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Sản phẩm / Từ khóa</th>
-                                            <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Số lượng / KQ</th>
-                                            <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Chi tiết / Ghi chú</th>
+                                          <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, zIndex: 1 }}>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Thời gian</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Loại thao tác</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Sản phẩm / Từ khóa</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Số lượng / KQ</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Chi tiết / Ghi chú</th>
                                           </tr>
                                         </thead>
                                         <tbody>
                                           {combined.slice(0, 100).map(item => (
-                                            <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                                              <td style={{ padding: '6px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                            <tr key={item.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                              <td style={{ padding: '7px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                                                 {(() => {
                                                   if (!item.time) return '—';
                                                   const d = new Date(item.time);
@@ -578,13 +790,13 @@ export default function UserVisitorManagerTab({
                               </td>
                             </tr>
                             {isVHistoryOpen && (
-                              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(15,23,42,0.5)' }}>
+                              <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-subtle)' }}>
                                 <td colSpan={6} style={{ padding: '14px 20px' }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                    <strong style={{ fontSize: '13px', color: '#10b981' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
+                                    <strong style={{ fontSize: '13px', color: 'var(--status-success)' }}>
                                       📜 Lịch sử tra cứu & đăng ký lấy mẫu của khách: {v.user_name} ({getDisplayDeviceName(v.device_id)})
                                     </strong>
-                                    <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={() => setExpandedVisitorHistoryId(null)}>
+                                    <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: '11.5px' }} onClick={() => setExpandedVisitorHistoryId(null)}>
                                       Đóng ×
                                     </button>
                                   </div>
@@ -619,21 +831,21 @@ export default function UserVisitorManagerTab({
                                     }
 
                                     return (
-                                      <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--glass-border)', borderRadius: '8px' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                      <div style={{ maxHeight: '280px', overflowY: 'auto', overflowX: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', color: 'var(--text-main)' }}>
                                           <thead>
-                                            <tr style={{ background: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
-                                              <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Thời gian</th>
-                                              <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Loại thao tác</th>
-                                              <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Sản phẩm / Từ khóa</th>
-                                              <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Số lượng / KQ</th>
-                                              <th style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Chi tiết</th>
+                                            <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, zIndex: 1 }}>
+                                              <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Thời gian</th>
+                                              <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Loại thao tác</th>
+                                              <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Sản phẩm / Từ khóa</th>
+                                              <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Số lượng / KQ</th>
+                                              <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Chi tiết</th>
                                             </tr>
                                           </thead>
                                           <tbody>
                                             {combinedV.slice(0, 100).map(item => (
-                                              <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                                                <td style={{ padding: '6px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                              <tr key={item.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                                <td style={{ padding: '7px 12px', color: 'var(--text-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                                                   {item.time ? new Date(item.time).toLocaleString() : '—'}
                                                 </td>
                                                 <td style={{ padding: '6px 12px' }}>
@@ -667,6 +879,203 @@ export default function UserVisitorManagerTab({
           </div>
         )}
       </div>
+
+      {/* Modal Cấp tài khoản mới */}
+      {showCreateModal && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 99999,
+            padding: '16px'
+          }}
+          onClick={() => !createSubmitting && setShowCreateModal(false)}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: '100%',
+              maxWidth: '480px',
+              maxHeight: '92vh',
+              overflowY: 'auto',
+              padding: '24px',
+              borderRadius: '16px',
+              border: '1px solid var(--border-color)',
+              boxShadow: 'var(--card-shadow)',
+              background: 'var(--bg-card)',
+              color: 'var(--text-main)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Plus size={18} color="var(--primary)" />
+                <span>Cấp tài khoản mới</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => !createSubmitting && setShowCreateModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {createError && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+                padding: '10px 12px',
+                borderRadius: '10px',
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                color: 'var(--status-error)',
+                fontSize: '13px',
+                marginBottom: '14px'
+              }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+                <span>{createError}</span>
+              </div>
+            )}
+
+            <form onSubmit={onSubmitCreateAccount} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '12.5px' }}>Email đăng nhập *</label>
+                <input
+                  className="form-input"
+                  type="email"
+                  required
+                  value={createEmail}
+                  onChange={(e) => setCreateEmail(e.target.value)}
+                  placeholder="nhanvien@congty.com"
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label className="form-label" style={{ fontSize: '12.5px', marginBottom: 0 }}>Mật khẩu tạm *</label>
+                  <button
+                    type="button"
+                    onClick={generateTempPassword}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--primary)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  >
+                    Tạo ngẫu nhiên
+                  </button>
+                </div>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    className="form-input"
+                    type={showCreatePwd ? 'text' : 'password'}
+                    required
+                    value={createPassword}
+                    onChange={(e) => setCreatePassword(e.target.value)}
+                    placeholder="Tối thiểu 8 ký tự, gồm chữ và số"
+                    style={{ paddingRight: '38px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCreatePwd((v) => !v)}
+                    style={{ position: 'absolute', right: '10px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', display: 'flex' }}
+                    aria-label={showCreatePwd ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  >
+                    {showCreatePwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 12px', marginTop: '6px', fontSize: '11.5px' }}>
+                  <span style={{ color: createStrength.checks.minLength ? 'var(--status-success)' : 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Check size={12} /> Ít nhất 8 ký tự
+                  </span>
+                  <span style={{ color: createStrength.checks.hasLetter ? 'var(--status-success)' : 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Check size={12} /> Có chữ cái
+                  </span>
+                  <span style={{ color: createStrength.checks.hasNumber ? 'var(--status-success)' : 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Check size={12} /> Có chữ số
+                  </span>
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '12.5px' }}>Họ và tên *</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  required
+                  value={createFullName}
+                  onChange={(e) => setCreateFullName(e.target.value)}
+                  placeholder="Nguyễn Văn A"
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" style={{ fontSize: '12.5px' }}>Mã nhân viên</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={createEmpCode}
+                    onChange={(e) => setCreateEmpCode(e.target.value)}
+                    placeholder="NV-001"
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" style={{ fontSize: '12.5px' }}>Phòng ban</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    value={createDept}
+                    onChange={(e) => setCreateDept(e.target.value)}
+                    placeholder="QC"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '12.5px' }}>Vai trò phân quyền</label>
+                <select
+                  className="form-select"
+                  value={createRole}
+                  onChange={(e) => setCreateRole(e.target.value)}
+                >
+                  <option value="staff">Nhân viên (Staff)</option>
+                  <option value="admin">Thủ kho (Admin)</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)} disabled={createSubmitting}>
+                  Hủy
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={createSubmitting}>
+                  {createSubmitting ? (
+                    <>
+                      <Loader size={15} className="spin" />
+                      <span>Đang tạo...</span>
+                    </>
+                  ) : (
+                    <span>Cấp tài khoản</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
