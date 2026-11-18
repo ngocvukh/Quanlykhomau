@@ -116,10 +116,37 @@ export const fetchAllWarehouseData = async ({ isAdminOrUser = false } = {}) => {
         'global-print-queue',
         'global-pending-print-samples',
         'global-last-assigned-ids',
-        'global-checked-loose-samples'
+        'global-checked-loose-samples',
+        'global-loose-pack-audits'
       ]);
     if (!gsErr && gs) globalStates = gs;
   } catch { /* ignore */ }
+
+  // Tải lịch sử kiểm kê Ô 5 từ bảng chuyên dụng loose_pack_audits (nếu đã tạo) và gộp với bản đồng bộ dự phòng
+  let tableLooseAudits = [];
+  try {
+    const { data: lpaData, error: lpaErr } = await supabase
+      .from('loose_pack_audits')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(300);
+    if (!lpaErr && Array.isArray(lpaData)) {
+      tableLooseAudits = lpaData;
+    }
+  } catch { /* ignore if table does not exist yet */ }
+
+  const draftAuditRow = (globalStates || []).find(r => r.id === 'global-loose-pack-audits');
+  const draftLooseAudits = Array.isArray(draftAuditRow?.rows_data) ? draftAuditRow.rows_data : [];
+
+  const auditMergedMap = new Map();
+  [...tableLooseAudits, ...draftLooseAudits].forEach(item => {
+    if (item && item.id && !auditMergedMap.has(item.id)) {
+      auditMergedMap.set(item.id, item);
+    }
+  });
+  const loosePackAudits = Array.from(auditMergedMap.values())
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    .slice(0, 300);
 
   // Tải cấu hình slot_configs
   let slotConfigs = [];
@@ -136,8 +163,71 @@ export const fetchAllWarehouseData = async ({ isAdminOrUser = false } = {}) => {
     destructionLogs: dl,
     profiles: profs || [],
     globalStates,
-    slotConfigs
+    slotConfigs,
+    loosePackAudits
   };
+};
+
+const generateAuditUuid = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+/**
+ * Ghi nhận lịch sử kiểm tra / cập nhật số lượng riêng cho Ô 5 (Hàng lẻ)
+ * Cơ chế Dual-Storage: lưu vào bảng loose_pack_audits (nếu có) và đồng bộ global-loose-pack-audits
+ */
+export const saveLoosePackAuditLog = async (auditEntry, currentAuditList = []) => {
+  const entry = {
+    id: auditEntry.id || generateAuditUuid(),
+    sample_id: auditEntry.sample_id || null,
+    sku: auditEntry.sku || null,
+    product_name: auditEntry.product_name || 'Mẫu không xác định',
+    blend_batch: auditEntry.blend_batch || null,
+    packaging_date: auditEntry.packaging_date || null,
+    shelf: Number(auditEntry.shelf) || 6,
+    slot: Number(auditEntry.slot) || 5,
+    action_type: auditEntry.action_type,
+    old_qty: auditEntry.old_qty ?? null,
+    new_qty: auditEntry.new_qty ?? null,
+    actor_name: auditEntry.actor_name || 'Quản trị viên',
+    note: auditEntry.note || null,
+    created_at: auditEntry.created_at || new Date().toISOString()
+  };
+
+  try {
+    await supabase.from('loose_pack_audits').insert(entry);
+  } catch { /* ignore if table does not exist yet */ }
+
+  const deduped = [];
+  const seenIds = new Set();
+  [entry, ...(Array.isArray(currentAuditList) ? currentAuditList : [])].forEach(item => {
+    if (item && item.id && !seenIds.has(item.id)) {
+      seenIds.add(item.id);
+      deduped.push(item);
+    }
+  });
+  const nextAudits = deduped
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    .slice(0, 300);
+
+  try {
+    await supabase.from('bulk_import_drafts').upsert({
+      id: 'global-loose-pack-audits',
+      rows_data: nextAudits,
+      updated_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.warn('Sync loose pack audits draft error:', err);
+  }
+
+  return nextAudits;
 };
 
 /**

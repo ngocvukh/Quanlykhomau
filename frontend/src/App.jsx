@@ -15,6 +15,8 @@ const MonthlyAnalytics = React.lazy(() => import('./components/MonthlyAnalytics'
 import BentoDashboard from './components/BentoDashboard';
 const SearchLogsTab = React.lazy(() => import('./components/SearchLogsTab'));
 const UserVisitorManagerTab = React.lazy(() => import('./components/UserVisitorManagerTab'));
+const WarehouseAuditLogsTab = React.lazy(() => import('./components/WarehouseAuditLogsTab'));
+import { attachAuditReason } from './services/auditLogService';
 import {
   getIphoneModel,
   getIpadModel,
@@ -53,6 +55,7 @@ import {
 import {
   fetchAllWarehouseData,
   saveLooseShelfCheckedState,
+  saveLoosePackAuditLog,
   syncGlobalDraftState
 } from './services/warehouseService';
 
@@ -2173,6 +2176,7 @@ export default function App() {
       } else {
         const { error } = await supabase.from('samples').delete().eq('id', id);
         if (error) throw error;
+        await attachAuditReason('samples', id, 'Admin xóa mẫu chờ bố trí');
         setSamples(prev => prev.filter(s => s.id !== id));
       }
       showToast("✅ Đã xóa mẫu chờ thành công!", 'success');
@@ -2202,6 +2206,9 @@ export default function App() {
       return {};
     }
   });
+  const [loosePackAudits, setLoosePackAudits] = useState([]);
+  const [showLooseAuditPanel, setShowLooseAuditPanel] = useState(false);
+  const [looseAuditFilter, setLooseAuditFilter] = useState('all'); // 'all' | 'qty_change' | 'check'
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   const lastSearchLogRef = useRef({ keyword: "", timestamp: 0 });
@@ -2933,7 +2940,8 @@ export default function App() {
         destructionLogs: dl,
         profiles: profs,
         globalStates,
-        slotConfigs: sc
+        slotConfigs: sc,
+        loosePackAudits: lpa
       } = await fetchAllWarehouseData({ isAdminOrUser: profile?.role === 'admin' || !!user });
 
       setProducts(p);
@@ -2942,6 +2950,7 @@ export default function App() {
       setTransactions(t);
       setDestructionLogs(dl);
       setProfilesList(profs);
+      setLoosePackAudits(lpa || []);
       if (sc && sc.length > 0) setSlotConfigs(sc);
 
       // Phân phối globalStates sang scanPreview, printQueue, pendingPrintSamples, lastAssignedIds, checkedSamples
@@ -3554,6 +3563,7 @@ export default function App() {
           .eq('id', editingSample.id);
 
         if (error) throw error;
+        await attachAuditReason('samples', editingSample.id, editNote ? `Sửa thông tin mẫu: ${editNote}` : 'Admin cập nhật thông tin mẫu');
         showToast("Cập nhật thông tin mẫu thành công!", "success");
         setEditingSample(null);
         fetchDatabaseData();
@@ -3856,6 +3866,7 @@ export default function App() {
           }).eq('id', editingProduct.id);
           
           if (error) throw error;
+          await attachAuditReason('products', editingProduct.id, `Cập nhật sản phẩm ${catName}`);
           showToast("Cập nhật sản phẩm thành công!", "success");
           setCatName('');
           setCatWarning('');
@@ -3885,13 +3896,16 @@ export default function App() {
       } else {
         try {
           setLoading(true);
-          const { error } = await supabase.from('products').insert({
+          const { data: createdProd, error } = await supabase.from('products').insert({
             product_name: newProd.product_name,
             warning_code: newProd.warning_code,
             is_export: newProd.is_export,
             format: newProd.format
-          });
+          }).select('id').single();
           if (error) throw error;
+          if (createdProd?.id) {
+            await attachAuditReason('products', createdProd.id, `Thêm sản phẩm mới ${newProd.product_name}`);
+          }
           showToast("Thêm sản phẩm thành công!", "success");
           setCatName('');
           setCatWarning('');
@@ -4384,6 +4398,7 @@ export default function App() {
           .in('id', ids);
 
         if (sError) throw sError;
+        await attachAuditReason('boxes', savedBox.id, `Đóng thùng ${boxName} (${ids.length} mẫu)`);
 
         setBoxes(prev => prev.some(b => b.id === savedBox.id) ? prev : [savedBox, ...prev]);
         setSamples(prev => prev.map(s => {
@@ -5181,6 +5196,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
             if (sError) throw sError;
           }
 
+          await attachAuditReason('boxes', savedBox.id, `Đóng thùng ${boxName} (${samplesToBox.length} mẫu)`);
           setManifestModal({ ...savedBox, samples: samplesToBox });
         }
 
@@ -5279,9 +5295,15 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       return;
     }
 
+    const oldQty = Number(sample.available_qty) || 0;
+    const oldShelf = Number(sample.shelf) || Number(selectedSlot?.shelf) || 6;
+    const prodName = sample.products?.product_name || sample.product_name || 'Mẫu';
+    const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+    const sL = shelfLetters[oldShelf] || oldShelf;
+
     if (newQty === 0) {
       const confirmed = window.confirm(
-        `Xác nhận số lượng còn lại là 0 bao?\nLô mẫu "${sample.products?.product_name || sample.product_name}" sẽ được đánh dấu đã hết và gỡ khỏi kệ lẻ.`
+        `Xác nhận số lượng còn lại là 0 bao?\nLô mẫu "${prodName}" sẽ được đánh dấu đã hết và gỡ khỏi kệ lẻ.`
       );
       if (!confirmed) return;
     }
@@ -5292,29 +5314,60 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       const updates = {
         available_qty: newQty,
         status: isZero ? 'destroyed' : 'stored',
-        shelf: isZero ? null : sample.shelf,
-        slot: isZero ? null : sample.slot,
-        column_number: isZero ? null : sample.column_number,
+        shelf: isZero ? null : oldShelf,
+        slot: isZero ? null : 5,
+        column_number: isZero ? null : (sample.column_number || 1),
         updated_at: new Date().toISOString()
+      };
+
+      const auditPayload = {
+        sample_id: sample.id,
+        sku: sample.sku || null,
+        product_name: prodName,
+        blend_batch: sample.blend_batch || null,
+        packaging_date: sample.packaging_date || null,
+        shelf: oldShelf,
+        slot: 5,
+        action_type: isZero ? 'deplete' : 'adjust_qty',
+        old_qty: oldQty,
+        new_qty: newQty,
+        actor_name: profile?.full_name || 'Quản trị viên',
+        note: isZero
+          ? `Báo hết mẫu (0 bao) — Gỡ khỏi kệ lẻ ${sL}5`
+          : (newQty === oldQty ? 'Xác nhận giữ nguyên số bao' : `Chỉnh số bao từ ${oldQty} → ${newQty} bao`)
       };
 
       if (isDemoMode) {
         setSamples(prev => prev.map(s => s.id === sample.id ? { ...s, ...updates } : s));
+        setLoosePackAudits(prev => [{
+          id: `lpa-${Date.now()}`,
+          ...auditPayload,
+          created_at: new Date().toISOString()
+        }, ...prev].slice(0, 300));
       } else {
         const { error } = await supabase.from('samples').update(updates).eq('id', sample.id);
         if (error) throw error;
+        await attachAuditReason('samples', sample.id, auditPayload.note);
 
-        const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
-        const sL = shelfLetters[sample.shelf] || sample.shelf;
-        await supabase.from('transactions').insert({
-          sample_id: sample.id,
-          user_id: user?.id || null,
-          type: 'inventory_adjust',
-          quantity: Math.abs(newQty - sample.available_qty),
-          status: 'approved',
-          note: `Kiểm kê Ô lẻ Kệ ${sL}5: Cập nhật còn lại ${newQty} bao (Trước đó: ${sample.available_qty} bao)${isZero ? ' — Đã hết mẫu, gỡ khỏi kệ lẻ' : ''}`
-        });
-        await fetchDatabaseData();
+        // Ghi vào bảng transactions (nếu DB chưa nới lỏng CHECK constraint cho inventory_adjust thì fallback không làm rớt lịch sử Ô 5)
+        try {
+          const { error: txErr } = await supabase.from('transactions').insert({
+            sample_id: sample.id,
+            user_id: user?.id || null,
+            type: 'inventory_adjust',
+            quantity: Math.abs(newQty - oldQty),
+            status: 'approved',
+            note: `Kiểm kê Ô lẻ Kệ ${sL}5: Cập nhật còn lại ${newQty} bao (Trước đó: ${oldQty} bao)${isZero ? ' — Đã hết mẫu, gỡ khỏi kệ lẻ' : ''}`
+          });
+          if (txErr) {
+            console.warn('transactions inventory_adjust fallback -> stored in loose_pack_audits:', txErr.message);
+          }
+        } catch (txEx) {
+          console.warn('transactions insert warning:', txEx);
+        }
+
+        const nextAudits = await saveLoosePackAuditLog(auditPayload, loosePackAudits);
+        setLoosePackAudits(nextAudits);
       }
 
       setLoosePackEditQty(prev => {
@@ -5327,7 +5380,16 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       if (!isZero) {
         const now = new Date();
         const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        const nextChecked = { ...checkedSamples, [sample.id]: { time: timeStr, date: now.toLocaleDateString('vi-VN'), at: now.toISOString() } };
+        const nextChecked = {
+          ...checkedSamples,
+          [sample.id]: {
+            time: timeStr,
+            date: now.toLocaleDateString('vi-VN'),
+            at: now.toISOString(),
+            old_qty: oldQty,
+            new_qty: newQty
+          }
+        };
         setCheckedSamples(nextChecked);
         try { localStorage.setItem('checked_loose_samples', JSON.stringify(nextChecked)); } catch {}
 
@@ -5338,10 +5400,14 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
         }
       }
 
+      if (!isDemoMode) {
+        await fetchDatabaseData();
+      }
+
       showToast(
-        isZero 
-          ? 'Đã cập nhật: Hết mẫu và gỡ khỏi Kệ lẻ thành công!' 
-          : `Đã cập nhật số lượng còn lại: ${newQty} bao thành công!`, 
+        isZero
+          ? 'Đã cập nhật: Hết mẫu và gỡ khỏi Kệ lẻ (có thể hoàn tác trong Bảng cập nhật Ô 5)!'
+          : `Đã cập nhật số lượng còn lại: ${newQty} bao thành công!`,
         'success'
       );
     } catch (err) {
@@ -5351,8 +5417,100 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
     }
   };
 
+  // Hoàn tác / Khôi phục mẫu về Ô 5 từ bảng lịch sử kiểm kê
+  const handleRestoreLoosePackAudit = async (auditItem) => {
+    if (!auditItem?.sample_id) {
+      showToast('Không tìm thấy ID mẫu để khôi phục!', 'error');
+      return;
+    }
+
+    const shelfNum = Number(auditItem.shelf) || Number(selectedSlot?.shelf) || 6;
+    const shelfLetters = ['', 'A', 'B', 'C', 'D', 'E', 'F'];
+    const shelfLetter = shelfLetters[shelfNum] || shelfNum;
+    const targetSample = samples.find(s => s.id === auditItem.sample_id);
+    const restoreQty = Number(auditItem.old_qty) > 0 ? Number(auditItem.old_qty) : 1;
+
+    if (!window.confirm(`Khôi phục mẫu "${auditItem.product_name}" về Kệ ${shelfLetter}5 với số lượng ${restoreQty} bao?`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const currentQty = targetSample ? (Number(targetSample.available_qty) || 0) : (Number(auditItem.new_qty) || 0);
+      const restoreUpdates = {
+        available_qty: restoreQty,
+        status: 'stored',
+        shelf: shelfNum,
+        slot: 5,
+        column_number: 1,
+        box_id: null,
+        updated_at: new Date().toISOString()
+      };
+      if (targetSample?.note === 'Mẫu bị mất') {
+        restoreUpdates.note = null;
+      }
+
+      const restoreAudit = {
+        sample_id: auditItem.sample_id,
+        sku: auditItem.sku || targetSample?.sku || null,
+        product_name: auditItem.product_name,
+        blend_batch: auditItem.blend_batch || targetSample?.blend_batch || null,
+        packaging_date: auditItem.packaging_date || targetSample?.packaging_date || null,
+        shelf: shelfNum,
+        slot: 5,
+        action_type: 'restore',
+        old_qty: currentQty,
+        new_qty: restoreQty,
+        actor_name: profile?.full_name || 'Quản trị viên',
+        note: `Hoàn tác/Khôi phục từ lịch sử kiểm kê Ô ${shelfLetter}5`
+      };
+
+      if (isDemoMode) {
+        setSamples(prev => prev.map(s => s.id === auditItem.sample_id ? { ...s, ...restoreUpdates } : s));
+        setLoosePackAudits(prev => [{
+          id: `lpa-${Date.now()}`,
+          ...restoreAudit,
+          created_at: new Date().toISOString()
+        }, ...prev].slice(0, 300));
+      } else {
+        const { error } = await supabase
+          .from('samples')
+          .update(restoreUpdates)
+          .eq('id', auditItem.sample_id);
+        if (error) throw error;
+
+        try {
+          const { error: txErr } = await supabase.from('transactions').insert({
+            sample_id: auditItem.sample_id,
+            user_id: user?.id || null,
+            type: 'inventory_adjust',
+            quantity: Math.abs(restoreQty - currentQty),
+            status: 'approved',
+            note: `Khôi phục kiểm kê Ô lẻ ${shelfLetter}5: Phục hồi ${restoreQty} bao (Trước đó: ${currentQty} bao)`
+          });
+          if (txErr) {
+            console.warn('transactions restore fallback:', txErr.message);
+          }
+        } catch (txEx) {
+          console.warn('transactions restore warning:', txEx);
+        }
+
+        const nextAudits = await saveLoosePackAuditLog(restoreAudit, loosePackAudits);
+        setLoosePackAudits(nextAudits);
+        await fetchDatabaseData();
+      }
+
+      showToast(`Đã khôi phục "${auditItem.product_name}" về Kệ ${shelfLetter}5 (${restoreQty} bao)!`, 'success');
+    } catch (err) {
+      showToast(err.message || 'Lỗi khôi phục mẫu về Ô 5', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Đánh dấu / Bỏ đánh dấu xác nhận đã kiểm tra mẫu ô lẻ (đồng bộ Supabase)
   const handleToggleCheckSample = async (sampleId, prodName) => {
+    const sampleObj = samples.find(s => s.id === sampleId);
     const isCurrentlyChecked = !!checkedSamples[sampleId];
     const next = { ...checkedSamples };
     if (isCurrentlyChecked) {
@@ -5370,9 +5528,32 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       localStorage.setItem('checked_loose_samples', JSON.stringify(next));
     } catch {}
 
-    if (!isDemoMode) {
+    const checkAuditPayload = {
+      sample_id: sampleId,
+      sku: sampleObj?.sku || null,
+      product_name: prodName || sampleObj?.products?.product_name || sampleObj?.product_name || 'Mẫu',
+      blend_batch: sampleObj?.blend_batch || null,
+      packaging_date: sampleObj?.packaging_date || null,
+      shelf: Number(sampleObj?.shelf) || Number(selectedSlot?.shelf) || 6,
+      slot: 5,
+      action_type: isCurrentlyChecked ? 'uncheck' : 'check',
+      old_qty: sampleObj?.available_qty ?? null,
+      new_qty: sampleObj?.available_qty ?? null,
+      actor_name: profile?.full_name || 'Quản trị viên',
+      note: isCurrentlyChecked ? 'Bỏ tick xác nhận kiểm tra' : 'Xác nhận đã kiểm tra mẫu'
+    };
+
+    if (isDemoMode) {
+      setLoosePackAudits(prev => [{
+        id: `lpa-${Date.now()}`,
+        ...checkAuditPayload,
+        created_at: new Date().toISOString()
+      }, ...prev].slice(0, 300));
+    } else {
       try {
         await saveLooseShelfCheckedState(next);
+        const nextAudits = await saveLoosePackAuditLog(checkAuditPayload, loosePackAudits);
+        setLoosePackAudits(nextAudits);
       } catch (err) {
         console.warn('Sync checked sample err:', err);
       }
@@ -5389,9 +5570,34 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       localStorage.setItem('checked_loose_samples', JSON.stringify(next));
     } catch {}
 
-    if (!isDemoMode) {
+    const shelfNum = Number(selectedSlot?.shelf) || 6;
+    const shelfLetter = ['', 'A', 'B', 'C', 'D', 'E', 'F'][shelfNum] || shelfNum;
+    const resetAuditPayload = {
+      sample_id: null,
+      sku: null,
+      product_name: `Đặt lại đợt kiểm Ô ${shelfLetter}5`,
+      blend_batch: null,
+      packaging_date: null,
+      shelf: shelfNum,
+      slot: 5,
+      action_type: 'reset_slot',
+      old_qty: slotSampleIds.length,
+      new_qty: 0,
+      actor_name: profile?.full_name || 'Quản trị viên',
+      note: `Đã đặt lại tick kiểm tra cho ${slotSampleIds.length} mẫu tại Ô ${shelfLetter}5`
+    };
+
+    if (isDemoMode) {
+      setLoosePackAudits(prev => [{
+        id: `lpa-${Date.now()}`,
+        ...resetAuditPayload,
+        created_at: new Date().toISOString()
+      }, ...prev].slice(0, 300));
+    } else {
       try {
         await saveLooseShelfCheckedState(next);
+        const nextAudits = await saveLoosePackAuditLog(resetAuditPayload, loosePackAudits);
+        setLoosePackAudits(nextAudits);
       } catch (err) {
         console.warn('Sync checked sample err:', err);
       }
@@ -5496,6 +5702,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
         const oldLoc = movingSample.shelf ? formatLocation(movingSample.shelf, movingSample.slot, movingSample.column_number) : movingSample.box_id ? `Thùng ${boxes.find(b => b.id === movingSample.box_id)?.box_name || '—'}` : `Khay ${movingSample.tray_number || '—'}`;
         const newLoc = targetType === 'shelves' ? formatLocation(targetDetails.shelf, targetDetails.slot, targetDetails.column_number) : targetType === 'box' ? `Thùng ${boxes.find(b => b.id === targetDetails.box_id)?.box_name || '—'}` : `Khay ${targetDetails.tray_number || '—'}`;
 
+        await attachAuditReason('samples', sampleId, `Di chuyển mẫu từ ${oldLoc} sang ${newLoc}`);
         await supabase.from('transactions').insert({
           sample_id: sampleId,
           user_id: user.id,
@@ -6469,9 +6676,12 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       if (!isDemoMode) {
         const sampleIds = targetSamples.map(s => s.id);
         await supabase.from('samples').update({ status: 'destroyed', shelf: null, slot: null, column_number: null, box_id: null }).in('id', sampleIds);
+        const destroyReason = destructionBoxTarget ? `Hủy theo thùng ${destructionBoxTarget.name}` : 'Hủy theo quy trình';
+        await Promise.all(sampleIds.map(id => attachAuditReason('samples', id, destroyReason)));
         
         if (destructionBoxTarget) {
            await supabase.from('boxes').update({ status: 'destroyed' }).in('id', destructionBoxTarget.ids);
+           await Promise.all(destructionBoxTarget.ids.map(id => attachAuditReason('boxes', id, destroyReason)));
         }
 
         await supabase.from('destruction_logs').insert({
@@ -6961,6 +7171,12 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                       <span>Đóng thùng & Hủy</span>
                     </button>
                   </li>
+                  <li className={`nav-item ${activeTab === 'warehouse_audit_logs' ? 'active' : ''}`}>
+                    <button type="button" onClick={() => setActiveTab('warehouse_audit_logs')}>
+                      <ClipboardList size={18} />
+                      <span>Nhật ký thay đổi kho</span>
+                    </button>
+                  </li>
                   <li className={`nav-item ${activeTab === 'search_logs' ? 'active' : ''}`}>
                     <button type="button" onClick={() => { setActiveTab('search_logs'); if (fetchSearchLogs) fetchSearchLogs(); }}>
                       <FileText size={18} />
@@ -7024,6 +7240,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   {activeTab === 'import' && 'Nhập Kho Mẫu Thuốc Lá'}
                   {activeTab === 'bulk_import' && 'Nhập Hàng Loạt'}
                   {activeTab === 'archives' && 'Đóng Thùng & Tiêu Hủy Mẫu'}
+                  {activeTab === 'warehouse_audit_logs' && 'Nhật Ký Thay Đổi Kho'}
                   {activeTab === 'search_logs' && 'Nhật Ký Tra Cứu Nhân Viên'}
                   {activeTab === 'users' && 'Quản Lý Tài Khoản & Khách'}
                 </h1>
@@ -10422,6 +10639,16 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
               </div>
             )}
 
+            {/* WAREHOUSE AUDIT LOGS PAGE (Admin only) */}
+            {activeTab === 'warehouse_audit_logs' && profile?.role === 'admin' && (
+              <React.Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted, #64748b)' }}><Loader className="spin" size={24} style={{ display: 'inline-block', marginRight: '8px', verticalAlign: 'middle' }} /> Đang tải Nhật ký thay đổi kho...</div>}>
+                <WarehouseAuditLogsTab
+                  isAdmin={profile?.role === 'admin'}
+                  isDemoMode={isDemoMode}
+                />
+              </React.Suspense>
+            )}
+
             {/* SEARCH LOGS PAGE (Admin only) */}
             {activeTab === 'search_logs' && profile?.role === 'admin' && (
               <React.Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted, #64748b)' }}><Loader className="spin" size={24} style={{ display: 'inline-block', marginRight: '8px', verticalAlign: 'middle' }} /> Đang tải Nhật ký tra cứu...</div>}>
@@ -10905,6 +11132,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
               {selectedSlot.slot === 5 ? (
                 // Loose packs slot 5 layout
                 (() => {
+                  const sL = ['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf;
                   const slotLooseSamples = samples
                     .filter(s => s.shelf === selectedSlot.shelf && s.slot === 5 && s.status === 'stored')
                     .sort((a, b) => {
@@ -10918,19 +11146,92 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                   const totalLoose = slotLooseSamples.length;
                   const isAllChecked = totalLoose > 0 && checkedCount === totalLoose;
 
+                  const slotAudits = (loosePackAudits || []).filter(a => Number(a.shelf) === Number(selectedSlot.shelf));
+                  const qtyChangeAuditsCount = slotAudits.filter(a => ['adjust_qty', 'deplete', 'restore'].includes(a.action_type)).length;
+                  const checkAuditsCount = slotAudits.filter(a => ['check', 'uncheck', 'reset_slot'].includes(a.action_type)).length;
+                  const filteredSlotAudits = slotAudits.filter(a => {
+                    if (looseAuditFilter === 'qty_change') return ['adjust_qty', 'deplete', 'restore'].includes(a.action_type);
+                    if (looseAuditFilter === 'check') return ['check', 'uncheck', 'reset_slot'].includes(a.action_type);
+                    return true;
+                  });
+
+                  // Các mẫu vừa báo hết (0 bao) tại ô lẻ này nhưng chưa được khôi phục lại lên kệ
+                  const sampleLookup = new Map(samples.map(item => [item.id, item]));
+                  const unrecoveredDepletedAudits = [];
+                  const seenDepletedIds = new Set();
+                  for (const a of slotAudits) {
+                    if (a.action_type === 'deplete' && a.sample_id && !seenDepletedIds.has(a.sample_id)) {
+                      seenDepletedIds.add(a.sample_id);
+                      const cur = sampleLookup.get(a.sample_id);
+                      if (!cur || cur.available_qty === 0 || cur.status !== 'stored' || cur.shelf !== selectedSlot.shelf || cur.slot !== 5) {
+                        unrecoveredDepletedAudits.push(a);
+                      }
+                    }
+                  }
+
+                  const formatAuditTime = (isoStr) => {
+                    if (!isoStr) return '—';
+                    const d = new Date(isoStr);
+                    if (isNaN(d.getTime())) return '—';
+                    const dd = String(d.getDate()).padStart(2, '0');
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    const hh = String(d.getHours()).padStart(2, '0');
+                    const min = String(d.getMinutes()).padStart(2, '0');
+                    return `${dd}/${mm} ${hh}:${min}`;
+                  };
+
+                  const getAuditActionBadge = (actionType) => {
+                    switch (actionType) {
+                      case 'deplete':
+                        return { label: 'Báo hết (0 bao)', bg: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.35)' };
+                      case 'adjust_qty':
+                        return { label: 'Chỉnh số bao', bg: 'rgba(201, 164, 106, 0.15)', color: '#C9A46A', border: 'rgba(201, 164, 106, 0.35)' };
+                      case 'restore':
+                        return { label: 'Khôi phục', bg: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: 'rgba(16, 185, 129, 0.35)' };
+                      case 'check':
+                        return { label: 'Đã tick kiểm', bg: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: 'rgba(16, 185, 129, 0.3)' };
+                      case 'uncheck':
+                        return { label: 'Bỏ tick', bg: 'rgba(255, 255, 255, 0.06)', color: 'var(--text-muted)', border: 'var(--glass-border)' };
+                      case 'reset_slot':
+                        return { label: 'Đặt lại đợt kiểm', bg: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', border: 'rgba(56, 189, 248, 0.3)' };
+                      default:
+                        return { label: actionType || 'Kiểm tra', bg: 'rgba(255, 255, 255, 0.06)', color: 'var(--text-secondary)', border: 'var(--glass-border)' };
+                    }
+                  };
+
                   return (
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
                         <h4 style={{ fontSize: '15px', color: 'var(--accent-purple)', margin: 0, fontWeight: 'bold' }}>
-                          <Tags size={16} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: '6px' }} /> Ô lẻ Kệ {['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf} (Loose items)
+                          <Tags size={16} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: '6px' }} /> Ô lẻ Kệ {sL} (Loose items)
                         </h4>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          {profile?.role === 'admin' && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{
+                                padding: '5px 12px',
+                                fontSize: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                background: showLooseAuditPanel ? 'rgba(56, 189, 248, 0.16)' : 'rgba(201, 164, 106, 0.12)',
+                                border: showLooseAuditPanel ? '1px solid rgba(56, 189, 248, 0.45)' : '1px solid rgba(201, 164, 106, 0.4)',
+                                color: showLooseAuditPanel ? '#38bdf8' : '#C9A46A',
+                                fontWeight: 600
+                              }}
+                              onClick={() => setShowLooseAuditPanel(prev => !prev)}
+                              title={`Xem nhật ký cập nhật & hoàn tác mẫu của Ô ${sL}5`}
+                            >
+                              <ClipboardList size={13} /> Bảng cập nhật Ô {sL}5 ({slotAudits.length})
+                            </button>
+                          )}
                           {profile?.role === 'admin' && totalLoose > 0 && (
                             <button 
                               className="btn btn-primary"
                               style={{ padding: '5px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--qc-emerald)', border: '1px solid var(--qc-emerald)' }}
                               onClick={() => {
-                                const sL = ['', 'A', 'B', 'C', 'D', 'E', 'F'][selectedSlot.shelf] || selectedSlot.shelf;
                                 printTommyStickersForGroup(`Kệ ${sL}5 (Hàng lẻ)`, slotLooseSamples);
                               }}
                             >
@@ -10939,6 +11240,185 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                           )}
                         </div>
                       </div>
+
+                      {/* Cảnh báo mẫu vừa báo hết (0 bao) ở ô lẻ này để khôi phục nhanh 1 chạm */}
+                      {profile?.role === 'admin' && unrecoveredDepletedAudits.length > 0 && (
+                        <div style={{
+                          padding: '10px 12px',
+                          background: 'rgba(239, 68, 68, 0.09)',
+                          border: '1px solid rgba(239, 68, 68, 0.35)',
+                          borderRadius: '8px',
+                          marginBottom: '12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: '#ef4444' }}>
+                            <AlertTriangle size={14} /> Mẫu vừa báo hết (0 bao) tại Ô {sL}5 ({unrecoveredDepletedAudits.length})
+                          </div>
+                          {unrecoveredDepletedAudits.slice(0, 3).map(da => (
+                            <div key={da.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px', paddingTop: '4px', borderTop: '1px dashed rgba(239, 68, 68, 0.25)' }}>
+                              <div style={{ color: 'var(--text-primary)' }}>
+                                <strong>{da.product_name}</strong>{' '}
+                                <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>({da.sku || '—'})</span>
+                                <span style={{ marginLeft: '8px', color: '#fca5a5', fontVariantNumeric: 'tabular-nums' }}>
+                                  {da.old_qty ?? '?'} → 0 bao lúc {formatAuditTime(da.created_at)}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                disabled={loading}
+                                style={{ padding: '3px 9px', fontSize: '11px', background: 'rgba(16, 185, 129, 0.16)', border: '1px solid rgba(16, 185, 129, 0.45)', color: '#10b981', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                onClick={() => handleRestoreLoosePackAudit(da)}
+                              >
+                                <RotateCcw size={12} /> Khôi phục về Kệ {sL}5 ({Number(da.old_qty) > 0 ? da.old_qty : 1} bao)
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Bảng Cập Nhật & Kiểm Kê Riêng Ô 5 */}
+                      {profile?.role === 'admin' && showLooseAuditPanel && (
+                        <div style={{
+                          background: 'rgba(15, 23, 42, 0.75)',
+                          border: '1px solid rgba(201, 164, 106, 0.35)',
+                          borderRadius: '10px',
+                          padding: '14px',
+                          marginBottom: '14px'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#C9A46A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <ClipboardList size={15} /> Bảng cập nhật & kiểm kê Ô {sL}5
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              {[
+                                { id: 'all', label: `Tất cả (${slotAudits.length})` },
+                                { id: 'qty_change', label: `Chỉnh số bao / Báo hết (${qtyChangeAuditsCount})` },
+                                { id: 'check', label: `Xác nhận kiểm tra (${checkAuditsCount})` }
+                              ].map(tab => (
+                                <button
+                                  key={tab.id}
+                                  type="button"
+                                  onClick={() => setLooseAuditFilter(tab.id)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    border: looseAuditFilter === tab.id ? '1px solid rgba(201, 164, 106, 0.6)' : '1px solid var(--glass-border)',
+                                    background: looseAuditFilter === tab.id ? 'rgba(201, 164, 106, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                                    color: looseAuditFilter === tab.id ? '#C9A46A' : 'var(--text-secondary)'
+                                  }}
+                                >
+                                  {tab.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {filteredSlotAudits.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '18px 10px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                              Chưa có dữ liệu cập nhật nào được ghi nhận cho Ô {sL}5. Mọi lần bấm "📦 Còn lại" hoặc tick kiểm tra từ giờ sẽ được lưu tại đây.
+                            </div>
+                          ) : (
+                            <div style={{ overflowX: 'auto', maxHeight: '280px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '580px' }}>
+                                <thead>
+                                  <tr style={{ background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', textAlign: 'left' }}>
+                                    <th style={{ padding: '8px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>Thời gian</th>
+                                    <th style={{ padding: '8px 10px', fontWeight: 600 }}>Sản phẩm & Mã QR</th>
+                                    <th style={{ padding: '8px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>Thao tác</th>
+                                    <th style={{ padding: '8px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>Số bao</th>
+                                    <th style={{ padding: '8px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>Người kiểm</th>
+                                    <th style={{ padding: '8px 10px', fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>Khôi phục</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {filteredSlotAudits.map(a => {
+                                    const badge = getAuditActionBadge(a.action_type);
+                                    const canUndo = ['adjust_qty', 'deplete'].includes(a.action_type) && a.sample_id && a.old_qty !== null && a.old_qty !== undefined && a.old_qty !== a.new_qty;
+                                    const hasQtyTransition = a.old_qty !== null && a.old_qty !== undefined && a.new_qty !== null && a.new_qty !== undefined && a.old_qty !== a.new_qty;
+
+                                    return (
+                                      <tr key={a.id} style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <td style={{ padding: '8px 10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                                          {formatAuditTime(a.created_at)}
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.product_name}</div>
+                                          <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                                            {a.sku ? <span>{a.sku}</span> : null}
+                                            {a.blend_batch ? <span style={{ marginLeft: a.sku ? '6px' : 0 }}>Mẻ {formatBlendBatch(a.blend_batch)}</span> : null}
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                                          <span style={{
+                                            fontSize: '10.5px',
+                                            fontWeight: 600,
+                                            padding: '2px 7px',
+                                            borderRadius: '4px',
+                                            background: badge.bg,
+                                            color: badge.color,
+                                            border: `1px solid ${badge.border}`
+                                          }}>
+                                            {badge.label}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                          {a.action_type === 'reset_slot' ? (
+                                            <span style={{ color: 'var(--text-muted)' }}>{a.old_qty ?? 0} mẫu</span>
+                                          ) : hasQtyTransition ? (
+                                            <span style={{ color: a.new_qty === 0 ? '#ef4444' : '#C9A46A' }}>
+                                              {a.old_qty} → {a.new_qty} bao
+                                            </span>
+                                          ) : (
+                                            <span style={{ color: 'var(--text-secondary)' }}>
+                                              {a.new_qty !== null && a.new_qty !== undefined ? `${a.new_qty} bao` : '—'}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td style={{ padding: '8px 10px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                                          {a.actor_name || 'Quản trị viên'}
+                                        </td>
+                                        <td style={{ padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                          {canUndo ? (
+                                            <button
+                                              type="button"
+                                              disabled={loading}
+                                              onClick={() => handleRestoreLoosePackAudit(a)}
+                                              style={{
+                                                padding: '3px 8px',
+                                                fontSize: '11px',
+                                                fontWeight: 600,
+                                                borderRadius: '5px',
+                                                cursor: 'pointer',
+                                                background: 'rgba(16, 185, 129, 0.14)',
+                                                border: '1px solid rgba(16, 185, 129, 0.4)',
+                                                color: '#10b981',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                              }}
+                                              title={`Hoàn tác số lượng về ${a.old_qty} bao trên Kệ ${sL}5`}
+                                            >
+                                              <RotateCcw size={11} /> Hoàn tác
+                                            </button>
+                                          ) : (
+                                            <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>—</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Thanh trạng thái tiến độ kiểm tra cho Admin */}
                       {profile?.role === 'admin' && totalLoose > 0 && (
