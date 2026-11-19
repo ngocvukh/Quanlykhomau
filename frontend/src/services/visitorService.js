@@ -132,7 +132,7 @@ const isMissingRpcError = (error) => {
 };
 
 /**
- * Admin cập nhật thông tin, phân quyền và trạng thái hoạt động tài khoản (ưu tiên RPC, fallback profiles.update nếu RPC chưa nạp)
+ * Admin cập nhật thông tin, phân quyền và trạng thái hoạt động tài khoản (bắt buộc qua RPC để đảm bảo guardrail bảo vệ Admin cuối cùng)
  */
 export const adminUpdateUserAccount = async (targetId, {
   full_name,
@@ -152,16 +152,10 @@ export const adminUpdateUserAccount = async (targetId, {
 
   if (error) {
     if (isMissingRpcError(error)) {
-      const updates = {
-        full_name,
-        employee_code: employee_code || null,
-        department: department || null,
-        role
+      return {
+        data: null,
+        error: new Error('Chức năng cập nhật tài khoản hiện chưa sẵn sàng. Vui lòng liên hệ Quản trị viên hệ thống.')
       };
-      if (typeof is_active === 'boolean') {
-        updates.is_active = is_active;
-      }
-      return await supabase.from('profiles').update(updates).eq('id', targetId);
     }
     return { data: null, error };
   }
@@ -170,7 +164,7 @@ export const adminUpdateUserAccount = async (targetId, {
 };
 
 /**
- * Admin xóa tài khoản (ưu tiên RPC rpc_admin_delete_account, fallback profiles.delete nếu RPC chưa nạp)
+ * Admin xóa tài khoản (bắt buộc qua RPC để đảm bảo guardrail bảo vệ Admin cuối cùng)
  */
 export const adminDeleteUserAccount = async (targetId) => {
   const { data, error } = await supabase.rpc('rpc_admin_delete_account', {
@@ -179,7 +173,10 @@ export const adminDeleteUserAccount = async (targetId) => {
 
   if (error) {
     if (isMissingRpcError(error)) {
-      return await supabase.from('profiles').delete().eq('id', targetId);
+      return {
+        data: null,
+        error: new Error('Chức năng xóa tài khoản hiện chưa sẵn sàng. Vui lòng liên hệ Quản trị viên hệ thống.')
+      };
     }
     return { data: null, error };
   }

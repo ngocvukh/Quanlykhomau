@@ -42,6 +42,10 @@ BEGIN
     RAISE EXCEPTION 'Không tìm thấy giao dịch yêu cầu có mã %', p_tx_id;
   END IF;
 
+  IF v_tx.type <> 'take_request' THEN
+    RAISE EXCEPTION 'Chỉ được phép phê duyệt giao dịch yêu cầu lấy mẫu (take_request)!';
+  END IF;
+
   IF v_tx.status <> 'pending' THEN
     RAISE EXCEPTION 'Giao dịch không ở trạng thái Chờ duyệt (trạng thái hiện tại: %)', v_tx.status;
   END IF;
@@ -151,7 +155,7 @@ BEGIN
     created_at
   ) VALUES (
     v_sample.id,
-    COALESCE(p_admin_id, auth.uid()),
+    auth.uid(),
     'take_approve',
     v_qty,
     'approved',
@@ -169,6 +173,9 @@ BEGIN
   );
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.rpc_approve_take_request(UUID, INT, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_approve_take_request(UUID, INT, UUID) TO authenticated;
 
 
 -- 2. HÀM HOÀN TÁC GIAO DỊCH CẤP MẪU (KHÔI PHỤC VỊ TRÍ & SỐ LƯỢNG KHO)
@@ -201,6 +208,10 @@ BEGIN
   SELECT * INTO v_tx FROM public.transactions WHERE id = p_tx_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Không tìm thấy giao dịch có mã %', p_tx_id;
+  END IF;
+
+  IF v_tx.type <> 'take_request' THEN
+    RAISE EXCEPTION 'Chỉ được phép hoàn tác giao dịch yêu cầu lấy mẫu (take_request)!';
   END IF;
 
   SELECT * INTO v_sample FROM public.samples WHERE id = v_tx.sample_id FOR UPDATE;
@@ -277,7 +288,7 @@ BEGIN
         created_at
       ) VALUES (
         v_tx.sample_id,
-        COALESCE(p_admin_id, auth.uid()),
+        auth.uid(),
         'take_revert',
         v_tx.quantity,
         'approved',
@@ -300,6 +311,9 @@ BEGIN
   );
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.rpc_revert_take_request(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_revert_take_request(UUID, UUID) TO authenticated;
 
 
 -- 3. HÀM ĐÓNG THÙNG MẪU QUÁ TẢI KỆ HÀNG LOẠT
@@ -356,3 +370,6 @@ BEGIN
   );
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.rpc_pack_samples_to_box(TEXT, TEXT, UUID[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_pack_samples_to_box(TEXT, TEXT, UUID[]) TO authenticated;

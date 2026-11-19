@@ -49,6 +49,35 @@ export const escapeHtml = (str) => String(str ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#039;');
 
+/**
+ * Chống CSV / Formula Injection:
+ * Nếu chuỗi bắt đầu bằng =, +, -, @, \t, \r (kể cả sau khoảng trắng đầu),
+ * thêm dấu nháy đơn (') ở đầu trước khi bọc dấu ngoặc kép CSV.
+ */
+export const sanitizeCsvCell = (value) => {
+  if (value === null || value === undefined) return '""';
+  let str = typeof value === 'string' ? value : String(value);
+  if (/^[\t\r\n ]*[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
+};
+
+/**
+ * Kiểm tra URL an toàn chỉ chấp nhận giao thức https:// hợp lệ (chống javascript:/data: XSS)
+ */
+export const isSafeHttpsUrl = (url) => {
+  if (typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!/^https:\/\/[^\s]+$/i.test(trimmed)) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 // Format capacity mapping (Mỗi ô kệ rộng tối đa 700mm)
 export const SLOT_MAX_WIDTH_MM = 700;
 export const FORMAT_CAPACITIES = {

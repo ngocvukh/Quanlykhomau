@@ -454,12 +454,18 @@ export default function WarehouseAuditLogsTab({ isAdmin = false, isDemoMode = fa
             </div>
             {isMissingTableError && (
               <div style={{ paddingLeft: '24px', fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-                <div>Để kích hoạt tính năng Nhật ký thay đổi kho trên Supabase thật, Quản trị viên cần:</div>
-                <ol style={{ margin: '6px 0 0 0', paddingLeft: '18px' }}>
-                  <li>Mở <strong>Supabase Dashboard → SQL Editor → New Query</strong>.</li>
-                  <li>Chạy toàn bộ nội dung file <code style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>backend/security/warehouse_audit_logs.sql</code>.</li>
-                  <li>Nếu vừa chạy xong mà vẫn báo lỗi schema cache, chạy thêm lệnh <code style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>NOTIFY pgrst, &apos;reload schema&apos;;</code> (hoặc vào <strong>Settings → API → Reload schema cache</strong>), sau đó bấm nút <strong>Làm mới</strong> ở góc trên.</li>
-                </ol>
+                {import.meta.env.DEV ? (
+                  <>
+                    <div>Để kích hoạt tính năng Nhật ký thay đổi kho trên môi trường phát triển, Quản trị viên cần:</div>
+                    <ol style={{ margin: '6px 0 0 0', paddingLeft: '18px' }}>
+                      <li>Mở <strong>Supabase Dashboard → SQL Editor → New Query</strong>.</li>
+                      <li>Chạy script khởi tạo bảng audit logs của hệ thống và tải lại schema cache.</li>
+                      <li>Sau đó bấm nút <strong>Làm mới</strong> ở góc trên.</li>
+                    </ol>
+                  </>
+                ) : (
+                  <div>Hệ thống đang hoàn thiện cấu hình nhật ký kiểm toán. Vui lòng liên hệ Quản trị viên kỹ thuật hoặc thử lại sau.</div>
+                )}
               </div>
             )}
           </div>

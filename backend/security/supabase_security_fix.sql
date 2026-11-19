@@ -62,18 +62,13 @@ BEGIN
   END LOOP;
 END $$;
 
--- 3. BẢO MẬT BẢNG PROFILES (Chỉ xem profile của mình hoặc Admin xem tất cả; chỉ Admin được thêm/sửa/xóa)
+-- 3. BẢO MẬT BẢNG PROFILES (Chỉ xem profile của mình hoặc Admin xem tất cả; mọi ghi/sửa/xóa bắt buộc đi qua RPC để bảo vệ Admin cuối cùng)
 CREATE POLICY "Users view own profile or admin views all" ON public.profiles
   FOR SELECT USING (auth.uid() = id OR public.is_admin());
 
-CREATE POLICY "Only admin inserts profiles" ON public.profiles
-  FOR INSERT WITH CHECK (public.is_admin());
-
-CREATE POLICY "Only admin updates profiles" ON public.profiles
-  FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
-
-CREATE POLICY "Only admin deletes profiles" ON public.profiles
-  FOR DELETE USING (public.is_admin());
+REVOKE ALL ON public.profiles FROM PUBLIC, anon;
+REVOKE INSERT, UPDATE, DELETE ON public.profiles FROM authenticated;
+GRANT SELECT ON public.profiles TO authenticated;
 
 -- 4. BẢO MẬT BẢNG PRODUCTS, BOXES, SAMPLES
 CREATE POLICY "Tất cả mọi người được đọc danh mục sản phẩm" ON public.products
@@ -94,11 +89,9 @@ CREATE POLICY "Chỉ Admin/Thủ kho được thao tác sửa đổi Mẫu" ON p
 -- 5. BẢO MẬT BẢNG TRANSACTIONS (Quy trình xuất mượn & Chặn duyệt khống)
 -- Mở rộng CHECK constraint cho type và quantity để hỗ trợ kiểm kê Ô 5 & hoàn tác
 ALTER TABLE public.transactions DROP CONSTRAINT IF EXISTS transactions_type_check;
-ALTER TABLE public.transactions ADD CONSTRAINT transactions_type_check
-  CHECK (type IN ('import', 'export', 'take_request', 'take_approve', 'inventory_adjust', 'take_revert', 'move'));
+ALTER TABLE public.transactions ADD CONSTRAINT transactions_type_check CHECK (type IN ('import', 'export', 'take_request', 'take_approve', 'inventory_adjust', 'take_revert', 'move', 'destroy'));
 ALTER TABLE public.transactions DROP CONSTRAINT IF EXISTS transactions_quantity_check;
-ALTER TABLE public.transactions ADD CONSTRAINT transactions_quantity_check
-  CHECK (quantity >= 0);
+ALTER TABLE public.transactions ADD CONSTRAINT transactions_quantity_check CHECK (quantity >= 0);
 
 CREATE POLICY "Cho phép tất cả mọi người đọc lịch sử giao dịch" ON public.transactions
   FOR SELECT USING (true);
@@ -127,28 +120,76 @@ BEGIN
   END IF;
 END $$;
 
--- 7. BẢO MẬT BẢNG BULK_IMPORT_DRAFTS (Bản nháp nhập kho & Đồng bộ trạng thái kiểm tra kệ lẻ 5)
+-- 7. BẢO MẬT BẢNG BULK_IMPORT_DRAFTS (Chỉ Admin được đọc/ghi/xóa toàn bộ bản nháp và trạng thái kiểm kê)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'bulk_import_drafts') THEN
-    EXECUTE 'CREATE POLICY "Anyone read drafts" ON public.bulk_import_drafts FOR SELECT USING (true)';
     EXECUTE 'CREATE POLICY "Admin manage all drafts" ON public.bulk_import_drafts FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin())';
-    -- Cho phép ghi/sửa nháp của thiết bị cá nhân HOẶC đồng bộ trạng thái kiểm tra kệ lẻ 5
-    EXECUTE 'CREATE POLICY "Users write own device draft" ON public.bulk_import_drafts FOR INSERT WITH CHECK (id NOT LIKE ''global-%'' OR id = ''global-checked-loose-samples'')';
-    EXECUTE 'CREATE POLICY "Users update own device draft" ON public.bulk_import_drafts FOR UPDATE USING (id NOT LIKE ''global-%'' OR id = ''global-checked-loose-samples'') WITH CHECK (id NOT LIKE ''global-%'' OR id = ''global-checked-loose-samples'')';
-    EXECUTE 'CREATE POLICY "Users delete own device draft" ON public.bulk_import_drafts FOR DELETE USING (id NOT LIKE ''global-%'')';
+    EXECUTE 'REVOKE ALL ON public.bulk_import_drafts FROM PUBLIC, anon';
   END IF;
 END $$;
 
--- 8. BẢO MẬT BẢNG VISITOR_RESETS (Chặn / Mở chặn thiết bị & Reset tên khách)
+-- 8. BẢO MẬT BẢNG VISITOR_RESETS (Chỉ Admin được đọc/quản lý bảng; thiết bị khách kiểm tra & tiêu thụ lệnh reset của chính mình qua RPC)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'visitor_resets') THEN
-    EXECUTE 'CREATE POLICY "Allow read visitor_resets" ON public.visitor_resets FOR SELECT USING (true)';
     EXECUTE 'CREATE POLICY "Admin manage visitor_resets" ON public.visitor_resets FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin())';
-    EXECUTE 'CREATE POLICY "Allow device consume reset" ON public.visitor_resets FOR DELETE USING (is_blocked = false)';
+    EXECUTE 'REVOKE ALL ON public.visitor_resets FROM PUBLIC, anon';
   END IF;
 END $$;
+
+CREATE OR REPLACE FUNCTION public.rpc_check_and_consume_visitor_reset(
+  p_device_id TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_did TEXT := trim(COALESCE(p_device_id, ''));
+  v_row RECORD;
+BEGIN
+  IF length(v_did) < 4 THEN
+    RETURN jsonb_build_object('found', false);
+  END IF;
+
+  IF to_regclass('public.visitor_resets') IS NULL THEN
+    RETURN jsonb_build_object('found', false);
+  END IF;
+
+  SELECT device_id, is_blocked, reset_by
+  INTO v_row
+  FROM public.visitor_resets
+  WHERE device_id = v_did
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('found', false);
+  END IF;
+
+  IF v_row.is_blocked THEN
+    RETURN jsonb_build_object(
+      'found', true,
+      'is_blocked', true,
+      'reset_by', NULL
+    );
+  END IF;
+
+  DELETE FROM public.visitor_resets
+  WHERE device_id = v_did
+    AND is_blocked = false;
+
+  RETURN jsonb_build_object(
+    'found', true,
+    'is_blocked', false,
+    'reset_by', v_row.reset_by
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.rpc_check_and_consume_visitor_reset(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rpc_check_and_consume_visitor_reset(TEXT) TO anon, authenticated;
 
 -- 9. BẢO MẬT BẢNG SLOT_CONFIGS, DESTRUCTION_LOGS, DESTRUCTION_REPORTS
 DO $$
@@ -449,6 +490,8 @@ DECLARE
   v_employee_code TEXT;
   v_department TEXT;
   v_role TEXT;
+  v_existing public.profiles;
+  v_active_admin_count INTEGER;
   v_profile public.profiles;
 BEGIN
   IF NOT public.is_admin() THEN
@@ -477,7 +520,32 @@ BEGIN
     RAISE EXCEPTION 'Vai trò không hợp lệ (chỉ chấp nhận admin hoặc staff)';
   END IF;
 
-  v_email := COALESCE(NULLIF(trim(lower(p_email)), ''), v_auth_email);
+  -- Guardrail bảo vệ Admin cuối cùng nếu tài khoản đã tồn tại profile
+  SELECT * INTO v_existing
+  FROM public.profiles
+  WHERE id = p_user_id
+  FOR UPDATE;
+
+  IF FOUND THEN
+    IF p_user_id = auth.uid() AND v_existing.role = 'admin' AND v_role <> 'admin' THEN
+      RAISE EXCEPTION 'Không thể tự hạ quyền Admin của chính mình';
+    END IF;
+
+    IF v_existing.role = 'admin' AND v_existing.is_active = true AND v_role <> 'admin' THEN
+      SELECT count(*) INTO v_active_admin_count
+      FROM public.profiles
+      WHERE role = 'admin'
+        AND is_active = true
+        AND id <> p_user_id;
+
+      IF v_active_admin_count = 0 THEN
+        RAISE EXCEPTION 'Không thể hạ quyền Admin đang hoạt động cuối cùng trong hệ thống';
+      END IF;
+    END IF;
+  END IF;
+
+  -- Luôn ưu tiên email xác thực từ auth.users (không tin cậy tham số client)
+  v_email := v_auth_email;
   v_employee_code := NULLIF(trim(p_employee_code), '');
   v_department := NULLIF(trim(p_department), '');
 
@@ -590,6 +658,23 @@ BEGIN
   WHERE id = p_target_id
   RETURNING * INTO v_updated;
 
+  -- Đồng bộ trạng thái khóa/mở khóa sang auth.users.banned_until và thu hồi phiên hiện tại khi khóa
+  BEGIN
+    IF v_is_active = false THEN
+      UPDATE auth.users
+      SET banned_until = '2999-12-31 23:59:59+00'::timestamptz
+      WHERE id = p_target_id;
+
+      DELETE FROM auth.sessions WHERE user_id = p_target_id;
+    ELSE
+      UPDATE auth.users
+      SET banned_until = NULL
+      WHERE id = p_target_id;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
   RETURN v_updated;
 END;
 $$;
@@ -686,6 +771,19 @@ $$;
 
 REVOKE ALL ON FUNCTION public.rpc_sync_my_email() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.rpc_sync_my_email() TO authenticated;
+
+-- Đồng bộ trạng thái khóa hiện có từ public.profiles sang auth.users.banned_until
+DO $$
+BEGIN
+  UPDATE auth.users u
+  SET banned_until = '2999-12-31 23:59:59+00'::timestamptz
+  FROM public.profiles p
+  WHERE u.id = p.id
+    AND p.is_active = false
+    AND (u.banned_until IS NULL OR u.banned_until < timezone('utc'::text, now()));
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
 
 NOTIFY pgrst, 'reload schema';
 

@@ -107,11 +107,14 @@ export const loginWithPassword = async (email, password) => {
 
   if (error) {
     const rawMsg = String(error.message || '');
-    if (rawMsg.toLowerCase().includes('email not confirmed')) {
-      throw new Error(
-        'Tài khoản chưa xác nhận email (Email not confirmed). ' +
-        'Vui lòng bấm link xác nhận trong hộp thư hoặc nhờ Admin chạy lại file auth_account_management.sql / tắt "Confirm email" trên Supabase.'
-      );
+    const lowerMsg = rawMsg.toLowerCase();
+    if (lowerMsg.includes('email not confirmed')) {
+      throw new Error('Tài khoản chưa xác nhận email. Vui lòng kiểm tra hộp thư hoặc liên hệ Thủ kho (Admin).');
+    }
+    if (lowerMsg.includes('user is banned') || lowerMsg.includes('banned')) {
+      const lockedErr = new Error('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Thủ kho (Admin).');
+      lockedErr.code = 'ACCOUNT_DISABLED';
+      throw lockedErr;
     }
 
     const failure = recordLoginFailure();
@@ -122,26 +125,31 @@ export const loginWithPassword = async (email, password) => {
       throw lockErr;
     }
     const remainingAttempts = MAX_FAILED_ATTEMPTS - failure.failCount;
-    const msg = rawMsg === 'Invalid login credentials'
-      ? `Email hoặc mật khẩu không đúng (còn ${remainingAttempts} lần thử).`
-      : rawMsg;
-    throw new Error(msg);
+    if (rawMsg === 'Invalid login credentials') {
+      throw new Error(`Email hoặc mật khẩu không đúng (còn ${remainingAttempts} lần thử).`);
+    }
+    console.error('loginWithPassword auth error:', error);
+    throw new Error('Không thể đăng nhập lúc này. Vui lòng kiểm tra thông tin và thử lại.');
   }
 
   resetLoginRateLimit();
 
-  // Kiểm tra trạng thái hoạt động trong profiles
+  // Kiểm tra trạng thái hoạt động trong profiles (fail-closed: thiếu profile hoặc lỗi truy vấn -> đăng xuất ngay)
   const { data: prof, error: profErr } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', data.user.id)
     .maybeSingle();
 
-  if (profErr) {
-    console.error('loginWithPassword profile check error:', profErr);
+  if (profErr || !prof) {
+    if (profErr) console.error('loginWithPassword profile check error:', profErr);
+    await supabase.auth.signOut();
+    const missingErr = new Error('Tài khoản chưa được kích hoạt hồ sơ hoặc không thể xác minh trạng thái. Vui lòng liên hệ Thủ kho (Admin).');
+    missingErr.code = 'PROFILE_MISSING';
+    throw missingErr;
   }
 
-  if (prof && prof.is_active === false) {
+  if (prof.is_active === false) {
     await supabase.auth.signOut();
     const lockedErr = new Error('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Thủ kho (Admin).');
     lockedErr.code = 'ACCOUNT_DISABLED';
@@ -151,7 +159,7 @@ export const loginWithPassword = async (email, password) => {
   return {
     user: data.user,
     session: data.session,
-    profile: prof || null
+    profile: prof
   };
 };
 
@@ -263,72 +271,25 @@ const isMissingRpcError = (error) => {
   );
 };
 
-const isMissingColumnError = (error) => {
+const isEdgeFunctionUnavailableError = (error) => {
   if (!error) return false;
+  const name = String(error.name || '');
   const msg = String(error.message || '').toLowerCase();
-  return error.code === '42703' || error.code === 'PGRST204' || (msg.includes('column') && (msg.includes('does not exist') || msg.includes('schema cache')));
-};
-
-const fallbackProvisionProfile = async ({
-  userId,
-  email,
-  fullName,
-  employeeCode,
-  department,
-  role,
-  secondaryClient,
-  hasSecondarySession
-}) => {
-  const basePayload = {
-    id: userId,
-    full_name: fullName,
-    employee_code: employeeCode || null,
-    department: department || null,
-    role
-  };
-  const extendedPayload = {
-    ...basePayload,
-    email,
-    is_active: true
-  };
-
-  const tryUpsert = async (client) => {
-    let res = await client
-      .from('profiles')
-      .upsert(extendedPayload, { onConflict: 'id' })
-      .select()
-      .maybeSingle();
-
-    if (res.error && isMissingColumnError(res.error)) {
-      res = await client
-        .from('profiles')
-        .upsert(basePayload, { onConflict: 'id' })
-        .select()
-        .maybeSingle();
-    }
-    return res;
-  };
-
-  // 1. Thử bằng phiên Admin hiện tại (hoạt động nếu RLS đã mở quyền INSERT/UPDATE cho Admin)
-  const adminRes = await tryUpsert(supabase);
-  if (!adminRes.error) {
-    return { data: adminRes.data || extendedPayload, error: null };
-  }
-
-  // 2. Nếu chưa chạy SQL mới và email confirmation đang tắt, thử bằng phiên user vừa tạo (chỉ áp dụng cho role 'staff' theo RLS cũ)
-  if (hasSecondarySession && secondaryClient && role === 'staff') {
-    const selfRes = await tryUpsert(secondaryClient);
-    if (!selfRes.error) {
-      return { data: selfRes.data || extendedPayload, error: null };
-    }
-    return { data: null, error: selfRes.error };
-  }
-
-  return { data: null, error: adminRes.error };
+  const status = error.context?.status;
+  return (
+    status === 404 ||
+    name === 'FunctionsFetchError' ||
+    name === 'FunctionsRelayError' ||
+    msg.includes('failed to send a request to the edge function') ||
+    msg.includes('function not found') ||
+    msg.includes('not found')
+  );
 };
 
 /**
- * Admin cấp tài khoản mới bằng secondary client (không làm đăng xuất phiên Admin hiện tại)
+ * Admin cấp tài khoản mới:
+ * 1. Ưu tiên gọi Supabase Edge Function `admin-create-user` (server-side Service Role Key, chống tài khoản mồ côi).
+ * 2. Fallback an toàn sang secondaryClient + RPC `rpc_admin_provision_profile` nếu Edge Function chưa được deploy.
  */
 export const adminCreateUserAccount = async ({
   email,
@@ -356,13 +317,51 @@ export const adminCreateUserAccount = async ({
     throw new Error(strength.message);
   }
 
+  // 1. Thử tạo tài khoản qua Supabase Edge Function (server-side)
+  try {
+    const { data: fnData, error: fnError } = await supabase.functions.invoke('admin-create-user', {
+      body: {
+        email: trimmedEmail,
+        password,
+        fullName: trimmedName,
+        employeeCode: trimmedEmpCode,
+        department: trimmedDept,
+        role: normalizedRole
+      }
+    });
+
+    if (!fnError && fnData?.profile) {
+      return {
+        user: fnData.user,
+        profile: fnData.profile
+      };
+    }
+
+    if (fnError && !isEdgeFunctionUnavailableError(fnError)) {
+      let errMessage = 'Không thể cấp tài khoản mới. Vui lòng thử lại.';
+      try {
+        if (fnError.context && typeof fnError.context.json === 'function') {
+          const body = await fnError.context.json();
+          if (body?.error) errMessage = body.error;
+        }
+      } catch {
+        // ignore JSON parse failure
+      }
+      throw new Error(errMessage);
+    }
+  } catch (edgeErr) {
+    if (!isEdgeFunctionUnavailableError(edgeErr)) {
+      throw edgeErr;
+    }
+  }
+
+  // 2. Fallback an toàn khi Edge Function chưa được deploy: kiểm tra trước RPC & quyền Admin
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
   if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Chưa cấu hình kết nối Supabase.');
+    throw new Error('Chưa cấu hình kết nối hệ thống.');
   }
 
-  // Kiểm tra trước sự tồn tại của RPC và quyền Admin để tránh tạo Auth user mồ côi nếu chưa chạy SQL
   const { error: probeError } = await supabase.rpc('rpc_admin_provision_profile', {
     p_user_id: null,
     p_email: trimmedEmail,
@@ -374,14 +373,12 @@ export const adminCreateUserAccount = async ({
 
   if (probeError) {
     if (isMissingRpcError(probeError)) {
-      if (normalizedRole === 'admin') {
-        throw new Error(
-          'Hàm RPC "rpc_admin_provision_profile" chưa được cài đặt trên Supabase. ' +
-          'Vui lòng chạy file backend/security/auth_account_management.sql trong Supabase SQL Editor trước khi cấp tài khoản Admin.'
-        );
-      }
-    } else if (!String(probeError.message || '').includes('Thiếu user_id')) {
-      throw new Error(probeError.message || 'Không có quyền cấp tài khoản.');
+      console.error('adminCreateUserAccount: provisioning RPC not installed');
+      throw new Error('Chức năng cấp tài khoản hiện chưa sẵn sàng. Vui lòng liên hệ Quản trị viên hệ thống.');
+    }
+    if (!String(probeError.message || '').includes('Thiếu user_id')) {
+      console.error('adminCreateUserAccount probe error:', probeError);
+      throw new Error('Bạn không có quyền cấp tài khoản hoặc phiên đăng nhập đã hết hạn.');
     }
   }
 
@@ -410,7 +407,8 @@ export const adminCreateUserAccount = async ({
       if (signUpMsg.includes('already registered') || signUpMsg.includes('already been registered')) {
         throw new Error('Email này đã tồn tại trong hệ thống.');
       }
-      throw new Error(signUpError.message || 'Không thể tạo tài khoản Auth.');
+      console.error('adminCreateUserAccount signUp error:', signUpError);
+      throw new Error('Không thể tạo tài khoản mới. Vui lòng thử lại sau.');
     }
 
     const createdUser = signUpData?.user;
@@ -432,33 +430,8 @@ export const adminCreateUserAccount = async ({
     });
 
     if (rpcError) {
-      if (isMissingRpcError(rpcError)) {
-        const fallback = await fallbackProvisionProfile({
-          userId: createdUser.id,
-          email: trimmedEmail,
-          fullName: trimmedName,
-          employeeCode: trimmedEmpCode,
-          department: trimmedDept,
-          role: normalizedRole,
-          secondaryClient,
-          hasSecondarySession: Boolean(signUpData?.session)
-        });
-
-        if (!fallback.error) {
-          return {
-            user: createdUser,
-            profile: fallback.data
-          };
-        }
-
-        throw new Error(
-          'Đã tạo Auth user nhưng lỗi khởi tạo hồ sơ: Hàm RPC "rpc_admin_provision_profile" chưa được cài đặt trên Supabase. ' +
-          'Vui lòng chạy file backend/security/auth_account_management.sql trong Supabase SQL Editor rồi thử lại. ' +
-          `(Chi tiết fallback: ${fallback.error.message})`
-        );
-      }
-
-      throw new Error('Đã tạo Auth user nhưng lỗi khởi tạo hồ sơ: ' + rpcError.message);
+      console.error('adminCreateUserAccount provision error:', rpcError);
+      throw new Error('Không thể hoàn tất khởi tạo hồ sơ tài khoản. Vui lòng kiểm tra thông tin hoặc liên hệ Quản trị viên.');
     }
 
     return {

@@ -92,10 +92,21 @@ export default function UserVisitorManagerTab({
   const generateTempPassword = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz';
     const digits = '23456789';
-    let pwd = '';
-    for (let i = 0; i < 6; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
-    for (let i = 0; i < 4; i++) pwd += digits[Math.floor(Math.random() * digits.length)];
-    setCreatePassword(pwd);
+    const pickRandom = (alphabet, count) => {
+      const result = [];
+      const maxValid = Math.floor(256 / alphabet.length) * alphabet.length;
+      const buf = new Uint8Array(count * 2);
+      while (result.length < count) {
+        window.crypto.getRandomValues(buf);
+        for (let i = 0; i < buf.length && result.length < count; i++) {
+          if (buf[i] < maxValid) {
+            result.push(alphabet[buf[i] % alphabet.length]);
+          }
+        }
+      }
+      return result.join('');
+    };
+    setCreatePassword(pickRandom(chars, 6) + pickRandom(digits, 4));
   };
 
   const openCreateModal = () => {

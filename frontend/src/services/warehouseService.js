@@ -1,7 +1,7 @@
 import { supabase } from '../supabaseClient';
 
 /**
- * Tải toàn bộ dữ liệu kho từ Supabase và tự động chuẩn hóa các ngoại lệ dữ liệu lịch sử
+ * Tải toàn bộ dữ liệu kho từ Supabase (chỉ đọc, tuyệt đối không ghi ngầm vào DB)
  */
 export const fetchAllWarehouseData = async ({ isAdminOrUser = false } = {}) => {
   const [
@@ -10,15 +10,19 @@ export const fetchAllWarehouseData = async ({ isAdminOrUser = false } = {}) => {
     { data: b, error: bErr },
     { data: tRaw, error: tErr },
     { data: dlRaw, error: dlErr },
-    { data: profs, error: profsErr }
+    profsRes
   ] = await Promise.all([
     supabase.from('products').select('*').order('product_name'),
     supabase.from('samples').select('*, products(*)').order('created_at', { ascending: false }),
     supabase.from('boxes').select('*').order('created_at', { ascending: false }),
-    supabase.from('transactions').select('*, samples(*, products(*)), profiles(*)').order('created_at', { ascending: false }),
+    supabase.from('transactions').select(isAdminOrUser ? '*, samples(*, products(*)), profiles(*)' : '*, samples(*, products(*))').order('created_at', { ascending: false }),
     supabase.from('destruction_logs').select('*').order('created_at', { ascending: false }),
-    supabase.from('profiles').select('*').order('created_at', { ascending: false })
+    isAdminOrUser
+      ? supabase.from('profiles').select('*').order('created_at', { ascending: false })
+      : Promise.resolve({ data: [], error: null })
   ]);
+
+  const { data: profs, error: profsErr } = profsRes;
 
   if (pErr) console.error('fetch products error:', pErr);
   if (sErr) console.error('fetch samples error:', sErr);
@@ -29,36 +33,12 @@ export const fetchAllWarehouseData = async ({ isAdminOrUser = false } = {}) => {
 
   let s = sRaw || [];
   let t = tRaw || [];
-  let dl = dlRaw || [];
+  const dl = dlRaw || [];
 
-  // Tự động chuẩn hóa biên bản hủy ngày 14/09/2026 nếu chưa có
-  const septDestructionLog = {
-    id: '509b8f0d-6f4e-42a5-a373-ba1ad95cd687',
-    created_at: '2026-09-14T03:38:40.483726+00:00',
-    report_url: 'https://obfdrpqnntylboptkwin.supabase.co/storage/v1/object/public/destruction_reports/destruction_report_1789357119010.pdf',
-    num_samples_destroyed: 22,
-    created_by: null
-  };
-  if (!dl.some(log => log.id === septDestructionLog.id)) {
-    dl = [...dl, septDestructionLog].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    if (isAdminOrUser) {
-      try {
-        await supabase.from('destruction_logs').upsert(septDestructionLog);
-      } catch { /* ignore */ }
-    }
-  }
-
-  // Tự động chuẩn hóa nếu có mẫu bị lỗi cộng lố (available_qty > total_qty)
+  // Chuẩn hóa hiển thị trong bộ nhớ nếu có mẫu vượt total_qty (không ghi ngầm vào DB)
   if (s.length > 0) {
-    const overStockSamples = s.filter(item => item.total_qty && item.available_qty > item.total_qty);
-    if (overStockSamples.length > 0) {
-      if (isAdminOrUser) {
-        try {
-          for (const os of overStockSamples) {
-            supabase.from('samples').update({ available_qty: os.total_qty }).eq('id', os.id).then();
-          }
-        } catch { /* ignore */ }
-      }
+    const hasOverStock = s.some(item => item.total_qty && item.available_qty > item.total_qty);
+    if (hasOverStock) {
       s = s.map(item => {
         if (item.total_qty && item.available_qty > item.total_qty) {
           return { ...item, available_qty: item.total_qty };
@@ -68,19 +48,11 @@ export const fetchAllWarehouseData = async ({ isAdminOrUser = false } = {}) => {
     }
   }
 
-  // Chuẩn hóa mẫu bị mất (01/2026 - 11/2026)
+  // Chuẩn hóa hiển thị trong bộ nhớ cho mẫu bị mất (01/2026 - 11/2026) — không ghi ngầm vào DB
   if (s.length > 0) {
     const lostSamples = s.filter(item => (item.status === 'destroyed' || item.note === 'Mẫu bị mất') && item.packaging_date >= '2026-01-01' && item.packaging_date <= '2026-11-30');
     if (lostSamples.length > 0) {
       const lostIds = lostSamples.map(item => item.id);
-      if (isAdminOrUser) {
-        try {
-          const needDbUpdate = lostSamples.filter(item => item.status === 'destroyed').map(item => item.id);
-          if (needDbUpdate.length > 0) {
-            await supabase.from('samples').update({ status: 'dispatched', available_qty: 0, note: 'Mẫu bị mất' }).in('id', needDbUpdate);
-          }
-        } catch { /* ignore */ }
-      }
       s = s.map(item => {
         if (lostIds.includes(item.id)) {
           return { ...item, status: 'dispatched', available_qty: 0, note: 'Mẫu bị mất' };
@@ -105,35 +77,36 @@ export const fetchAllWarehouseData = async ({ isAdminOrUser = false } = {}) => {
     }
   }
 
-  // Tải các tiến trình global trạng thái
+  // Chỉ tải các tiến trình global trạng thái & kiểm kê khi người dùng đã đăng nhập (DB RLS chỉ cho Admin)
   let globalStates = null;
-  try {
-    const { data: gs, error: gsErr } = await supabase
-      .from('bulk_import_drafts')
-      .select('id, rows_data')
-      .in('id', [
-        'global-scan-preview',
-        'global-print-queue',
-        'global-pending-print-samples',
-        'global-last-assigned-ids',
-        'global-checked-loose-samples',
-        'global-loose-pack-audits'
-      ]);
-    if (!gsErr && gs) globalStates = gs;
-  } catch { /* ignore */ }
-
-  // Tải lịch sử kiểm kê Ô 5 từ bảng chuyên dụng loose_pack_audits (nếu đã tạo) và gộp với bản đồng bộ dự phòng
   let tableLooseAudits = [];
-  try {
-    const { data: lpaData, error: lpaErr } = await supabase
-      .from('loose_pack_audits')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(300);
-    if (!lpaErr && Array.isArray(lpaData)) {
-      tableLooseAudits = lpaData;
-    }
-  } catch { /* ignore if table does not exist yet */ }
+  if (isAdminOrUser) {
+    try {
+      const { data: gs, error: gsErr } = await supabase
+        .from('bulk_import_drafts')
+        .select('id, rows_data')
+        .in('id', [
+          'global-scan-preview',
+          'global-print-queue',
+          'global-pending-print-samples',
+          'global-last-assigned-ids',
+          'global-checked-loose-samples',
+          'global-loose-pack-audits'
+        ]);
+      if (!gsErr && gs) globalStates = gs;
+    } catch { /* ignore */ }
+
+    try {
+      const { data: lpaData, error: lpaErr } = await supabase
+        .from('loose_pack_audits')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (!lpaErr && Array.isArray(lpaData)) {
+        tableLooseAudits = lpaData;
+      }
+    } catch { /* ignore if table does not exist yet */ }
+  }
 
   const draftAuditRow = (globalStates || []).find(r => r.id === 'global-loose-pack-audits');
   const draftLooseAudits = Array.isArray(draftAuditRow?.rows_data) ? draftAuditRow.rows_data : [];

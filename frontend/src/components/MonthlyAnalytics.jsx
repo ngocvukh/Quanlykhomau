@@ -5,6 +5,7 @@ import {
   ExternalLink, Download, ArrowLeft, Layers, Package,
   ChevronDown, ChevronUp, Factory, Boxes, Clock, AlertTriangle, CheckCircle2, ArrowRightLeft
 } from '../GoogleIcons';
+import { sanitizeCsvCell, isSafeHttpsUrl } from '../utils/formatters';
 
 export default function MonthlyAnalytics({
   samples = [],
@@ -120,8 +121,8 @@ export default function MonthlyAnalytics({
       const count = log.num_samples_destroyed || 0;
       map[mKey].destroyedSamples += count;
       map[mKey].destroyedPacks += count * 10;
-      if (log.report_url && !map[mKey].destructionReports.includes(log.report_url)) {
-        map[mKey].destructionReports.push(log.report_url);
+      if (isSafeHttpsUrl(log.report_url) && !map[mKey].destructionReports.includes(log.report_url.trim())) {
+        map[mKey].destructionReports.push(log.report_url.trim());
       }
     });
 
@@ -570,7 +571,7 @@ export default function MonthlyAnalytics({
         m.destroyedCartons,
         m.netCartons,
         `${m.destructionRate}%`,
-        `"${m.pkgRangeStr}"`,
+        m.pkgRangeStr,
         m.destructionReports.join(' ; ')
       ]);
       filename = `Bao_cao_nhap_xuat_mau_${selectedYear}.csv`;
@@ -600,7 +601,10 @@ export default function MonthlyAnalytics({
       filename = `Bao_cao_mau_theo_ngay_sx_bao_${selectedYear}.csv`;
     }
 
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const csvContent = '\uFEFF' + [
+      headers.map(sanitizeCsvCell).join(','),
+      ...rows.map(r => r.map(sanitizeCsvCell).join(','))
+    ].join('\r\n');
     const blob = new g.Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = g.URL.createObjectURL(blob);
     const link = g.document.createElement('a');
@@ -609,6 +613,7 @@ export default function MonthlyAnalytics({
     g.document.body.appendChild(link);
     link.click();
     g.document.body.removeChild(link);
+    g.URL.revokeObjectURL(url);
   };
 
   const currentYearsList = viewPerspective === 'import' ? availableYears : packagingYears;
@@ -1410,9 +1415,9 @@ export default function MonthlyAnalytics({
                           </span>
                         </td>
                         <td style={{ textAlign: 'center' }}>
-                          {m.destructionReports && m.destructionReports.length > 0 ? (
+                          {m.destructionReports && m.destructionReports.filter(isSafeHttpsUrl).length > 0 ? (
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                              {m.destructionReports.map((url, rIdx) => (
+                              {m.destructionReports.filter(isSafeHttpsUrl).map((url, rIdx, safeList) => (
                                 <a
                                   key={rIdx}
                                   href={url}
@@ -1422,7 +1427,7 @@ export default function MonthlyAnalytics({
                                   title="Mở biên bản tiêu hủy có chữ ký kiểm định (PDF)"
                                 >
                                   <FileText size={13} />
-                                  <span>Xem PDF{m.destructionReports.length > 1 ? ` (${rIdx + 1})` : ''}</span>
+                                  <span>Xem PDF{safeList.length > 1 ? ` (${rIdx + 1})` : ''}</span>
                                   <ExternalLink size={11} />
                                 </a>
                               ))}

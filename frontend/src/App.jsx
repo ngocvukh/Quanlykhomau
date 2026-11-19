@@ -36,6 +36,7 @@ import {
   parseRequestNote,
   getRequesterLabel,
   escapeHtml,
+  isSafeHttpsUrl,
   SLOT_MAX_WIDTH_MM,
   FORMAT_CAPACITIES,
   getFormatSpec,
@@ -120,7 +121,7 @@ export default function App() {
     setLastAssignedIdsState(ids);
     if (ids && ids.length > 0) {
       localStorage.setItem('last_assigned_ids', JSON.stringify(ids));
-      if (!isDemoMode) {
+      if (!isDemoMode && profile?.role === 'admin') {
         supabase.from('bulk_import_drafts').upsert({
           id: 'global-last-assigned-ids',
           rows_data: ids,
@@ -129,7 +130,7 @@ export default function App() {
       }
     } else {
       localStorage.removeItem('last_assigned_ids');
-      if (!isDemoMode) {
+      if (!isDemoMode && profile?.role === 'admin') {
         supabase.from('bulk_import_drafts').delete().eq('id', 'global-last-assigned-ids').then(() => {});
       }
     }
@@ -232,7 +233,7 @@ export default function App() {
   const [pendingPrintSamples, setPendingPrintSamplesState] = useState(null);
   const setPendingPrintSamples = (val) => {
     setPendingPrintSamplesState(val);
-    if (!isDemoMode) {
+    if (!isDemoMode && profile?.role === 'admin') {
       if (val && val.length > 0) {
         supabase.from('bulk_import_drafts').upsert({
           id: 'global-pending-print-samples',
@@ -246,6 +247,7 @@ export default function App() {
   };
 
   const bulkSyncTimeoutRef = useRef(null);
+  const restoredDbDraftRef = useRef(false);
 
   // Auto-save bulkRows and bulkTrayNumber to LocalStorage (instant) and Supabase (debounced 5.0s)
   useEffect(() => {
@@ -271,8 +273,8 @@ export default function App() {
                       bulkRows[0]?.qty;
                       
       if (!hasData) {
-        // Clear database draft row if the user emptied the draft
-        if (!isDemoMode) {
+        // Clear database draft row if the user emptied the draft (chỉ Admin có quyền thao tác bulk_import_drafts)
+        if (!isDemoMode && profile?.role === 'admin') {
           try {
             await supabase.from('bulk_import_drafts').delete().eq('id', deviceId);
           } catch (e) { /* ignore */ }
@@ -280,7 +282,7 @@ export default function App() {
         return;
       }
 
-      if (!isDemoMode) {
+      if (!isDemoMode && profile?.role === 'admin') {
         try {
           // Clean temporary UI properties (like suggestions dropdowns) to optimize JSON storage
           const sanitizedRows = bulkRows.map(r => ({ ...r, suggestions: [] }));
@@ -301,7 +303,7 @@ export default function App() {
         clearTimeout(bulkSyncTimeoutRef.current);
       }
     };
-  }, [bulkRows, bulkTrayNumber, deviceId]);
+  }, [bulkRows, bulkTrayNumber, deviceId, profile?.role, isDemoMode]);
 
   // Warning before reload/unload if there is unsaved data in bulkRows
   useEffect(() => {
@@ -333,8 +335,9 @@ export default function App() {
     (async () => {
       let loadedFromDb = false;
 
-      // 1) Try loading from Supabase Database
-      if (!isDemoMode) {
+      // 1) Try loading from Supabase Database (chỉ Admin có quyền đọc bulk_import_drafts)
+      if (!isDemoMode && profile?.role === 'admin' && !restoredDbDraftRef.current) {
+        restoredDbDraftRef.current = true;
         try {
           const { data, error } = await supabase
             .from('bulk_import_drafts')
@@ -360,8 +363,8 @@ export default function App() {
         }
       }
 
-      // 2) Fallback to LocalStorage if Supabase failed or returned empty
-      if (!loadedFromDb) {
+      // 2) Fallback to LocalStorage if Supabase failed or returned empty (chỉ nạp khi chưa khôi phục trước đó)
+      if (!loadedFromDb && !hasRestoredDraft) {
         const savedRows = localStorage.getItem('bulk_rows_draft');
         const savedTray = localStorage.getItem('bulk_tray_number_draft');
         if (savedRows) {
@@ -382,7 +385,7 @@ export default function App() {
         }
       }
     })();
-  }, [deviceId]);
+  }, [deviceId, profile?.role, isDemoMode]);
 
   // Update default tray number based on samples when draft is not present
   useEffect(() => {
@@ -2343,7 +2346,7 @@ export default function App() {
           localStorage.setItem('print_queue', JSON.stringify(uniqueArr)); 
         }
       } catch { /* ignore */ }
-      if (!isDemoMode) {
+      if (!isDemoMode && profile?.role === 'admin') {
         // Luôn upsert trạng thái với rows_data (kể cả khi rỗng []) để mọi thiết bị khác biết là đã xóa sạch
         supabase.from('bulk_import_drafts').upsert({
           id: 'global-print-queue',
@@ -2381,23 +2384,21 @@ export default function App() {
         if (session) {
           const { data: prof } = await supabase
             .from('profiles')
-            .select('role')
+            .select('role, is_active')
             .eq('id', session.user.id)
             .maybeSingle();
-          if (prof && prof.role === 'admin') {
-            // Là admin → bỏ qua hoàn toàn kiểm tra chặn/reset để tránh tự khóa mình
+          if (prof && prof.role === 'admin' && prof.is_active !== false) {
+            // Là admin đang hoạt động → bỏ qua hoàn toàn kiểm tra chặn/reset để tránh tự khóa mình
             const savedName = localStorage.getItem('visitor_name');
             if (savedName) setVisitorName(savedName);
             return;
           }
         }
 
-        const { data: resetRow } = await supabase
-          .from('visitor_resets')
-          .select('device_id, is_blocked, reset_by')
-          .eq('device_id', did)
-          .maybeSingle();
-        if (resetRow) {
+        const { data: resetRow } = await supabase.rpc('rpc_check_and_consume_visitor_reset', {
+          p_device_id: did
+        });
+        if (resetRow && resetRow.found) {
           if (resetRow.is_blocked) {
             // Ghi log cố gắng truy cập bị chặn vào search_logs để kích hoạt thông báo Realtime
             try {
@@ -2423,12 +2424,10 @@ export default function App() {
               setVisitorName(syncName);
               showToast(`Tên của bạn đã được quản trị viên đổi thành: "${syncName}"`, 'info');
             }
-            await supabase.from('visitor_resets').delete().eq('device_id', did);
           } else {
             // Admin đã đặt lệnh bắt khai lại tên → xóa tên khỏi localStorage để kích hoạt popup nhập lại
             localStorage.removeItem('visitor_name');
             setVisitorName('');
-            await supabase.from('visitor_resets').delete().eq('device_id', did);
           }
         }
       } catch (e) { /* bỏ qua nếu không kết nối được */ }
@@ -2929,25 +2928,31 @@ export default function App() {
     if (isSupabaseConfigured) {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
-          setUser(session.user);
-          // Khôi phục session lần đầu: Lấy profile và đặt tab mặc định tương ứng
+          // Khôi phục session lần đầu: Xác minh profile trước khi setUser (fail-closed)
           supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
-            .single()
-            .then(async ({ data: prof }) => {
-              if (prof) {
-                if (prof.is_active === false) {
-                  await supabase.auth.signOut();
-                  setUser(null);
-                  setProfile(null);
-                  showToast('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Thủ kho (Admin).', 'error');
-                  return;
-                }
-                setProfile(prof);
-                setActiveTab('dashboard');
+            .maybeSingle()
+            .then(async ({ data: prof, error: profErr }) => {
+              if (profErr || !prof) {
+                if (profErr) console.error('Initial profile check error:', profErr);
+                await supabase.auth.signOut();
+                setUser(null);
+                setProfile(null);
+                showToast('Tài khoản chưa được kích hoạt hồ sơ hoặc không thể xác minh trạng thái. Vui lòng liên hệ Thủ kho (Admin).', 'error');
+                return;
               }
+              if (prof.is_active === false) {
+                await supabase.auth.signOut();
+                setUser(null);
+                setProfile(null);
+                showToast('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Thủ kho (Admin).', 'error');
+                return;
+              }
+              setUser(session.user);
+              setProfile(prof);
+              setActiveTab('dashboard');
             });
         }
       });
@@ -2987,17 +2992,24 @@ export default function App() {
     return () => clearInterval(timer);
   }, [loginLockSeconds]);
 
-  // Fetch user profile from profiles table (Không can thiệp activeTab nữa)
+  // Fetch user profile from profiles table (fail-closed nếu thiếu profile hoặc tài khoản bị khóa)
   const fetchProfile = async (userId) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
-      
-      if (error) throw error;
-      if (data && data.is_active === false) {
+        .maybeSingle();
+
+      if (error || !data) {
+        if (error) console.error('Error fetching profile:', error);
+        await supabase.auth.signOut();
+        setUser(null);
+        setProfile(null);
+        showToast('Tài khoản chưa được kích hoạt hồ sơ hoặc không thể xác minh trạng thái. Vui lòng liên hệ Thủ kho (Admin).', 'error');
+        return;
+      }
+      if (data.is_active === false) {
         await supabase.auth.signOut();
         setUser(null);
         setProfile(null);
@@ -3006,7 +3018,9 @@ export default function App() {
       }
       setProfile(data);
     } catch (err) {
-      console.error("Error fetching profile:", err);
+      console.error('Error fetching profile:', err);
+      await supabase.auth.signOut().catch(() => {});
+      setUser(null);
       setProfile(null);
     }
   };
@@ -4845,8 +4859,7 @@ export default function App() {
         try {
           const { data: rpcRes, error: rpcErr } = await supabase.rpc('rpc_approve_take_request', {
             p_tx_id: tx.id,
-            p_custom_qty: qtyToTake,
-            p_admin_id: profile?.id || null
+            p_custom_qty: qtyToTake
           });
           if (!rpcErr && rpcRes && rpcRes.success) {
             rpcSuccess = true;
@@ -5046,8 +5059,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
         let rpcSuccess = false;
         try {
           const { data: rpcRes, error: rpcErr } = await supabase.rpc('rpc_revert_take_request', {
-            p_tx_id: tx.id,
-            p_admin_id: profile?.id || null
+            p_tx_id: tx.id
           });
           if (!rpcErr && rpcRes && rpcRes.success) {
             rpcSuccess = true;
@@ -5869,6 +5881,10 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       ? samples.filter(s => groupBoxIds.includes(s.box_id))
       : (box.samples || samples.filter(s => s.box_id === box.id));
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast("Không thể mở cửa sổ in. Vui lòng tắt trình chặn Pop-up!", "error");
+      return;
+    }
     printWindow.document.write(`
       <html>
       <head>
@@ -5884,9 +5900,9 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       </head>
       <body>
         <h1>DANH SÁCH MẪU ĐÓNG THÙNG LƯU TRỮ</h1>
-        <p><strong>Mã Thùng:</strong> ${box.id}</p>
+        <p><strong>Mã Thùng:</strong> ${escapeHtml(box.id)}</p>
         <p><strong>Tên Thùng:</strong> ${escapeHtml(box.box_name)}</p>
-        <p><strong>Ngày đóng gói:</strong> ${new Date(box.created_at).toLocaleString()}</p>
+        <p><strong>Ngày đóng gói:</strong> ${escapeHtml(new Date(box.created_at).toLocaleString())}</p>
         <p><strong>Trạng thái:</strong> Đang lưu trữ tại kho phụ</p>
         
         <table>
@@ -5929,17 +5945,24 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
           <br/><br/>
           <p>__________________________</p>
         </div>
-        <script>window.print();</script>
       </body>
       </html>
     `);
     printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      try { printWindow.print(); } catch { /* ignore */ }
+    }, 250);
   };
 
   // Generate Weekly Destruction list PDF
   const printDestructionManifest = () => {
     const expired = getExpiredSamples();
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast("Không thể mở cửa sổ in. Vui lòng tắt trình chặn Pop-up!", "error");
+      return;
+    }
     printWindow.document.write(`
       <html>
       <head>
@@ -5955,7 +5978,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       </head>
       <body>
         <h1>BÁO CÁO MẪU THUỐC LÁ QUÁ HẠN LƯU TRỮ (12 THÁNG)</h1>
-        <p><strong>Ngày xuất báo cáo:</strong> ${new Date().toLocaleDateString()}</p>
+        <p><strong>Ngày xuất báo cáo:</strong> ${escapeHtml(new Date().toLocaleDateString())}</p>
         <p>Danh sách các mẫu thuốc lá đã quá thời hạn lưu trữ quy định 12 tháng kể từ ngày sản xuất bao. Yêu cầu làm việc với các bộ phận để tiến hành hủy vật lý.</p>
         
         <table>
@@ -5999,11 +6022,14 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
             <p>__________________________</p>
           </div>
         </div>
-        <script>window.print();</script>
       </body>
       </html>
     `);
     printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      try { printWindow.print(); } catch { /* ignore */ }
+    }, 250);
   };
 
   // Batch print helper for multiple sticker labels
@@ -6039,10 +6065,9 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       const locText = s.box_id
         ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
         : formatLocation(s.shelf, s.slot, s.column_number);
-      const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
       const trayBadge = s.isReprint 
         ? `<div class="tray-badge" style="color:#0284c7;">In lại</div>` 
-        : (s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '');
+        : (s.tray_number ? `<div class="tray-badge">Khay ${escapeHtml(s.tray_number)}</div>` : '');
       const qrSvg = generateQrSvgMarkup(makeStickerQrUrl(s.sku));
 
       for (let i = 0; i < numLabels; i++) {
@@ -6061,7 +6086,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
               <div class="meta-rows">
                 <div class="meta-row">
                   <span class="field-lbl">Ngày SX bao:</span>
-                  <span class="meta-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+                  <span class="meta-val">${escapeHtml(new Date(s.packaging_date).toLocaleDateString())}</span>
                 </div>
                 <div class="meta-row">
                   <span class="field-lbl">Đơn hàng:</span>
@@ -6307,18 +6332,19 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       </head>
       <body>
         ${pagesHtml.join('')}
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-              window.close();
-            }, 150);
-          };
-        </script>
       </body>
       </html>
     `);
     printWindow.document.close();
+    printWindow.focus();
+    printWindow.onafterprint = () => {
+      try { printWindow.close(); } catch { /* ignore */ }
+    };
+    setTimeout(() => {
+      try {
+        printWindow.print();
+      } catch { /* ignore */ }
+    }, 250);
 
     // Hỏi người dùng có muốn xóa khỏi hàng đợi sau khi đã in không (đợi 1s để cửa sổ in bật lên trước)
     if (promptClearQueue) {
@@ -6370,10 +6396,9 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       const locText = s.box_id
         ? (boxes.find(b => b.id === s.box_id)?.box_name || 'ĐÓNG THÙNG')
         : formatLocation(s.shelf, s.slot, s.column_number);
-      const boxSeqStr = s.blend_batch && s.blend_batch.split('|')[1] ? `Thùng số ${s.blend_batch.split('|')[1]}` : '—';
       const trayBadge = s.isReprint 
         ? `<div class="tray-badge" style="color:#0284c7;">In lại</div>`
-        : (s.tray_number ? `<div class="tray-badge">Khay ${s.tray_number}</div>` : '');
+        : (s.tray_number ? `<div class="tray-badge">Khay ${escapeHtml(s.tray_number)}</div>` : '');
       const qrSvg = generateQrSvgMarkup(makeStickerQrUrl(s.sku));
 
       for (let i = 0; i < numLabels; i++) {
@@ -6392,7 +6417,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
               <div class="meta-rows">
                 <div class="meta-row">
                   <span class="field-lbl">Ngày SX bao:</span>
-                  <span class="meta-val">${new Date(s.packaging_date).toLocaleDateString()}</span>
+                  <span class="meta-val">${escapeHtml(new Date(s.packaging_date).toLocaleDateString())}</span>
                 </div>
                 <div class="meta-row">
                   <span class="field-lbl">Đơn hàng:</span>
@@ -6637,18 +6662,19 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       </head>
       <body>
         ${pagesHtml.join('')}
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-              window.close();
-            }, 150);
-          };
-        </script>
       </body>
       </html>
     `);
     printWindow.document.close();
+    printWindow.focus();
+    printWindow.onafterprint = () => {
+      try { printWindow.close(); } catch { /* ignore */ }
+    };
+    setTimeout(() => {
+      try {
+        printWindow.print();
+      } catch { /* ignore */ }
+    }, 250);
   };
 
   const getGroupedPrintQueue = () => {
@@ -6744,7 +6770,10 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
       
       const pdfBlob = await html2pdf().set(opt).from(element).outputPdf('blob');
       
-      const fileName = `destruction_report_${Date.now()}.pdf`;
+      const uniqueId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? crypto.randomUUID()
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+      const fileName = `destruction_report_${uniqueId}.pdf`;
       const { data, error } = await supabase.storage
         .from('destruction_reports')
         .upload(fileName, pdfBlob, {
@@ -13678,6 +13707,10 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                 onClick={() => {
                   const targetSamples = samplesToDestroy;
                   const printWindow = window.open('', '_blank');
+                  if (!printWindow) {
+                    showToast('Không thể mở cửa sổ in. Vui lòng tắt trình chặn Pop-up!', 'error');
+                    return;
+                  }
                   printWindow.document.write(`
                     <html>
                     <head>
@@ -13693,7 +13726,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                     </head>
                     <body>
                       <h1>${destructionBoxTarget ? 'DANH SÁCH MẪU HẾT HẠN - ' + escapeHtml((destructionBoxTarget.name || '').toUpperCase()) : 'DANH SÁCH MẪU HẾT HẠN'}</h1>
-                      <p><strong>Ngày lập:</strong> ${new Date().toLocaleDateString()}</p>
+                      <p><strong>Ngày lập:</strong> ${escapeHtml(new Date().toLocaleDateString())}</p>
                       
                       <table>
                         <thead>
@@ -13716,7 +13749,7 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                         </tbody>
                       </table>
                       
-                      <p style="margin-top: 20px;"><strong>Tổng số lượng:</strong> ${targetSamples.reduce((acc, s) => acc + s.available_qty, 0)} bao (${targetSamples.length} lô)</p>
+                      <p style="margin-top: 20px;"><strong>Tổng số lượng:</strong> ${escapeHtml(targetSamples.reduce((acc, s) => acc + s.available_qty, 0))} bao (${escapeHtml(targetSamples.length)} lô)</p>
                       
                       <div class="footer">
                         <div style="text-align: center;">
@@ -13730,11 +13763,14 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                           <p>__________________________</p>
                         </div>
                       </div>
-                      <script>window.print();</script>
                     </body>
                     </html>
                   `);
                   printWindow.document.close();
+                  printWindow.focus();
+                  setTimeout(() => {
+                    try { printWindow.print(); } catch { /* ignore */ }
+                  }, 250);
                 }}
                 disabled={loading || pdfGenerating}
               >
@@ -13824,14 +13860,18 @@ Số lượng ${tx.quantity} bao sẽ được trừ lại trong kho và yêu c�
                       {destructionLogs.length === 0 ? (
                         <tr><td colSpan="3" style={{textAlign: 'center', padding: '20px', color: 'var(--text-secondary)'}}>Chưa có biên bản hủy nào.</td></tr>
                       ) : (
-                        destructionLogs.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(log => (
+                        [...destructionLogs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map(log => (
                           <tr key={log.id}>
                             <td>{new Date(log.created_at).toLocaleString()}</td>
                             <td>{log.num_samples_destroyed} mẫu</td>
                             <td>
-                              <a href={log.report_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                <FileText size={14} /> Xem PDF
-                              </a>
+                              {isSafeHttpsUrl(log.report_url) ? (
+                                <a href={log.report_url.trim()} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <FileText size={14} /> Xem PDF
+                                </a>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>—</span>
+                              )}
                             </td>
                           </tr>
                         ))

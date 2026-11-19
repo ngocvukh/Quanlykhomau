@@ -48,14 +48,9 @@ DROP POLICY IF EXISTS "Only admin deletes profiles" ON profiles;
 CREATE POLICY "Users view own profile or admin views all" ON profiles
     FOR SELECT USING (auth.uid() = id OR public.is_admin());
 
-CREATE POLICY "Only admin inserts profiles" ON profiles
-    FOR INSERT WITH CHECK (public.is_admin());
-
-CREATE POLICY "Only admin updates profiles" ON profiles
-    FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
-
-CREATE POLICY "Only admin deletes profiles" ON profiles
-    FOR DELETE USING (public.is_admin());
+REVOKE ALL ON public.profiles FROM PUBLIC, anon;
+REVOKE INSERT, UPDATE, DELETE ON public.profiles FROM authenticated;
+GRANT SELECT ON public.profiles TO authenticated;
 
 -- 2. Bảng products (Danh mục sản phẩm gốc)
 CREATE TABLE IF NOT EXISTS products (
@@ -71,16 +66,14 @@ CREATE TABLE IF NOT EXISTS products (
 -- Bật RLS cho products
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Tất cả mọi người được đọc danh mục sản phẩm" ON products;
+DROP POLICY IF EXISTS "Chỉ Admin/Thủ kho được thêm/sửa sản phẩm" ON products;
+
 CREATE POLICY "Tất cả mọi người được đọc danh mục sản phẩm" ON products
     FOR SELECT USING (true);
 
 CREATE POLICY "Chỉ Admin/Thủ kho được thêm/sửa sản phẩm" ON products
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM profiles 
-            WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
-        )
-    );
+    FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 -- 3. Bảng boxes (Thùng lưu trữ mẫu khi quá tải kệ)
 CREATE TABLE IF NOT EXISTS boxes (
@@ -93,16 +86,14 @@ CREATE TABLE IF NOT EXISTS boxes (
 -- Bật RLS cho boxes
 ALTER TABLE boxes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Cho phép tất cả mọi người đọc thông tin Thùng" ON boxes;
+DROP POLICY IF EXISTS "Chỉ Admin/Thủ kho được quản lý Thùng" ON boxes;
+
 CREATE POLICY "Cho phép tất cả mọi người đọc thông tin Thùng" ON boxes
     FOR SELECT USING (true);
 
 CREATE POLICY "Chỉ Admin/Thủ kho được quản lý Thùng" ON boxes
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM profiles 
-            WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
-        )
-    );
+    FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 -- 4. Bảng samples (Thông tin lô mẫu thuốc lá)
 CREATE TABLE IF NOT EXISTS samples (
@@ -134,25 +125,23 @@ CREATE TABLE IF NOT EXISTS samples (
 -- Bật RLS cho samples
 ALTER TABLE samples ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Cho phép tất cả mọi người đọc thông tin Mẫu" ON samples;
+DROP POLICY IF EXISTS "Chỉ Admin/Thủ kho được thao tác sửa đổi Mẫu" ON samples;
+
 CREATE POLICY "Cho phép tất cả mọi người đọc thông tin Mẫu" ON samples
     FOR SELECT USING (true);
 
 CREATE POLICY "Chỉ Admin/Thủ kho được thao tác sửa đổi Mẫu" ON samples
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM profiles 
-            WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
-        )
-    );
+    FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
 
 -- 5. Bảng transactions (Lịch sử giao dịch)
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sample_id UUID NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES profiles(id),
-    type TEXT NOT NULL CHECK (type IN ('import', 'export', 'take_request', 'take_approve', 'inventory_adjust', 'take_revert', 'move')),
+    type TEXT NOT NULL CHECK (type IN ('import', 'export', 'take_request', 'take_approve', 'inventory_adjust', 'take_revert', 'move', 'destroy')),
     quantity INTEGER NOT NULL CHECK (quantity >= 0),
-    status TEXT CHECK (status IN ('pending', 'approved', 'cancelled')),
+    status TEXT CHECK (status IN ('pending', 'approved', 'cancelled', 'completed')),
     note TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -160,25 +149,26 @@ CREATE TABLE IF NOT EXISTS transactions (
 -- Bật RLS cho transactions
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Cho phép tất cả mọi người đọc lịch sử giao dịch" ON transactions;
+DROP POLICY IF EXISTS "Mọi người tự tạo giao dịch yêu cầu của mình hoặc Admin duyệt tất cả" ON transactions;
+DROP POLICY IF EXISTS "Chỉ Admin được cập nhật trạng thái duyệt giao dịch" ON transactions;
+DROP POLICY IF EXISTS "Chỉ Admin được xóa giao dịch" ON transactions;
+
 CREATE POLICY "Cho phép tất cả mọi người đọc lịch sử giao dịch" ON transactions
     FOR SELECT USING (true);
 
 CREATE POLICY "Mọi người tự tạo giao dịch yêu cầu của mình hoặc Admin duyệt tất cả" ON transactions
     FOR INSERT WITH CHECK (
-        auth.uid() = user_id OR
-        EXISTS (
-            SELECT 1 FROM profiles 
-            WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+        public.is_admin() OR (
+            type = 'take_request' AND status = 'pending' AND (user_id IS NULL OR user_id = auth.uid())
         )
     );
 
 CREATE POLICY "Chỉ Admin được cập nhật trạng thái duyệt giao dịch" ON transactions
-    FOR UPDATE USING (
-        EXISTS (
-            SELECT 1 FROM profiles 
-            WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
-        )
-    );
+    FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+CREATE POLICY "Chỉ Admin được xóa giao dịch" ON transactions
+    FOR DELETE USING (public.is_admin());
 
 -- T├íi tß║ío to├án bß╗Ö seed data sß║ún phß║⌐m tß╗½ Danh sach.xlsx
 -- Unique key: (product_name, warning_code)

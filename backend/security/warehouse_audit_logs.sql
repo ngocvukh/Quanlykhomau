@@ -3,7 +3,7 @@
 -- Chạy idempotent trên Supabase SQL Editor.
 -- =================================================================================
 
--- 0. Đảm bảo hàm kiểm tra Admin tồn tại và an toàn (SECURITY DEFINER + search_path cố định)
+-- 0. Đảm bảo hàm kiểm tra Admin tồn tại và an toàn (SECURITY DEFINER + search_path cố định + is_active = true)
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN
 LANGUAGE sql SECURITY DEFINER
@@ -11,7 +11,9 @@ SET search_path = public
 STABLE AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.profiles
-    WHERE id = auth.uid() AND role = 'admin'
+    WHERE id = auth.uid()
+      AND role = 'admin'
+      AND is_active = true
   );
 $$;
 

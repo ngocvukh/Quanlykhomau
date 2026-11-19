@@ -189,6 +189,8 @@ DECLARE
   v_employee_code TEXT;
   v_department TEXT;
   v_role TEXT;
+  v_existing public.profiles;
+  v_active_admin_count INTEGER;
   v_profile public.profiles;
 BEGIN
   IF NOT public.is_admin() THEN
@@ -217,7 +219,32 @@ BEGIN
     RAISE EXCEPTION 'Vai trò không hợp lệ (chỉ chấp nhận admin hoặc staff)';
   END IF;
 
-  v_email := COALESCE(NULLIF(trim(lower(p_email)), ''), v_auth_email);
+  -- Guardrail bảo vệ Admin cuối cùng nếu tài khoản đã tồn tại profile
+  SELECT * INTO v_existing
+  FROM public.profiles
+  WHERE id = p_user_id
+  FOR UPDATE;
+
+  IF FOUND THEN
+    IF p_user_id = auth.uid() AND v_existing.role = 'admin' AND v_role <> 'admin' THEN
+      RAISE EXCEPTION 'Không thể tự hạ quyền Admin của chính mình';
+    END IF;
+
+    IF v_existing.role = 'admin' AND v_existing.is_active = true AND v_role <> 'admin' THEN
+      SELECT count(*) INTO v_active_admin_count
+      FROM public.profiles
+      WHERE role = 'admin'
+        AND is_active = true
+        AND id <> p_user_id;
+
+      IF v_active_admin_count = 0 THEN
+        RAISE EXCEPTION 'Không thể hạ quyền Admin đang hoạt động cuối cùng trong hệ thống';
+      END IF;
+    END IF;
+  END IF;
+
+  -- Luôn ưu tiên email xác thực từ auth.users (không tin cậy tham số client)
+  v_email := v_auth_email;
   v_employee_code := NULLIF(trim(p_employee_code), '');
   v_department := NULLIF(trim(p_department), '');
 
@@ -331,6 +358,23 @@ BEGIN
       updated_at = timezone('utc'::text, now())
   WHERE id = p_target_id
   RETURNING * INTO v_updated;
+
+  -- Đồng bộ trạng thái khóa/mở khóa sang auth.users.banned_until và thu hồi phiên hiện tại khi khóa
+  BEGIN
+    IF v_is_active = false THEN
+      UPDATE auth.users
+      SET banned_until = '2999-12-31 23:59:59+00'::timestamptz
+      WHERE id = p_target_id;
+
+      DELETE FROM auth.sessions WHERE user_id = p_target_id;
+    ELSE
+      UPDATE auth.users
+      SET banned_until = NULL
+      WHERE id = p_target_id;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
 
   RETURN v_updated;
 END;
@@ -449,22 +493,25 @@ END $$;
 CREATE POLICY "Users view own profile or admin views all" ON public.profiles
   FOR SELECT USING (auth.uid() = id OR public.is_admin());
 
-CREATE POLICY "Only admin inserts profiles" ON public.profiles
-  FOR INSERT WITH CHECK (public.is_admin());
+-- Thu hồi quyền ghi trực tiếp lên public.profiles từ authenticated/anon (mọi thay đổi bắt buộc qua RPC để bảo vệ Admin cuối cùng)
+REVOKE ALL ON public.profiles FROM PUBLIC, anon;
+REVOKE INSERT, UPDATE, DELETE ON public.profiles FROM authenticated;
+GRANT SELECT ON public.profiles TO authenticated;
 
-CREATE POLICY "Only admin updates profiles" ON public.profiles
-  FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
-
-CREATE POLICY "Only admin deletes profiles" ON public.profiles
-  FOR DELETE USING (public.is_admin());
-
--- Tự động xác nhận email cho các tài khoản đã được Admin cấp profile trước đó
+-- Tự động xác nhận email cho các tài khoản đã được Admin cấp profile trước đó và đồng bộ trạng thái khóa sang auth.users
 DO $$
 BEGIN
   UPDATE auth.users u
   SET email_confirmed_at = timezone('utc'::text, now())
   WHERE u.email_confirmed_at IS NULL
     AND EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id);
+
+  UPDATE auth.users u
+  SET banned_until = '2999-12-31 23:59:59+00'::timestamptz
+  FROM public.profiles p
+  WHERE u.id = p.id
+    AND p.is_active = false
+    AND (u.banned_until IS NULL OR u.banned_until < timezone('utc'::text, now()));
 EXCEPTION WHEN OTHERS THEN
   NULL;
 END $$;

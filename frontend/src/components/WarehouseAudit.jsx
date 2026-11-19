@@ -118,8 +118,11 @@ export default function WarehouseAudit({
     return samples.filter(s => s.status === 'stored' && s.shelf === shelfNum && s.slot && s.slot !== 5);
   }, [samples, selectedScope]);
 
-  // ── ĐỒNG BỘ REALTIME GIỮA ĐIỆN THOẠI & MÁY TÍNH QUA SUPABASE ──
+  const isAdmin = profile?.role === 'admin' && profile?.is_active !== false;
+
+  // ── ĐỒNG BỘ REALTIME GIỮA ĐIỆN THOẠI & MÁY TÍNH QUA SUPABASE (CHỈ ADMIN) ──
   useEffect(() => {
+    if (!isAdmin) return undefined;
     let isMounted = true;
 
     // 1. Tải tiến trình kiểm kê mới nhất từ Supabase khi mở tab
@@ -193,10 +196,11 @@ export default function WarehouseAudit({
       isMounted = false;
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [isAdmin]);
 
-  // Hàm đẩy dữ liệu kiểm kê lên Supabase để máy tính và các thiết bị khác nhận được tức thì
+  // Hàm đẩy dữ liệu kiểm kê lên Supabase để máy tính và các thiết bị khác nhận được tức thì (CHỈ ADMIN)
   const syncAuditToSupabase = async (newMap, newScope, newResult) => {
+    if (!isAdmin) return;
     setSyncStatus('syncing');
     try {
       await supabase.from('bulk_import_drafts').upsert({

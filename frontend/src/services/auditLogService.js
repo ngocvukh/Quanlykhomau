@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { sanitizeCsvCell } from '../utils/formatters';
 
 /**
  * Kiểm tra lỗi có phải do bảng `public.warehouse_audit_logs` chưa được tạo trên Supabase
@@ -62,14 +63,13 @@ export async function fetchWarehouseAuditLogs({
   if (error) {
     if (isMissingAuditTableError(error)) {
       const setupErr = new Error(
-        "Bảng 'public.warehouse_audit_logs' chưa được khởi tạo trên Supabase hoặc schema cache chưa được làm mới."
+        'Tính năng Nhật ký thay đổi kho hiện chưa sẵn sàng. Vui lòng liên hệ Quản trị viên hệ thống.'
       );
       setupErr.code = error.code;
       setupErr.isMissingAuditTable = true;
-      setupErr.originalMessage = error.message;
       throw setupErr;
     }
-    throw error;
+    throw new Error('Không thể tải nhật ký thay đổi kho. Vui lòng thử lại sau.');
   }
 
   const rows = Array.isArray(data) ? data : [];
@@ -112,20 +112,6 @@ export async function attachAuditReason(tableName, recordId, reason) {
   } catch {
     return false;
   }
-}
-
-/**
- * Chống CSV / Formula Injection:
- * Nếu chuỗi bắt đầu bằng =, +, -, @, \t, \r (kể cả sau khoảng trắng đầu),
- * thêm dấu nháy đơn (') ở đầu trước khi bọc dấu ngoặc kép CSV.
- */
-function sanitizeCsvCell(value) {
-  if (value === null || value === undefined) return '""';
-  let str = typeof value === 'string' ? value : String(value);
-  if (/^[\t\r\n ]*[=+\-@\t\r]/.test(str)) {
-    str = `'${str}`;
-  }
-  return `"${str.replace(/"/g, '""')}"`;
 }
 
 const TABLE_LABELS = {
